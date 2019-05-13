@@ -1,0 +1,17 @@
+[package]
+name = "alert"
+version = "0.1.0"
+authors = ["Amin Arria <arria.amin@gmail.com>"]
+edition = "2018"
+
+[dependencies]
+fantoccini = "0.11.6"
+futures = "0.1.25"
+tokio = "0.1.17"
+webdriver = "0.39.0"
+serde_json = "1.0.39"
+select = "0.4.2"
+reqwest = "0.9.12"
+diesel = { version = "1.4.2", features = ["sqlite", "chrono"] }
+dotenv = "0.10"
+chrono = "0.4"
