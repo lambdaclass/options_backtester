@@ -1,0 +1,17 @@
+[[source]]
+url = "https://pypi.org/simple"
+verify_ssl = true
+name = "pypi"
+
+[packages]
+"beautifulsoup4" = "*"
+requests = "*"
+pandas = "*"
+altair = "*"
+jupyter = "*"
+pandas-datareader = "*"
+pandas-market-calendars = "*"
+boto3 = "*"
+
+[dev-packages]
+yapf = "*"
