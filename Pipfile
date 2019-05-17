@@ -15,3 +15,4 @@ boto3 = "*"
 
 [dev-packages]
 yapf = "*"
+flake8 = "*"
