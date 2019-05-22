@@ -57,3 +57,21 @@ def slack_notification(text, scraper, status=Status.Error):
         msg = "Error connecting to Slack {}. Response is:\n{}".format(
             response.status_code, response.text)
         logger.error(msg)
+
+
+def send_report(done, failed, scraper):
+    """Sends status report to Slack.
+    `done` is the count of successfully scraped symbols
+    `failed` is a list of symbol names that could not be scraped
+    """
+    if done > 0:
+        msg = "Successfully scraped " + _symbol_str(done)
+        slack_notification(msg, scraper, status=Status.Success)
+    if len(failed) > 0:
+        msg = "Failed to scrape {}: {}".format(_symbol_str(len(failed)),
+                                               ", ".join(failed))
+        slack_notification(msg, scraper, status=Status.Warning)
+
+
+def _symbol_str(count):
+    return str(count) + " symbol" if count == 1 else str(count) + " symbols"

@@ -9,7 +9,7 @@ import requests
 import pandas as pd
 
 from . import utils, validation
-from .notifications import slack_notification, Status
+from .notifications import slack_notification, send_report
 
 logger = logging.getLogger(__name__)
 
@@ -39,7 +39,8 @@ def fetch_data(symbols=None):
     file_url = "http://www.cboe.com/delayedquote/quotedata.dat"
 
     symbols = [symbol.upper() for symbol in symbols]
-    done, failed = [], []
+    done = 0
+    failed = []
 
     for symbol in symbols:
         form_data["ctl00$ContentTop$C005$txtTicker"] = symbol
@@ -62,14 +63,9 @@ def fetch_data(symbols=None):
                 slack_notification(msg, __name__)
         else:
             _save_data(symbol, symbol_data)
-            done.append(symbol)
+            done += 1
 
-    if len(done) > 0:
-        msg = "Successfully scraped symbols: " + ", ".join(done)
-        slack_notification(msg, __name__, status=Status.Success)
-    if len(failed) > 0:
-        msg = "Failed to scrape symbols: " + ", ".join(failed)
-        slack_notification(msg, __name__, status=Status.Warning)
+    send_report(done, failed, __name__)
 
 
 def aggregate_monthly_data(symbols=None):
