@@ -6,7 +6,7 @@ import pandas as pd
 import pandas_datareader as pdr
 
 from . import utils, validation
-from .notifications import slack_notification, Status
+from .notifications import slack_notification, send_report
 
 logger = logging.getLogger(__name__)
 
@@ -25,7 +25,8 @@ def fetch_data(symbols=assets):
     api_key = utils.get_environment_var("TIINGO_API_KEY")
 
     symbols = [symbol.upper() for symbol in symbols]
-    done, failed = [], []
+    done = 0
+    failed = []
 
     for symbol in symbols:
         try:
@@ -48,14 +49,9 @@ def fetch_data(symbols=assets):
             slack_notification(msg, __name__)
         else:
             _save_data(symbol, symbol_data.reset_index())
-            done.append(symbol)
+            done += 1
 
-    if len(done) > 0:
-        msg = "Successfully scraped symbols: " + ", ".join(done)
-        slack_notification(msg, __name__, status=Status.Success)
-    if len(failed) > 0:
-        msg = "Failed to scrape symbols: " + ", ".join(failed)
-        slack_notification(msg, __name__, status=Status.Warning)
+    send_report(done, failed, __name__)
 
 
 def _save_data(symbol, symbol_df):
