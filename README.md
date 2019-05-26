@@ -118,6 +118,10 @@ For complete novices in finance and economics, this [post](https://notamonadtuto
 
 ## Data sources
 
+# Options trading strategies backtests
+
+- [DTR Trading](https://dtr-trading.blogspot.com/)
+
 ### Exchanges
 
 - [IEX](https://iextrading.com/developer/)
