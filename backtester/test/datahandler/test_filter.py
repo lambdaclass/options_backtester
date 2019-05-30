@@ -43,7 +43,17 @@ def test_compose_filters_with_and():
 def test_compose_filters_with_or():
     """Test composition of two filters with or"""
     strike_field = Field("strike", "strike")
-    ft1 = strike_field >= 100
-    ft2 = strike_field < 200
+    ft1 = strike_field >= 200
+    ft2 = strike_field < 100
     composed = ft1 | ft2
-    assert composed.query == "(strike >= 100) | (strike < 200)"
+    assert composed.query == "((strike >= 200) | (strike < 100))"
+
+
+def test_compose_many_filters():
+    symbol_field = Field("underlying", "underlying")
+    strike_field = Field("strike", "strike")
+    ft1 = symbol_field == "SPX"
+    ft2 = strike_field >= 200
+    ft3 = strike_field < 100
+    composed = ft1 & (ft2 | ft3)
+    assert composed.query == "(underlying == 'SPX') & (((strike >= 200) | (strike < 100)))"

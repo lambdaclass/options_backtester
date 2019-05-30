@@ -76,17 +76,15 @@ class Filter:
     def __init__(self, query):
         self.query = query
 
-    def _compose_filter(self, operator, other):
+    def __and__(self, other):
         assert isinstance(other, Filter)
-
-        new_query = "({}) {} ({})".format(self.query, operator, other.query)
+        new_query = "({}) & ({})".format(self.query, other.query)
         return Filter(query=new_query)
 
-    def __and__(self, other):
-        return self._compose_filter("&", other)
-
     def __or__(self, other):
-        return self._compose_filter("|", other)
+        assert isinstance(other, Filter)
+        new_query = "(({}) | ({}))".format(self.query, other.query)
+        return Filter(query=new_query)
 
     def __invert__(self):
         return Filter("!({})".format(self.query))
