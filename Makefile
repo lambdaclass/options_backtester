@@ -1,4 +1,4 @@
-.PHONY: image init env testdata test test_scraper scrape aggregate backup bench
+.PHONY: image init env testdata test_backtester test_scraper scrape aggregate backup bench
 
 image:
 	docker build -t data_scraper -f ./docker/data_scraper/Dockerfile .
@@ -18,8 +18,8 @@ env:
 testdata:
 	pipenv run python backtester/test/create_test_data.py
 
-test:
-	pipenv run python -m unittest discover -s backtester/test
+test_backtester:
+	pipenv run python -m pytest backtester/test
 
 test_scraper:
 	pipenv run python -m unittest discover -s data_scraper

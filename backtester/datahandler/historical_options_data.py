@@ -5,7 +5,7 @@ from .schema import Schema
 class HistoricalOptionsData:
     """Historical Options Data container class."""
 
-    def __init__(self, file, key=None, query=None, schema=None):
+    def __init__(self, file, schema=None, **params):
         if schema:
             assert isinstance(schema, Schema)
         else:
@@ -13,7 +13,7 @@ class HistoricalOptionsData:
             schema.update({"contract": "optionroot", "date": "quotedate"})
         self.schema = schema
 
-        self._data = pd.read_hdf(file, key=key, where=query)
+        self._data = pd.read_hdf(file, **params)
         columns = self._data.columns
         assert all((col in columns for col in schema))
 

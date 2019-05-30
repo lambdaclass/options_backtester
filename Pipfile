@@ -12,6 +12,7 @@ jupyter = "*"
 pandas-datareader = "*"
 pandas-market-calendars = "*"
 boto3 = "*"
+pytest = "*"
 
 [dev-packages]
 yapf = "*"

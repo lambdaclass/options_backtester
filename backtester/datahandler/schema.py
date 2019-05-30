@@ -59,6 +59,8 @@ class Field:
         return self._create_filter(">=", value)
 
     def __eq__(self, value):
+        if isinstance(value, str):
+            value = "'{}'".format(value)
         return self._create_filter("==", value)
 
     def __ne__(self, value):
