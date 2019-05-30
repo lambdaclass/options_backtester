@@ -19,7 +19,7 @@ testdata:
 	pipenv run python backtester/test/create_test_data.py
 
 test_backtester:
-	pipenv run python -m pytest backtester/test
+	pipenv run python -m pytest -v backtester
 
 test_scraper:
 	pipenv run python -m unittest discover -s data_scraper
