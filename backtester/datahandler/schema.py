@@ -3,7 +3,7 @@ class Schema:
 
     columns = [
         "underlying", "underlying_last", "date", "contract", "type",
-        "expiration", "strike", "bid", "ask"
+        "expiration", "strike", "bid", "ask", "volume", "open_interest"
     ]
 
     def canonical():
@@ -26,7 +26,7 @@ class Schema:
         return Field(key, self._mappings[key])
 
     def __iter__(self):
-        return iter(self._mappings.values())
+        return iter(self._mappings.items())
 
     def __repr__(self):
         return "Schema({})".format(
@@ -77,17 +77,24 @@ class Filter:
         self.query = query
 
     def __and__(self, other):
+        """Returns logical *and* between `self` and `other`"""
         assert isinstance(other, Filter)
         new_query = "({}) & ({})".format(self.query, other.query)
         return Filter(query=new_query)
 
     def __or__(self, other):
+        """Returns logical *or* between `self` and `other`"""
         assert isinstance(other, Filter)
         new_query = "(({}) | ({}))".format(self.query, other.query)
         return Filter(query=new_query)
 
     def __invert__(self):
+        """Negates filter"""
         return Filter("!({})".format(self.query))
+
+    def __call__(self, data):
+        """Returns filtered dataframe"""
+        return data.query(self.query)
 
     def __repr__(self):
         return "Filter(query='{}')".format(self.query)
