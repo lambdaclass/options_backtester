@@ -27,6 +27,7 @@ To use the data scraper the following environment variables need to be set:
 - `$S3_BUCKET`: name of the S3 bucket to backup data
 - `$AWS_ACCESS_KEY_ID`: AWS acces key id
 - `$AWS_SECRET_ACCESS_KEY`: AWS secret key
+- `$SLACK_WEBHOOK`: used to send Slack notifications 
 
 You can configure the data scraper by editing the configuration file `data_scraper.conf` (json-formated).  
 
@@ -36,9 +37,6 @@ Sample file:
 {
   "cboe": {
     "mute_notifications": ["BFB", "CBSA"]
-  },
-  "notifications": {
-      "slack_webhook": "https://hooks.slack.com/services/MY_WORKSPACE_WEBHOOK"
   }
 }
 ```

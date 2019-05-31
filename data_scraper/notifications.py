@@ -4,7 +4,7 @@ from enum import Enum
 
 import requests
 
-from .utils import get_module_config
+from .utils import get_module_config, get_environment_var
 
 logger = logging.getLogger(__name__)
 
@@ -12,8 +12,8 @@ Status = Enum("Status", "Success Warning Error")
 
 options = get_module_config("notifications")
 try:
-    webhook = options["slack_webhook"]
-except KeyError as e:
+    webhook = get_environment_var("SLACK_WEBHOOK")
+except EnvironmentError as e:
     logger.error("Missing slack webhook from configuration file")
     raise e
 
@@ -59,17 +59,17 @@ def slack_notification(text, scraper, status=Status.Error):
         logger.error(msg)
 
 
-def send_report(done, failed, scraper):
-    """Sends status report to Slack.
-    `done` is the count of successfully scraped symbols
-    `failed` is a list of symbol names that could not be scraped
+def send_report(done, failed, scraper, op="scrape"):
+    """Sends status report to Slack for given operation.
+    `done` is the count of successfully scraped/aggregated symbols
+    `failed` is a list of symbol names that could not be scraped/aggregated
     """
     if done > 0:
-        msg = "Successfully scraped " + _symbol_str(done)
+        msg = "Successfully {}d {}".format(op, _symbol_str(done))
         slack_notification(msg, scraper, status=Status.Success)
     if len(failed) > 0:
-        msg = "Failed to scrape {}: {}".format(_symbol_str(len(failed)),
-                                               ", ".join(failed))
+        msg = "Failed to {} {}: {}".format(op, _symbol_str(len(failed)),
+                                           ", ".join(failed))
         slack_notification(msg, scraper, status=Status.Warning)
 
 
