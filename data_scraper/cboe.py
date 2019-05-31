@@ -76,6 +76,8 @@ def aggregate_monthly_data(symbols=None):
     scraper_dir = os.path.join(save_data_path, "cboe")
 
     symbols = [symbol.upper() for symbol in symbols]
+    done = 0
+    failed = []
 
     for symbol in symbols:
         daily_dir = os.path.join(scraper_dir, symbol + "_daily")
@@ -109,9 +111,10 @@ def aggregate_monthly_data(symbols=None):
                 today = pd.Timestamp.today()
                 first_date = date_range[0]
                 if first_date.year != today.year or first_date.month != today.month:
-                    msg = "Some trading dates where missing for symbol {}".format(
-                        symbol)
-                    slack_notification(msg, __name__)
+                    msg = "Some trading dates where missing for symbol {} in period {}".format(
+                        symbol, month)
+                    logger.error(msg)
+                    failed.append(symbol)
                 continue
 
             if not os.path.exists(monthly_dir):
@@ -132,9 +135,12 @@ def aggregate_monthly_data(symbols=None):
                 continue
 
             logger.debug("Saved monthly data %s", monthly_file)
+            done += 1
 
             for file in daily_files:
                 utils.remove_file(file, logger)
+
+    send_report(done, failed, __name__, op="aggregate")
 
 
 def _get_all_listed_symbols():

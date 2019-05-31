@@ -1,4 +1,4 @@
 0 19 * * 1-5 root cd /finance && run-task make scrape scraper=cboe
 0 19 * * 1-5 root cd /finance && run-task make scrape scraper=tiingo
-0 0 1 * * root cd /finance && run-task make aggregate && run-task make backup
+0 0 1 * * root cd /finance && run-task make aggregate; run-task make backup
 
