@@ -21,6 +21,10 @@ class Schema:
         self._mappings.update(mappings)
         return self
 
+    def __contains__(self, key):
+        """Returns True if key is in schema"""
+        return key in self._mappings.keys()
+
     def __getattr__(self, key):
         """Returns Field object used to build Filters"""
         return Field(key, self._mappings[key])
@@ -42,6 +46,8 @@ class Schema:
 
 class Field:
     """Encapsulates data fields to build filters used by strategies"""
+
+    __slots__ = ("name", "mapping")
 
     def __init__(self, name, mapping):
         self.name = name
@@ -79,6 +85,8 @@ class Field:
 
 class Filter:
     """This class determines entry/exit conditions for strategies"""
+
+    __slots__ = ("query")
 
     def __init__(self, query):
         self.query = query
