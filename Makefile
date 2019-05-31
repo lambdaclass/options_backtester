@@ -22,7 +22,7 @@ test:
 	pipenv run python -m unittest discover -s backtester/test
 
 test_scraper:
-	pipenv run python -m unittest discover -s data_scraper
+	pipenv run python -m pytest -v data_scraper
 
 scrape:
 ifdef scraper
