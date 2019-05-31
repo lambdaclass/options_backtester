@@ -15,16 +15,23 @@ class HistoricalOptionsData:
         columns = self._data.columns
         assert all((col in columns for _key, col in self.schema))
 
+        self.index = self._data.index
         self._data["dte"] = (self._data["expiration"] -
                              self._data["quotedate"]).dt.days
         self.schema.update({"dte": "dte"})
 
+    def apply_filter(self, f):
+        """Apply Filter `f` to the data. Returns a `pd.DataFrame` with the filtered rows."""
+        return self._data.query(f.query)
+
     def __getitem__(self, item):
-        key = self.schema[item].mapping
+        key = self.schema[item]
         return self._data[key]
 
-    def __setitem__(self, item, value):
-        self._data[item] = value
+    def __setitem__(self, key, value):
+        self._data[key] = value
+        if key not in self.schema:
+            self.schema.update({key: key})
 
     def __repr__(self):
         return self._data.__repr__()
