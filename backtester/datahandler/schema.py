@@ -17,13 +17,20 @@ class Schema:
         self._mappings = mappings
 
     def update(self, mappings):
+        """Update schema according to given `mappings`"""
         self._mappings.update(mappings)
+        return self
+
+    def __getattr__(self, key):
+        """Returns Field object used to build Filters"""
+        return Field(key, self._mappings[key])
 
     def __setitem__(self, key, value):
         self._mappings[key] = value
 
     def __getitem__(self, key):
-        return Field(key, self._mappings[key])
+        """Returns mapping of given `key`"""
+        return self._mappings[key]
 
     def __iter__(self):
         return iter(self._mappings.items())
@@ -93,8 +100,8 @@ class Filter:
         return Filter("!({})".format(self.query))
 
     def __call__(self, data):
-        """Returns filtered dataframe"""
-        return data.query(self.query)
+        """Returns dataframe of filtered data"""
+        return data.filter(self)
 
     def __repr__(self):
         return "Filter(query='{}')".format(self.query)
