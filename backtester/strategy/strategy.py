@@ -1,5 +1,8 @@
-from ..option import OptionContract
-from ..datahandler import Filter
+import pandas as pd
+
+from backtester.datahandler import Schema
+from .strategy_leg import StrategyLeg
+from .signal import Signal, get_order
 
 
 class Strategy:
@@ -8,40 +11,78 @@ class Strategy:
     entry and exit conditions.
     """
 
-    def __init__(self, data, entry_filter, exit_filter, legs=[]):
-        assert all((isinstance(leg, OptionContract) for leg in legs))
-        assert isinstance(entry_filter, Filter)
-        assert isinstance(exit_filter, Filter)
-
-        self.data = data
-        self.entry = entry_filter
-        self.exit = exit_filter
-        self.legs = legs
+    def __init__(self, schema):
+        assert isinstance(schema, Schema)
+        self.schema = schema
+        self.legs = []
 
     def add_leg(self, leg):
         """Adds leg to the strategy"""
+        assert isinstance(leg, StrategyLeg)
+        assert self.schema == leg.schema
         self.legs.append(leg)
         return self
 
+    def add_legs(self, legs):
+        """Adds legs to the strategy"""
+        for leg in legs:
+            assert isinstance(leg, StrategyLeg)
+            assert self.schema == leg.schema
+        self.legs.extend(legs)
+        return self
+
     def remove_leg(self, leg_number):
-        """Removes leg to the strategy"""
+        """Removes leg from the strategy"""
         self.legs.pop(leg_number)
+        return self
+
+    def remove_legs(self):
+        """Removes *all* legs from the strategy"""
+        self.legs = []
         return self
 
     def run(self, data):
         """Returns a dataframe of trades executed as a result of
         runnning the strategy on the data.
         """
-        entry_query = self.entry(self._data)
-        exit_query = self.exit(self._data)
+        assert self.schema == data.schema
 
-        entry_df = data.query(entry_query)
-        exit_df = data.query(exit_query)
+        for date, group in data.iter_dates():
+            entry_legs = self._filter_legs(group, signal=Signal.ENTRY)
+            if any(df.empty for df in entry_legs):
+                entry_df = pd.DataFrame()
+            else:
+                entry_df = pd.concat(entry_legs, axis=1)
 
-        return entry_df.merge(exit_df,
-                              on="optionroot",
-                              suffixes=("_entry", "_exit"))
+            exit_legs = self._filter_legs(group, signal=Signal.EXIT)
+            exit_df = pd.concat(exit_legs, axis=1)
+
+            yield (date, entry_df, exit_df)
+
+    def _filter_legs(self, data, signal=Signal.ENTRY):
+        """Returns a list of `pd.DataFrame`.
+        Each dataframe contains signals for each leg in the strategy.
+        """
+
+        dfs = []
+        for number, leg in enumerate(self.legs, start=1):
+            flt = leg.entry_filter if signal == Signal.ENTRY else leg.exit_filter
+            df = flt(data)
+            price = leg.direction.value
+            fields = (self.schema["contract"], self.schema["type"],
+                      self.schema["strike"], self.schema[price])
+            subset_df = df.loc[:, fields]
+            subset_df.rename(columns={self.schema[price]: "price"},
+                             inplace=True)
+
+            order = get_order(leg.direction, signal)
+            subset_df["order"] = order.name
+            col_index = pd.MultiIndex.from_product([["leg_{}".format(number)],
+                                                    subset_df.columns])
+            subset_df.columns = col_index
+            dfs.append(subset_df.reset_index(drop=True))
+
+        return dfs
 
     def __repr__(self):
-        return "Strategy(entry_filter={}, exit_filter={}, legs={})".format(
-            self.entry, self.exit, self.legs)
+        return "Strategy(legs={})".format(self.legs)
