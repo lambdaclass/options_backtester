@@ -15,7 +15,6 @@ class HistoricalOptionsData:
         columns = self._data.columns
         assert all((col in columns for _key, col in self.schema))
 
-        self.index = self._data.index
         self._data["dte"] = (self._data["expiration"] -
                              self._data["quotedate"]).dt.days
         self.schema.update({"dte": "dte"})
@@ -23,6 +22,23 @@ class HistoricalOptionsData:
     def apply_filter(self, f):
         """Apply Filter `f` to the data. Returns a `pd.DataFrame` with the filtered rows."""
         return self._data.query(f.query)
+
+    def iter_dates(self):
+        """Returns `pd.DataFrameGroupBy` that groups contracts by date"""
+        return self._data.groupby(self.schema["date"])
+
+    def __getattr__(self, attr):
+        """Pass method invocation to `self._data`"""
+
+        method = getattr(self._data, attr)
+        if hasattr(method, "__call__"):
+
+            def df_method(*args, **kwargs):
+                return method(*args, **kwargs)
+
+            return df_method
+        else:
+            return method
 
     def __getitem__(self, item):
         key = self.schema[item]
@@ -32,6 +48,9 @@ class HistoricalOptionsData:
         self._data[key] = value
         if key not in self.schema:
             self.schema.update({key: key})
+
+    def __len__(self):
+        return len(self._data)
 
     def __repr__(self):
         return self._data.__repr__()
