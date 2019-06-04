@@ -53,11 +53,26 @@ class Field:
         self.name = name
         self.mapping = mapping
 
-    def _create_filter(self, operator, value):
-        query = "{field} {op} {value}".format(field=self.mapping,
-                                              op=operator,
-                                              value=value)
+    def _create_filter(self, op, value):
+        query = Field._format_query(self.mapping, op, value)
         return Filter(query)
+
+    def _combine_fields(self, op, other):
+        name = Field._format_query(self.name, op, other.name)
+        mapping = Field._format_query(self.mapping, op, other.mapping)
+        return Field(name, mapping)
+
+    def _format_query(left, op, right):
+        query = "{left} {op} {right}".format(left=left, op=op, right=right)
+        return query
+
+    def __add__(self, field):
+        assert isinstance(field, Field)
+        return self._combine_fields("+", field)
+
+    def __sub__(self, field):
+        assert isinstance(field, Field)
+        return self._create_filter("-", field)
 
     def __lt__(self, value):
         return self._create_filter("<", value)
@@ -109,7 +124,7 @@ class Filter:
 
     def __call__(self, data):
         """Returns dataframe of filtered data"""
-        return data.filter(self)
+        return data.query(self.query)
 
     def __repr__(self):
         return "Filter(query='{}')".format(self.query)
