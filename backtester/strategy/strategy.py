@@ -41,9 +41,9 @@ class Strategy:
         self.legs = []
         return self
 
-    def run(self, data):
-        """Returns a dataframe of trades executed as a result of
-        runnning the strategy on the data.
+    def signals(self, data):
+        """Iterates over `data` and yields a tuple of
+        (date, entry_signals, exit_signals) for each time step.
         """
         assert self.schema == data.schema
 
@@ -56,6 +56,7 @@ class Strategy:
 
             exit_legs = self._filter_legs(group, signal=Signal.EXIT)
             exit_df = pd.concat(exit_legs, axis=1)
+            entry_df.legs = exit_df.legs = exit_df.columns.levels[0]
 
             yield (date, entry_df, exit_df)
 
@@ -63,17 +64,22 @@ class Strategy:
         """Returns a list of `pd.DataFrame`.
         Each dataframe contains signals for each leg in the strategy.
         """
-
+        schema = self.schema
         dfs = []
         for number, leg in enumerate(self.legs, start=1):
             flt = leg.entry_filter if signal == Signal.ENTRY else leg.exit_filter
             df = flt(data)
             price = leg.direction.value
-            fields = (self.schema["contract"], self.schema["type"],
-                      self.schema["strike"], self.schema[price])
-            subset_df = df.loc[:, fields]
-            subset_df.rename(columns={self.schema[price]: "price"},
-                             inplace=True)
+            fields = {
+                schema["contract"]: "contract",
+                schema["underlying"]: "underlying",
+                schema["expiration"]: "expiration",
+                schema["type"]: "type",
+                schema["strike"]: "strike",
+                schema[price]: "price"
+            }
+            subset_df = df.loc[:, fields.keys()]
+            subset_df.rename(columns=fields, inplace=True)
 
             order = get_order(leg.direction, signal)
             subset_df["order"] = order.name

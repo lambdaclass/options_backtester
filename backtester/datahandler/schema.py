@@ -1,5 +1,7 @@
 class Schema:
-    """Data schema class (used to run validations)"""
+    """Data schema class.
+    Used to run validations and provide uniform access to fields in the data set.
+    """
 
     columns = [
         "underlying", "underlying_last", "date", "contract", "type",
