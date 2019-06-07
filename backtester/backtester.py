@@ -52,7 +52,7 @@ class Backtest:
         return self.trade_log
 
     def process_entry_signals(self, entry_signals):
-        """Returns the a dictionary containing the orders to execute."""
+        """Returns a dictionary containing the orders to execute."""
         # TODO: Move this logic to Strategy.
         # Pass `qty` of contracts to buy/sell to `Backtest.__init__`
 
@@ -74,7 +74,7 @@ class Backtest:
     def _execute_entry(self, date, orders, entry_signals):
         """Executes entry orders and updates `self.inventory` and `self.trade_log`"""
         for leg, (idx, qty) in orders.items():
-            row = entry_signals[leg].iloc[idx, :]
+            row = entry_signals[leg].loc[idx, :]
             contract = row["contract"]
             order = row["order"]
             price = row["price"]
@@ -89,8 +89,9 @@ class Backtest:
     def _execute_exit(self, date, exit_signals):
         """Executes exits and updates `self.inventory` and `self.trade_log`"""
         remove_set = set()
+
         for contract, leg, qty, expiration in self._inventory:
-            if contract in exit_signals[leg]["contract"]:
+            if contract in exit_signals[leg]["contract"].values:
                 row = exit_signals[leg].query("contract == @contract")
                 price = row["price"].values[0]
                 order = row["order"].values[0]
@@ -112,4 +113,4 @@ class Backtest:
 
     def __repr__(self):
         return "Backtest(capital={}, strategy={})".format(
-            self._strategy, self.capital)
+            self.capital, self._strategy)
