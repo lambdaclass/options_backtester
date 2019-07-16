@@ -65,9 +65,3 @@ def send_report(done, failed, scraper, op="scrape"):
 
 def _symbol_str(count):
     return str(count) + " symbol" if count == 1 else str(count) + " symbols"
-
-## make init + make env ##
-##cambiar el channel
-##sacar notificaciones por cada error y armar un mensaje combinando todo
-##python
-##
