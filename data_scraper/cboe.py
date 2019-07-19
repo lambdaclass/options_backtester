@@ -9,7 +9,7 @@ import requests
 import pandas as pd
 
 from . import utils, validation
-from .notifications import slack_notification, send_report
+from .notifications import send_report
 
 logger = logging.getLogger(__name__)
 
@@ -20,19 +20,16 @@ def fetch_data(symbols=None):
     """Fetches options data for a given list of symbols"""
     symbols = symbols or _get_all_listed_symbols()
     options = utils.get_module_config("cboe")
-    mute_notifications = options.get("mute_notifications", [])
 
     try:
         form_data = _form_data()
     except requests.ConnectionError as ce:
         msg = "Connection error trying to reach {}".format(url)
         logger.error(msg)
-        slack_notification(msg, __name__)
         raise ce
     except Exception as e:
         msg = "Error parsing response"
         logger.error(msg, exc_info=True)
-        slack_notification(msg, __name__)
         raise e
 
     headers = {"Referer": url}
@@ -59,8 +56,6 @@ def fetch_data(symbols=None):
             failed.append(symbol)
             msg = "Error fetching symbol {} data".format(symbol)
             logger.error(msg, exc_info=True)
-            if symbol not in mute_notifications:
-                slack_notification(msg, __name__)
         else:
             _save_data(symbol, symbol_data)
             done += 1
@@ -84,7 +79,6 @@ def aggregate_monthly_data(symbols=None):
         if not os.path.exists(daily_dir):
             msg = "Error aggregating data. Dir {} not found.".format(daily_dir)
             logger.error(msg)
-            slack_notification(msg, __name__)
             continue
 
         monthly_dir = os.path.join(scraper_dir, symbol)
@@ -103,7 +97,6 @@ def aggregate_monthly_data(symbols=None):
             except Exception:
                 msg = "Error concatenating daily files for period " + month
                 logger.error(msg, exc_info=True)
-                slack_notification(msg, __name__)
                 continue
 
             date_range = pd.to_datetime(symbol_df["quotedate"].unique())
@@ -131,7 +124,6 @@ def aggregate_monthly_data(symbols=None):
                 msg = "Data in {} differs from the daily files".format(
                     monthly_file)
                 logger.error(msg)
-                slack_notification(msg, __name__)
                 continue
 
             logger.debug("Saved monthly data %s", monthly_file)

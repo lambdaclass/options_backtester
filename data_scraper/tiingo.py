@@ -6,7 +6,7 @@ import pandas as pd
 import pandas_datareader as pdr
 
 from . import utils, validation
-from .notifications import slack_notification, send_report
+from .notifications import send_report
 
 logger = logging.getLogger(__name__)
 
@@ -35,18 +35,15 @@ def fetch_data(symbols=assets):
             msg = "Unable to connect to api.tiingo.com when fetching symbol {}".format(
                 symbol)
             logger.error(msg, exc_info=True)
-            slack_notification(msg, __name__)
             raise ce
         except TypeError:
             # pandas_datareader raises TypeError when fetching invalid symbol
             failed.append(symbol)
             msg = "Attempted to fetch invalid symbol {}".format(symbol)
             logger.error(msg, exc_info=True)
-            slack_notification(msg, __name__)
         except Exception:
             msg = "Error fetching symbol {}".format(symbol)
             logger.error(msg, exc_info=True)
-            slack_notification(msg, __name__)
         else:
             _save_data(symbol, symbol_data.reset_index())
             done += 1
@@ -112,7 +109,6 @@ def _merge(symbol, symbol_df):
         msg = """Old data included dates not present in scraped file for symbol {}
             Merged new data with previous file.""".format(symbol)
         logger.error(msg)
-        slack_notification(msg, __name__)
         merged_df = pd.concat([symbol_df, old_df.loc[diffs]])
         merged_df.sort_index(inplace=True)
         return merged_df.reset_index()
