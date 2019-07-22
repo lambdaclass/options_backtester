@@ -58,15 +58,23 @@ class TestTiingo(unittest.TestCase):
 
     @patch("data_scraper.tiingo.pdr.get_data_tiingo")  # mock pandas_datareader
     @patch("data_scraper.tiingo.slack_notification", return_value=None)
-    def test_no_connection(self, mocked_notification, mocked_pdr):
+    def test_no_connection(self, mocked_notification):
         """Raise ConnectionError and send notification when host is unreachable"""
-        mocked_pdr.side_effect = ConnectionError("This is a test")
-
         with self.assertRaises(ConnectionError):
             tiingo.fetch_data(["IBM"])
             self.assertTrue(mocked_notification.called)
+    
+    @patch("data_scraper.tiingo.pdr.get_data_tiingo")  # mock pandas_datareader
+    @patch("data_scraper.tiingo.retry_failure", return_value=None)
+    def test_retry(self, mocked_retry, mocked_pdr):
+        """Raise ConnectionError and retry when host is unreachable"""
+        mocked_pdr.side_effect = ConnectionError("This is a test")
+        with self.assertRaises(ConnectionError):
+            tiingo.fetch_data(["IBM"])
+            self.assertTrue(mocked_retry.called)
+            self.assertTrue(mocked_retry.call_count == 10)
 
-    def remove_files(file_path):
+    def remove_files(self, file_path):
         if os.path.exists(file_path):
             shutil.rmtree(file_path)
 

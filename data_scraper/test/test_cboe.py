@@ -77,6 +77,16 @@ class TestCBOE(unittest.TestCase):
             spx_df = pd.read_csv(TestCBOE.spx_data_path)
             aggregate_df = pd.read_csv(aggregate_file)
             self.assertTrue(spx_df.equals(aggregate_df))
+    
+    @patch("data_scraper.cboe.url", new="http://www.aldkfjaskldfjsa.com")
+    @patch("data_scraper.cboe.retry_failure", return_value=None)
+    def test_retry(self, mocked_retry):
+        """Raise ConnectionError and send notification when host is unreachable"""
+        with self.assertRaises(ConnectionError):
+            cboe.fetch_data(["SPX"])
+            self.assertTrue(mocked_retry.called)
+            self.assertTrue(mocked_retry.call_count == 10)
+
 
     @patch("data_scraper.cboe.utils.remove_file", return_value=None)
     @patch("data_scraper.cboe.slack_notification", return_value=None)
@@ -95,7 +105,7 @@ class TestCBOE(unittest.TestCase):
         self.assertTrue(mocked_notification.called)
         self.assertFalse(mocked_remove.called)
 
-    def remove_files(file_path):
+    def remove_files(self, file_path):
         if os.path.exists(file_path):
             shutil.rmtree(file_path)
 

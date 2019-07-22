@@ -6,7 +6,9 @@ from itertools import groupby
 
 from bs4 import BeautifulSoup
 import requests
-import pandas as pd
+import pandas as pd 
+import tenacity
+import time
 
 from . import utils, validation
 from .notifications import send_report
@@ -59,8 +61,40 @@ def fetch_data(symbols=None):
         else:
             _save_data(symbol, symbol_data)
             done += 1
-
+    retry_failure(failed, done)
     send_report(done, failed, __name__)
+
+
+
+##if a symbol failes to scrape try again exponentialy
+@tenacity.retry(wait=tenacity.wait_exponential(multiplier=300), stop = tenacity.stop_after_attempt(10), retry=tenacity.retry_if_exception_type(IOError))
+def retry_failure(failed, done):
+    local_time = time.ctime(time.time())
+    form_data = _form_data()
+    headers = {"Referer": url}
+    file_url = "http://www.cboe.com/delayedquote/quotedata.dat"
+    for symbol in failed:
+        try:
+            response = requests.post(url,
+                                     data=form_data,
+                                     headers=headers,
+                                     allow_redirects=False)
+            
+            symbol_req = requests.get(file_url,
+                                      cookies=response.cookies,
+                                      headers=headers)
+            symbol_data = symbol_req.text
+            if symbol_data == "" or symbol_data.startswith("<!DOCTYPE"):
+                raise Exception
+        except Exception:
+            msg = "error fetching symbol {} data".format(symbol)
+            logger.error(msg, exc_info = True)
+            return local_time
+        else:
+            _save_data(symbol, symbol_data)
+            done+=1
+            failed.remove(symbol)
+
 
 
 def aggregate_monthly_data(symbols=None):

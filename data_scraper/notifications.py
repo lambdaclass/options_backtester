@@ -54,12 +54,12 @@ def send_report(done, failed, scraper, op="scrape"):
     `failed` is a list of symbol names that could not be scraped/aggregated
     """
     if done > 0:
-        msg1 = "Successfully {}d {}".format(op, _symbol_str(done))
+        msg_success = "👍 Successfully {}d {}".format(op, _symbol_str(done))
     if len(failed) > 0:
-        msg2 = "Failed to {} {}: {}".format(op, _symbol_str(len(failed)),
+        msg_fail = "⚠️️ Failed to {} {}: {}".format(op, _symbol_str(len(failed)),
                                            ", ".join(failed))
     
-    msg= msg1 + " and " + msg2
+    msg= msg_success + '\n' + msg_fail
     slack_notification(msg, scraper, status=Status.Warning)
 
 

@@ -4,6 +4,7 @@ from datetime import date
 
 import pandas as pd
 import pandas_datareader as pdr
+import tenacity
 
 from . import utils, validation
 from .notifications import send_report
@@ -47,8 +48,34 @@ def fetch_data(symbols=assets):
         else:
             _save_data(symbol, symbol_data.reset_index())
             done += 1
-
+    retry_failure(failed, done)
     send_report(done, failed, __name__)
+
+
+##if a symbol failes to scrape try again exponentialy
+@tenacity.retry(wait=tenacity.wait_exponential(multiplier=300), stop = tenacity.stop_after_attempt(10), retry=tenacity.retry_if_exception_type(IOError))
+def retry_failure(failed, done):
+    api_key = utils.get_environment_var("TIINGO_API_KEY")
+    for symbol in failed:
+        try:
+            symbol_data = pdr.get_data_tiingo(symbol, api_key=api_key)
+        except ConnectionError as ce:
+            msg = "Unable to connect to api.tiingo.com when fetching symbol {}".format(
+                symbol)
+            logger.error(msg, exc_info=True)
+            raise ce
+        except TypeError:
+            # pandas_datareader raises TypeError when fetching invalid symbol
+            failed.append(symbol)
+            msg = "Attempted to fetch invalid symbol {}".format(symbol)
+            logger.error(msg, exc_info=True)
+        except Exception:
+            msg = "Error fetching symbol {}".format(symbol)
+            logger.error(msg, exc_info=True)
+        else:
+            _save_data(symbol, symbol_data)
+            done+=1
+            failed.remove(symbol)
 
 
 def _save_data(symbol, symbol_df):
