@@ -81,7 +81,7 @@ class TestCBOE(unittest.TestCase):
     @patch("data_scraper.cboe.url", new="http://www.aldkfjaskldfjsa.com")
     @patch("data_scraper.cboe.retry_failure", return_value=None)
     def test_retry(self, mocked_retry):
-        """Raise ConnectionError and send notification when host is unreachable"""
+        """Raise ConnectionError and retry when host is unreachable"""
         with self.assertRaises(ConnectionError):
             cboe.fetch_data(["SPX"])
             self.assertTrue(mocked_retry.called)

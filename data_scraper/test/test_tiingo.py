@@ -58,8 +58,10 @@ class TestTiingo(unittest.TestCase):
 
     @patch("data_scraper.tiingo.pdr.get_data_tiingo")  # mock pandas_datareader
     @patch("data_scraper.tiingo.slack_notification", return_value=None)
-    def test_no_connection(self, mocked_notification):
+    def test_no_connection(self, mocked_notification, mocked_pdr):
         """Raise ConnectionError and send notification when host is unreachable"""
+        mocked_pdr.side_effect = ConnectionError("This is a test")
+        
         with self.assertRaises(ConnectionError):
             tiingo.fetch_data(["IBM"])
             self.assertTrue(mocked_notification.called)
