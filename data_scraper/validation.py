@@ -41,7 +41,6 @@ def validate_dates_in_month(symbol, date_range):
     # Remove timezone info
     trading_days = trading_days.tz_convert(tz=None)
     missing_days = trading_days.difference(date_range)
-
     if not missing_days.empty:
         logger.error("Error validating monthly dates. Missing: %s",
                      missing_days)

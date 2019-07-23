@@ -3,7 +3,6 @@ import unittest
 from unittest.mock import patch
 import os
 import shutil
-
 import pandas as pd
 
 from data_scraper import tiingo
@@ -29,12 +28,13 @@ class TestTiingo(unittest.TestCase):
         if cls.save_data_path:
             os.environ["SAVE_DATA_PATH"] = cls.save_data_path
 
-    @patch("data_scraper.tiingo.slack_notification", return_value=None)
+    @patch("data_scraper.tiingo.send_report", return_value=None)
     def test_fetch_gld(self, mocked_notification):
         """Fetch GLD data"""
         tiingo.fetch_data(["GLD"])
-        gld_dir = os.path.join(TestTiingo.tiingo_data_path, "GLD")
-        self.addCleanup(TestTiingo.remove_files, gld_dir)
+        gld_dir = os.path.join(TestTiingo.tiingo_data_path, "GLD", "GLD_20190723.csv")
+        print(gld_dir)
+        self.addCleanup(TestTiingo.remove_files, os.path.dirname(gld_dir))
 
         if self.assertTrue(os.path.exists(gld_dir)):
             self.assertTrue(mocked_notification.called)
@@ -50,21 +50,21 @@ class TestTiingo(unittest.TestCase):
             ]
             self.assertEqual(gld_df.columns, expected_columns)
 
-    @patch("data_scraper.tiingo.slack_notification", return_value=None)
-    def test_fetch_invalid_symbol(self, mocked_notification):
+    @patch("data_scraper.tiingo.send_report", return_value=None)
+    def test_fetch_invalid_symbol(self, mocked_report):
         """Fetching invalid symbol data should send notification"""
         tiingo.fetch_data(["FOOBAR"])
-        self.assertTrue(mocked_notification.called)
+        self.assertTrue(mocked_report.called)
 
     @patch("data_scraper.tiingo.pdr.get_data_tiingo")  # mock pandas_datareader
-    @patch("data_scraper.tiingo.slack_notification", return_value=None)
-    def test_no_connection(self, mocked_notification, mocked_pdr):
+    @patch("data_scraper.tiingo.send_report", return_value=None)
+    def test_no_connection(self, mocked_report, mocked_pdr):
         """Raise ConnectionError and send notification when host is unreachable"""
         mocked_pdr.side_effect = ConnectionError("This is a test")
-        
+
         with self.assertRaises(ConnectionError):
             tiingo.fetch_data(["IBM"])
-            self.assertTrue(mocked_notification.called)
+            self.assertTrue(mocked_report.called)
     
     @patch("data_scraper.tiingo.pdr.get_data_tiingo")  # mock pandas_datareader
     @patch("data_scraper.tiingo.retry_failure", return_value=None)
@@ -76,7 +76,7 @@ class TestTiingo(unittest.TestCase):
             self.assertTrue(mocked_retry.called)
             self.assertTrue(mocked_retry.call_count == 10)
 
-    def remove_files(self, file_path):
+    def remove_files(file_path):
         if os.path.exists(file_path):
             shutil.rmtree(file_path)
 

@@ -24,7 +24,6 @@ assets = [
 def fetch_data(symbols=assets):
     """Fetches historical data for given symbols from Tiingo"""
     api_key = utils.get_environment_var("TIINGO_API_KEY")
-
     symbols = [symbol.upper() for symbol in symbols]
     done = 0
     failed = []
@@ -39,7 +38,6 @@ def fetch_data(symbols=assets):
             raise ce
         except TypeError:
             # pandas_datareader raises TypeError when fetching invalid symbol
-            failed.append(symbol)
             msg = "Attempted to fetch invalid symbol {}".format(symbol)
             logger.error(msg, exc_info=True)
         except Exception:

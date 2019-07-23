@@ -21,6 +21,7 @@ url = "http://www.cboe.com/delayedquote/quote-table-download"
 def fetch_data(symbols=None):
     """Fetches options data for a given list of symbols"""
     symbols = symbols or _get_all_listed_symbols()
+    valid_symbols = _get_all_listed_symbols()
     options = utils.get_module_config("cboe")
 
     try:
@@ -43,7 +44,9 @@ def fetch_data(symbols=None):
 
     for symbol in symbols:
         form_data["ctl00$ContentTop$C005$txtTicker"] = symbol
+        
         try:
+            assert symbol in valid_symbols
             response = requests.post(url,
                                      data=form_data,
                                      headers=headers,
@@ -52,24 +55,28 @@ def fetch_data(symbols=None):
                                       cookies=response.cookies,
                                       headers=headers)
             symbol_data = symbol_req.text
+            print(symbol_data)
             if symbol_data == "" or symbol_data.startswith(" <!DOCTYPE"):
                 raise Exception
+        except AssertionError:
+                msg = "Error fetching invalid symbol {} data".format(symbol)
+                logger.error(msg, exc_info=True)
         except Exception:
-            failed.append(symbol)
-            msg = "Error fetching symbol {} data".format(symbol)
-            logger.error(msg, exc_info=True)
+                failed.append(symbol)
+                msg = "Error fetching symbol {} data".format(symbol)
+                logger.error(msg, exc_info=True)
         else:
-            _save_data(symbol, symbol_data)
-            done += 1
-    retry_failure(failed, done)
+                _save_data(symbol, symbol_data)
+                done += 1
+    retry_failure(failed,done)
     send_report(done, failed, __name__)
+
 
 
 
 ##if a symbol failes to scrape try again exponentialy
 @tenacity.retry(wait=tenacity.wait_exponential(multiplier=300), stop = tenacity.stop_after_attempt(10), retry=tenacity.retry_if_exception_type(IOError))
 def retry_failure(failed, done):
-    local_time = time.ctime(time.time())
     form_data = _form_data()
     headers = {"Referer": url}
     file_url = "http://www.cboe.com/delayedquote/quotedata.dat"
@@ -89,7 +96,6 @@ def retry_failure(failed, done):
         except Exception:
             msg = "error fetching symbol {} data".format(symbol)
             logger.error(msg, exc_info = True)
-            return local_time
         else:
             _save_data(symbol, symbol_data)
             done+=1
@@ -110,30 +116,33 @@ def aggregate_monthly_data(symbols=None):
 
     for symbol in symbols:
         daily_dir = os.path.join(scraper_dir, symbol + "_daily")
+        
         if not os.path.exists(daily_dir):
             msg = "Error aggregating data. Dir {} not found.".format(daily_dir)
             logger.error(msg)
             continue
 
         monthly_dir = os.path.join(scraper_dir, symbol)
-
         symbol_files = [
             file for file in os.listdir(daily_dir) if file.endswith(".csv")
         ]
-
-        for month, files in groupby(symbol_files, _monthly_grouper):
+        
+        for month, files in groupby(sorted(symbol_files), _monthly_grouper):
             file_names = list(files)
             daily_files = [
                 os.path.join(daily_dir, name) for name in file_names
             ]
+            
             try:
                 symbol_df = concatenate_files(daily_files)
             except Exception:
+
                 msg = "Error concatenating daily files for period " + month
                 logger.error(msg, exc_info=True)
                 continue
 
             date_range = pd.to_datetime(symbol_df["quotedate"].unique())
+            
             if not validation.validate_dates_in_month(symbol, date_range):
                 today = pd.Timestamp.today()
                 first_date = date_range[0]
@@ -151,7 +160,6 @@ def aggregate_monthly_data(symbols=None):
             file_name = _monthly_filename(file_names)
             monthly_file = os.path.join(monthly_dir, file_name)
             symbol_df.to_csv(monthly_file, index=False)
-
             if not validation.validate_aggregate_file(monthly_file,
                                                       daily_files):
                 utils.remove_file(monthly_file)
@@ -165,6 +173,7 @@ def aggregate_monthly_data(symbols=None):
 
             for file in daily_files:
                 utils.remove_file(file, logger)
+    
 
     send_report(done, failed, __name__, op="aggregate")
 

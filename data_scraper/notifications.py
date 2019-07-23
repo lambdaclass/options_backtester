@@ -18,7 +18,7 @@ except EnvironmentError as e:
     raise e
 
 payload = {
-    "channel": "#algotrading",
+    "channel": "#testing_scrapper",
     "username": "Talebot",
     "icon_emoji": ":taleb:",
     "attachments": [{
@@ -55,9 +55,13 @@ def send_report(done, failed, scraper, op="scrape"):
     """
     if done > 0:
         msg_success = "👍 Successfully {}d {}".format(op, _symbol_str(done))
+    else:
+        msg_success = "No symbols where successfully scraped 😭"
     if len(failed) > 0:
         msg_fail = "⚠️️ Failed to {} {}: {}".format(op, _symbol_str(len(failed)),
                                            ", ".join(failed))
+    else:
+        msg_fail = "No symbols fail to scrape! 🤩"
     
     msg= msg_success + '\n' + msg_fail
     slack_notification(msg, scraper, status=Status.Warning)
