@@ -62,7 +62,6 @@ class TestCBOE(unittest.TestCase):
             cboe.fetch_data(["SPX"])
             self.assertTrue(mocked_notification.called)
 
-
     @patch("data_scraper.cboe.utils.remove_file", return_value=None)
     @patch("data_scraper.cboe.send_report", return_value=None)
     def test_data_aggregation(self, mocked_report, mocked_remove):
@@ -108,7 +107,6 @@ class TestCBOE(unittest.TestCase):
     def remove_files(file_path):
         if os.path.exists(file_path):
             shutil.rmtree(file_path)
-
 
 if __name__ == "__main__":
     unittest.main()

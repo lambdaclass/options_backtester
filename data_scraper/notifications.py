@@ -66,6 +66,5 @@ def send_report(done, failed, scraper, op="scrape"):
     msg= msg_success + '\n' + msg_fail
     slack_notification(msg, scraper, status=Status.Warning)
 
-
 def _symbol_str(count):
     return str(count) + " symbol" if count == 1 else str(count) + " symbols"

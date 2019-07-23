@@ -71,9 +71,6 @@ def fetch_data(symbols=None):
     retry_failure(failed,done)
     send_report(done, failed, __name__)
 
-
-
-
 ##if a symbol failes to scrape try again exponentialy
 @tenacity.retry(wait=tenacity.wait_exponential(multiplier=300), stop = tenacity.stop_after_attempt(10), retry=tenacity.retry_if_exception_type(IOError))
 def retry_failure(failed, done):
@@ -100,8 +97,6 @@ def retry_failure(failed, done):
             _save_data(symbol, symbol_data)
             done+=1
             failed.remove(symbol)
-
-
 
 def aggregate_monthly_data(symbols=None):
     """Aggregate daily snapshots into monthly files and validate data"""
@@ -132,7 +127,7 @@ def aggregate_monthly_data(symbols=None):
             daily_files = [
                 os.path.join(daily_dir, name) for name in file_names
             ]
-            
+
             try:
                 symbol_df = concatenate_files(daily_files)
             except Exception:
@@ -174,9 +169,7 @@ def aggregate_monthly_data(symbols=None):
             for file in daily_files:
                 utils.remove_file(file, logger)
     
-
     send_report(done, failed, __name__, op="aggregate")
-
 
 def _get_all_listed_symbols():
     """Returns array of all listed symbols.
@@ -187,7 +180,6 @@ def _get_all_listed_symbols():
         os.path.join(current_dir, "cboesymboldir2.csv"))
     symbols_df = pd.read_csv(symbols_file, skiprows=1)
     return symbols_df["Stock Symbol"].array
-
 
 def concatenate_files(files):
     """Returns a dataframe of the concatenated data from `files`."""

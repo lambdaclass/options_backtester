@@ -109,13 +109,10 @@ def _save_data(symbol, symbol_df):
             merged_df.to_csv(file_path, index=False)
             logger.debug("Saved symbol data as %s", file_path)
 
-
 def _merge(symbol, symbol_df):
     """Merge `symbol_df` with previous data file."""
-
     save_data_path = utils.get_save_data_path()
     symbol_dir = os.path.join(save_data_path, "tiingo", symbol)
-
     files = os.listdir(symbol_dir)
     if len(files) == 0:
         return symbol_df
