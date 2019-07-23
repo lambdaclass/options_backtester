@@ -18,7 +18,7 @@ except EnvironmentError as e:
     raise e
 
 payload = {
-    "channel": "#testing_scrapper",
+    "channel": "#algotrading",
     "username": "Talebot",
     "icon_emoji": ":taleb:",
     "attachments": [{
