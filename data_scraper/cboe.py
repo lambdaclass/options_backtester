@@ -9,6 +9,7 @@ import requests
 import pandas as pd 
 import tenacity
 import time
+import csv
 
 from . import utils, validation
 from .notifications import send_report
@@ -22,8 +23,7 @@ def fetch_data(symbols=None):
     """Fetches options data for a given list of symbols"""
     symbols = symbols or _get_all_listed_symbols()
     valid_symbols = _get_all_listed_symbols()
-    options = utils.get_module_config("cboe")
-
+    # options = utils.get_module_config("cboe")
     try:
         form_data = _form_data()
     except requests.ConnectionError as ce:
@@ -55,7 +55,7 @@ def fetch_data(symbols=None):
                                       cookies=response.cookies,
                                       headers=headers)
             symbol_data = symbol_req.text
-            print(symbol_data)
+
             if symbol_data == "" or symbol_data.startswith(" <!DOCTYPE"):
                 raise Exception
         except AssertionError:
@@ -68,8 +68,8 @@ def fetch_data(symbols=None):
         else:
                 _save_data(symbol, symbol_data)
                 done += 1
-    retry_failure(failed,done)
-    send_report(done, failed, __name__)
+    # retry_failure(failed,done)
+    # send_report(done, failed, __name__)
 
 ##if a symbol failes to scrape try again exponentialy
 @tenacity.retry(wait=tenacity.wait_exponential(multiplier=300), stop = tenacity.stop_after_attempt(10), retry=tenacity.retry_if_exception_type(IOError))
@@ -101,7 +101,6 @@ def retry_failure(failed, done):
 def aggregate_monthly_data(symbols=None):
     """Aggregate daily snapshots into monthly files and validate data"""
     symbols = symbols or _get_all_listed_symbols()
-
     save_data_path = utils.get_save_data_path()
     scraper_dir = os.path.join(save_data_path, "cboe")
 
@@ -175,10 +174,8 @@ def _get_all_listed_symbols():
     """Returns array of all listed symbols.
     http://www.cboe.com/publish/scheduledtask/mktdata/cboesymboldir2.csv
     """
-    current_dir = os.path.join(os.getcwd(), os.path.dirname(__file__))
-    symbols_file = os.path.realpath(
-        os.path.join(current_dir, "cboesymboldir2.csv"))
-    symbols_df = pd.read_csv(symbols_file, skiprows=1)
+    url = 'http://www.cboe.com/publish/scheduledtask/mktdata/cboesymboldir2.csv' 
+    symbols_df = pd.read_csv(url, skiprows=1)
     return symbols_df["Stock Symbol"].array
 
 def concatenate_files(files):
