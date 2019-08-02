@@ -30,7 +30,7 @@ payload = {
 def slack_notification(text, scraper, status=Status.Error):
     """Post Slack notification"""
     title = "data_scraper status report"
-    color="#ff9906"
+    color = "#ff9906"
     msg = text
 
     payload["attachments"][0]["fallback"] = msg
@@ -54,12 +54,17 @@ def send_report(done, failed, scraper, op="scrape"):
     `failed` is a list of symbol names that could not be scraped/aggregated
     """
     if done > 0:
-        msg1 = "Successfully {}d {}".format(op, _symbol_str(done))
+        msg_success = "👍 Successfully {}d {}".format(op, _symbol_str(done))
+    else:
+        msg_success = "No symbols where successfully scraped 😭"
     if len(failed) > 0:
-        msg2 = "Failed to {} {}: {}".format(op, _symbol_str(len(failed)),
-                                           ", ".join(failed))
-    
-    msg= msg1 + " and " + msg2
+        msg_fail = "⚠️️ Failed to {} {}: {}".format(op,
+                                                    _symbol_str(len(failed)),
+                                                    ", ".join(failed))
+    else:
+        msg_fail = "No symbols fail to scrape! 🤩"
+
+    msg = msg_success + '\n' + msg_fail
     slack_notification(msg, scraper, status=Status.Warning)
 
 

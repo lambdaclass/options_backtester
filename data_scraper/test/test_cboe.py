@@ -30,7 +30,7 @@ class TestCBOE(unittest.TestCase):
         if cls.save_data_path:
             os.environ["SAVE_DATA_PATH"] = cls.save_data_path
 
-    @patch("data_scraper.cboe.slack_notification", return_value=None)
+    @patch("data_scraper.cboe.send_report", return_value=None)
     def test_fetch_spy(self, mocked_notification):
         """Fetch todays SPY quote"""
         cboe.fetch_data(["SPY"])
@@ -48,14 +48,15 @@ class TestCBOE(unittest.TestCase):
             counts = spy_df["type"].value_counts()
             self.assertEqual(counts["put"] + counts["call"], len(spy_df))
 
-    @patch("data_scraper.cboe.slack_notification", return_value=None)
-    def test_fetch_invalid_symbol(self, mocked_notification):
+    @patch("data_scraper.cboe.send_report", return_value=None)
+    def test_fetch_invalid_symbol(self, mocked_report):
         """Fetching invalid symbol should send notification"""
         cboe.fetch_data(["FOOBAR"])
-        self.assertTrue(mocked_notification.called)
+        self.assertTrue(mocked_report.called)
 
-    @patch("data_scraper.cboe.url", new="http://www.aldkfjaskldfjsa.com")
-    @patch("data_scraper.cboe.slack_notification", return_value=None)
+    @patch("data_scraper.cboe.url",
+           new="http://non_existing_domain_expected_to_fail.com")
+    @patch("data_scraper.cboe.send_report", return_value=None)
     def test_no_connection(self, mocked_notification):
         """Raise ConnectionError and send notification when host is unreachable"""
         with self.assertRaises(ConnectionError):
@@ -63,23 +64,32 @@ class TestCBOE(unittest.TestCase):
             self.assertTrue(mocked_notification.called)
 
     @patch("data_scraper.cboe.utils.remove_file", return_value=None)
-    @patch("data_scraper.cboe.slack_notification", return_value=None)
-    def test_data_aggregation(self, mocked_notification, mocked_remove):
+    @patch("data_scraper.cboe.send_report", return_value=None)
+    def test_data_aggregation(self, mocked_report, mocked_remove):
         """Test data aggregation happy path"""
         cboe.aggregate_monthly_data(["SPX"])
         aggregate_file = os.path.join(TestCBOE.cboe_data_path, "SPX",
                                       "SPX_20190301_to_20190329.csv")
         self.addCleanup(TestCBOE.remove_files, os.path.dirname(aggregate_file))
         self.assertTrue(mocked_remove.called)
-        self.assertFalse(mocked_notification.called)
-
+        self.assertTrue(mocked_report.called)
         if self.assertTrue(os.path.exists(aggregate_file)):
             spx_df = pd.read_csv(TestCBOE.spx_data_path)
             aggregate_df = pd.read_csv(aggregate_file)
             self.assertTrue(spx_df.equals(aggregate_df))
 
+    @patch("data_scraper.cboe.url",
+           new="http://non_existing_domain_expected_to_fail.com")
+    @patch("data_scraper.cboe.retry_failure", return_value=None)
+    def test_retry(self, mocked_retry):
+        """Raise ConnectionError and retry when host is unreachable"""
+        with self.assertRaises(ConnectionError):
+            cboe.fetch_data(["SPX"])
+            self.assertTrue(mocked_retry.called)
+            self.assertTrue(mocked_retry.call_count == 10)
+
     @patch("data_scraper.cboe.utils.remove_file", return_value=None)
-    @patch("data_scraper.cboe.slack_notification", return_value=None)
+    @patch("data_scraper.cboe.send_report", return_value=None)
     def test_aggregate_missing_days(self, mocked_notification, mocked_remove):
         """Data aggregation should send notification when there are missing days"""
         cboe.aggregate_monthly_data(["GOOG"])
@@ -87,7 +97,7 @@ class TestCBOE(unittest.TestCase):
         self.assertFalse(mocked_remove.called)
 
     @patch("data_scraper.cboe.utils.remove_file", return_value=None)
-    @patch("data_scraper.cboe.slack_notification", return_value=None)
+    @patch("data_scraper.cboe.send_report", return_value=None)
     def test_aggregate_invalid_symbol(self, mocked_notification,
                                       mocked_remove):
         """Data aggregation should fail and send notification on invalid symbol"""

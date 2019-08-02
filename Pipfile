@@ -12,7 +12,9 @@ jupyter = "*"
 pandas-datareader = "*"
 pandas-market-calendars = "*"
 boto3 = "*"
+tenacity = "*"
 
 [dev-packages]
 yapf = "*"
 flake8 = "*"
+pytest = "*"
