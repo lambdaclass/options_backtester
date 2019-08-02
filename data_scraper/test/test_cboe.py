@@ -54,7 +54,8 @@ class TestCBOE(unittest.TestCase):
         cboe.fetch_data(["FOOBAR"])
         self.assertTrue(mocked_report.called)
 
-    @patch("data_scraper.cboe.url", new="http://non_existing_domain_expected_to_fail.com")
+    @patch("data_scraper.cboe.url",
+           new="http://non_existing_domain_expected_to_fail.com")
     @patch("data_scraper.cboe.send_report", return_value=None)
     def test_no_connection(self, mocked_notification):
         """Raise ConnectionError and send notification when host is unreachable"""
@@ -70,15 +71,15 @@ class TestCBOE(unittest.TestCase):
         aggregate_file = os.path.join(TestCBOE.cboe_data_path, "SPX",
                                       "SPX_20190301_to_20190329.csv")
         self.addCleanup(TestCBOE.remove_files, os.path.dirname(aggregate_file))
-        self.assertTrue(mocked_remove)
+        self.assertTrue(mocked_remove.called)
         self.assertTrue(mocked_report.called)
-        print(aggregate_file)
         if self.assertTrue(os.path.exists(aggregate_file)):
             spx_df = pd.read_csv(TestCBOE.spx_data_path)
             aggregate_df = pd.read_csv(aggregate_file)
             self.assertTrue(spx_df.equals(aggregate_df))
-    
-    @patch("data_scraper.cboe.url", new="http://non_existing_domain_expected_to_fail.com")
+
+    @patch("data_scraper.cboe.url",
+           new="http://non_existing_domain_expected_to_fail.com")
     @patch("data_scraper.cboe.retry_failure", return_value=None)
     def test_retry(self, mocked_retry):
         """Raise ConnectionError and retry when host is unreachable"""
@@ -107,6 +108,7 @@ class TestCBOE(unittest.TestCase):
     def remove_files(file_path):
         if os.path.exists(file_path):
             shutil.rmtree(file_path)
+
 
 if __name__ == "__main__":
     unittest.main()

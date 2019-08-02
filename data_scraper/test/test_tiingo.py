@@ -27,13 +27,11 @@ class TestTiingo(unittest.TestCase):
     def tearDownClass(cls):
         if cls.save_data_path:
             os.environ["SAVE_DATA_PATH"] = cls.save_data_path
-
     @patch("data_scraper.tiingo.send_report", return_value=None)
     def test_fetch_gld(self, mocked_notification):
         """Fetch GLD data"""
         tiingo.fetch_data(["GLD"])
-        gld_dir = os.path.join(TestTiingo.tiingo_data_path, "GLD", "GLD_20190723.csv")
-        print(gld_dir)
+        gld_dir = os.path.join(TestTiingo.tiingo_data_path, "GLD")
         self.addCleanup(TestTiingo.remove_files, os.path.dirname(gld_dir))
 
         if self.assertTrue(os.path.exists(gld_dir)):
