@@ -6,10 +6,8 @@ from itertools import groupby
 
 from bs4 import BeautifulSoup
 import requests
-import pandas as pd 
+import pandas as pd
 import tenacity
-import time
-import csv
 
 from . import utils, validation
 from .notifications import send_report
@@ -44,7 +42,7 @@ def fetch_data(symbols=None):
 
     for symbol in symbols:
         form_data["ctl00$ContentTop$C005$txtTicker"] = symbol
-        
+
         try:
             assert symbol in valid_symbols
             response = requests.post(url,
@@ -59,20 +57,23 @@ def fetch_data(symbols=None):
             if symbol_data == "" or symbol_data.startswith(" <!DOCTYPE"):
                 raise Exception
         except AssertionError:
-                msg = "Error fetching invalid symbol {} data".format(symbol)
-                logger.error(msg, exc_info=True)
+            msg = "Error fetching invalid symbol {} data".format(symbol)
+            logger.error(msg, exc_info=True)
         except Exception:
-                failed.append(symbol)
-                msg = "Error fetching symbol {} data".format(symbol)
-                logger.error(msg, exc_info=True)
+            failed.append(symbol)
+            msg = "Error fetching symbol {} data".format(symbol)
+            logger.error(msg, exc_info=True)
         else:
-                _save_data(symbol, symbol_data)
-                done += 1
-    # retry_failure(failed,done)
-    # send_report(done, failed, __name__)
+            _save_data(symbol, symbol_data)
+            done += 1
+    retry_failure(failed, done)
+    send_report(done, failed, __name__)
 
-##if a symbol failes to scrape try again exponentialy
-@tenacity.retry(wait=tenacity.wait_exponential(multiplier=300), stop = tenacity.stop_after_attempt(10), retry=tenacity.retry_if_exception_type(IOError))
+
+# if a symbol failes to scrape try again exponentialy
+@tenacity.retry(wait=tenacity.wait_exponential(multiplier=300),
+                stop=tenacity.stop_after_attempt(10),
+                retry=tenacity.retry_if_exception_type(IOError))
 def retry_failure(failed, done):
     form_data = _form_data()
     headers = {"Referer": url}
@@ -83,7 +84,7 @@ def retry_failure(failed, done):
                                      data=form_data,
                                      headers=headers,
                                      allow_redirects=False)
-            
+
             symbol_req = requests.get(file_url,
                                       cookies=response.cookies,
                                       headers=headers)
@@ -92,25 +93,25 @@ def retry_failure(failed, done):
                 raise Exception
         except Exception:
             msg = "error fetching symbol {} data".format(symbol)
-            logger.error(msg, exc_info = True)
+            logger.error(msg, exc_info=True)
         else:
             _save_data(symbol, symbol_data)
-            done+=1
+            done += 1
             failed.remove(symbol)
+
 
 def aggregate_monthly_data(symbols=None):
     """Aggregate daily snapshots into monthly files and validate data"""
     symbols = symbols or _get_all_listed_symbols()
     save_data_path = utils.get_save_data_path()
     scraper_dir = os.path.join(save_data_path, "cboe")
-
     symbols = [symbol.upper() for symbol in symbols]
     done = 0
     failed = []
 
     for symbol in symbols:
         daily_dir = os.path.join(scraper_dir, symbol + "_daily")
-        
+
         if not os.path.exists(daily_dir):
             msg = "Error aggregating data. Dir {} not found.".format(daily_dir)
             logger.error(msg)
@@ -120,7 +121,7 @@ def aggregate_monthly_data(symbols=None):
         symbol_files = [
             file for file in os.listdir(daily_dir) if file.endswith(".csv")
         ]
-        
+
         for month, files in groupby(sorted(symbol_files), _monthly_grouper):
             file_names = list(files)
             daily_files = [
@@ -133,10 +134,11 @@ def aggregate_monthly_data(symbols=None):
 
                 msg = "Error concatenating daily files for period " + month
                 logger.error(msg, exc_info=True)
+
                 continue
 
             date_range = pd.to_datetime(symbol_df["quotedate"].unique())
-            
+
             if not validation.validate_dates_in_month(symbol, date_range):
                 today = pd.Timestamp.today()
                 first_date = date_range[0]
@@ -144,6 +146,7 @@ def aggregate_monthly_data(symbols=None):
                     msg = "Some trading dates where missing for symbol {} in period {}".format(
                         symbol, month)
                     logger.error(msg)
+
                     failed.append(symbol)
                 continue
 
@@ -167,16 +170,18 @@ def aggregate_monthly_data(symbols=None):
 
             for file in daily_files:
                 utils.remove_file(file, logger)
-    
+
     send_report(done, failed, __name__, op="aggregate")
+
 
 def _get_all_listed_symbols():
     """Returns array of all listed symbols.
     http://www.cboe.com/publish/scheduledtask/mktdata/cboesymboldir2.csv
     """
-    url = 'http://www.cboe.com/publish/scheduledtask/mktdata/cboesymboldir2.csv' 
+    url = 'http://www.cboe.com/publish/scheduledtask/mktdata/cboesymboldir2.csv'
     symbols_df = pd.read_csv(url, skiprows=1)
     return symbols_df["Stock Symbol"].array
+
 
 def concatenate_files(files):
     """Returns a dataframe of the concatenated data from `files`."""
