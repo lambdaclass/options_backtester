@@ -50,8 +50,10 @@ def fetch_data(symbols=assets):
     send_report(done, failed, __name__)
 
 
-##if a symbol failes to scrape try again exponentialy
-@tenacity.retry(wait=tenacity.wait_exponential(multiplier=300), stop = tenacity.stop_after_attempt(10), retry=tenacity.retry_if_exception_type(IOError))
+# if a symbol failes to scrape try again exponentialy
+@tenacity.retry(wait=tenacity.wait_exponential(multiplier=300),
+                stop=tenacity.stop_after_attempt(10),
+                retry=tenacity.retry_if_exception_type(IOError))
 def retry_failure(failed, done):
     api_key = utils.get_environment_var("TIINGO_API_KEY")
     for symbol in failed:
@@ -72,7 +74,7 @@ def retry_failure(failed, done):
             logger.error(msg, exc_info=True)
         else:
             _save_data(symbol, symbol_data)
-            done+=1
+            done += 1
             failed.remove(symbol)
 
 
@@ -94,9 +96,9 @@ def _save_data(symbol, symbol_df):
         logger.debug("File %s already downloaded", file_path)
     else:
         expected_columns = [
-            "symbol", "date", "adjClose", "adjHigh", "adjLow", "adjOpen",
-            "adjVolume", "close", "divCash", "high", "low", "open",
-            "splitFactor", "volume"
+            "symbol", "date", "close", "high", "low", "open", "volume",
+            "adjClose", "adjHigh", "adjLow", "adjOpen", "adjVolume", "divCash",
+            "splitFactor"
         ]
 
         if validation.validate_historical_dates(
@@ -108,6 +110,7 @@ def _save_data(symbol, symbol_df):
 
             merged_df.to_csv(file_path, index=False)
             logger.debug("Saved symbol data as %s", file_path)
+
 
 def _merge(symbol, symbol_df):
     """Merge `symbol_df` with previous data file."""
