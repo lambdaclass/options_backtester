@@ -10,7 +10,7 @@ stop:
 	docker-compose -f ./docker/docker-compose.yml down
 
 init:
-    pipenv --three && pipenv install --dev
+	pipenv	--three	&&	pipenv	install	--dev
 
 env:
 	pipenv shell
