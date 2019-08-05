@@ -125,7 +125,12 @@ def _merge(symbol, symbol_df):
                          parse_dates=["date"],
                          index_col="date")
     symbol_df.index = symbol_df["date"]
-
+    sequence = [
+        "symbol", "date", "adjClose", "adjHigh", "adjLow", "adjOpen",
+        "adjVolume", "close", "divCash", "high", "low", "open", "splitFactor",
+        "volume"
+    ]
+    symbol_df = symbol_df.reindex(columns=sequence)
     diffs = old_df.index.difference(symbol_df.index)
 
     if diffs.empty:
