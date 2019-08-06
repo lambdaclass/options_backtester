@@ -9,10 +9,12 @@ from .notifications import slack_notification
 
 logger = logging.getLogger(__name__)
 
+
 def file_hash_matches_data(file_path, data):
     file_hash = file_md5(file_path)
     data_md5 = hashlib.md5(data.encode()).hexdigest()
     return file_hash == data_md5
+
 
 def file_md5(file, chunk_size=4096):
     md5 = hashlib.md5()
@@ -21,6 +23,7 @@ def file_md5(file, chunk_size=4096):
             md5.update(chunk)
 
     return md5.hexdigest()
+
 
 def validate_dates_in_month(symbol, date_range):
     """Compares `date_range` (month) with NYSE trading calendar.
@@ -43,6 +46,7 @@ def validate_dates_in_month(symbol, date_range):
                      missing_days)
     return missing_days.empty
 
+
 def validate_historical_dates(symbol, date_range):
     """Compares `date_range` (any time range) with trading calendar.
     Returns `True` if there are no missing days.
@@ -63,9 +67,12 @@ def validate_historical_dates(symbol, date_range):
 
     return missing_days.empty
 
+
 def validate_columns(expected, received):
     """Verify that the `received` columns scraped are equal to `expected`"""
-    valid = all(expected == received)
+    expected = sorted(expected)
+    received = sorted(received)
+    valid = expected == received
     if not valid:
         expected_cols = ", ".join(expected)
         received_cols = ", ".join(received)
@@ -75,6 +82,7 @@ def validate_columns(expected, received):
         logger.error(msg)
         slack_notification(msg, __name__)
     return valid
+
 
 def validate_aggregate_file(aggregate_file, daily_files):
     """Compares `aggregate_file` with the data from `daily_files`."""

@@ -96,9 +96,9 @@ def _save_data(symbol, symbol_df):
         logger.debug("File %s already downloaded", file_path)
     else:
         expected_columns = [
-            "symbol", "date", "close", "high", "low", "open", "volume",
-            "adjClose", "adjHigh", "adjLow", "adjOpen", "adjVolume", "divCash",
-            "splitFactor"
+            "symbol", "date", "adjClose", "adjHigh", "adjLow", "adjOpen",
+            "adjVolume", "close", "divCash", "high", "low", "open",
+            "splitFactor", "volume"
         ]
 
         if validation.validate_historical_dates(
@@ -107,7 +107,7 @@ def _save_data(symbol, symbol_df):
             merged_df = _merge(symbol, symbol_df)
             pattern = symbol + "_*"
             utils.remove_files(symbol_dir, pattern, logger)
-
+            symbol_df = symbol_df.reindex(columns=expected_columns)
             merged_df.to_csv(file_path, index=False)
             logger.debug("Saved symbol data as %s", file_path)
 
@@ -125,7 +125,6 @@ def _merge(symbol, symbol_df):
                          parse_dates=["date"],
                          index_col="date")
     symbol_df.index = symbol_df["date"]
-
     diffs = old_df.index.difference(symbol_df.index)
 
     if diffs.empty:

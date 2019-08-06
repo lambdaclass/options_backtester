@@ -62,7 +62,7 @@ def send_report(done, failed, scraper, op="scrape"):
                                                     _symbol_str(len(failed)),
                                                     ", ".join(failed))
     else:
-        msg_fail = "No symbols fail to scrape! 🤩"
+        msg_fail = "No symbols failed to scrape! 🤩"
 
     msg = msg_success + '\n' + msg_fail
     slack_notification(msg, scraper, status=Status.Warning)
