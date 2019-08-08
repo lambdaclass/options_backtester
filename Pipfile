@@ -12,7 +12,8 @@ jupyter = "*"
 pandas-datareader = "*"
 pandas-market-calendars = "*"
 boto3 = "*"
-tenacity = "*"
+scrapy = "*"
+apache-airflow = "*"
 
 [dev-packages]
 yapf = "*"
