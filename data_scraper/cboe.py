@@ -21,7 +21,7 @@ def fetch_data(symbols=None):
     """Fetches options data for a given list of symbols"""
     symbols = symbols or _get_all_listed_symbols()
     valid_symbols = _get_all_listed_symbols()
-    # options = utils.get_module_config("cboe")
+
     try:
         form_data = _form_data()
     except requests.ConnectionError as ce:
@@ -89,7 +89,7 @@ def retry_failure(failed, done):
                                       cookies=response.cookies,
                                       headers=headers)
             symbol_data = symbol_req.text
-            if symbol_data == "" or symbol_data.startswith("<!DOCTYPE"):
+            if symbol_data == "" or symbol_data.startswith(" <!DOCTYPE"):
                 raise Exception
         except Exception:
             msg = "error fetching symbol {} data".format(symbol)
