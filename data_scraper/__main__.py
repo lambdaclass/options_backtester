@@ -21,6 +21,9 @@ parser.add_argument(
     help="Aggregate daily data files")
 parser.add_argument(
     "-b", "--backup", action="store_true", help="Backup files in S3 bucket")
+parser.add_argument(
+    "-d","--backup_daily", action="store_true", help="Backup daily files in S3 bucket"
+)
 
 args = parser.parse_args()
 module_dir = os.path.join(os.getcwd(), os.path.dirname(__file__))
@@ -36,6 +39,8 @@ if args.aggregate:
         cboe.aggregate_monthly_data()
 elif args.backup:
     backup.backup_data()
+elif args.backup_daily:
+    backup.backup_cboe_data_daily()
 else:
     if args.scraper == "tiingo":
         scraper = tiingo

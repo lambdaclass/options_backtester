@@ -36,6 +36,9 @@ aggregate:
 
 backup:
 	pipenv run python -m data_scraper -b
+
+backup_daily:
+	pipenv run python -m data_scraper -d
 	
 bench:
 	pipenv run python backtester/test/run_benchmark.py
