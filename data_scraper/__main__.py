@@ -6,21 +6,27 @@ from data_scraper import cboe, tiingo, backup
 
 parser = argparse.ArgumentParser(prog="data_scraper.py")
 parser.add_argument("-t", "--symbols", nargs="+", help="Symbols to fetch")
-parser.add_argument(
-    "-s",
-    "--scraper",
-    choices=["cboe", "tiingo"],
-    default="cboe",
-    help="Scraper to use")
-parser.add_argument(
-    "-v", "--verbose", action="store_true", help="Enable logging")
-parser.add_argument(
-    "-a",
-    "--aggregate",
-    action="store_true",
-    help="Aggregate daily data files")
-parser.add_argument(
-    "-b", "--backup", action="store_true", help="Backup files in S3 bucket")
+parser.add_argument("-s",
+                    "--scraper",
+                    choices=["cboe", "tiingo"],
+                    default="cboe",
+                    help="Scraper to use")
+parser.add_argument("-v",
+                    "--verbose",
+                    action="store_true",
+                    help="Enable logging")
+parser.add_argument("-a",
+                    "--aggregate",
+                    action="store_true",
+                    help="Aggregate daily data files")
+parser.add_argument("-b",
+                    "--backup",
+                    action="store_true",
+                    help="Backup files in S3 bucket")
+parser.add_argument("-d",
+                    "--backup-daily",
+                    action="store_true",
+                    help="Backup daily files in S3 bucket")
 
 args = parser.parse_args()
 module_dir = os.path.join(os.getcwd(), os.path.dirname(__file__))
@@ -36,6 +42,8 @@ if args.aggregate:
         cboe.aggregate_monthly_data()
 elif args.backup:
     backup.backup_data()
+elif args.backup_daily:
+    backup.backup_cboe_data_daily()
 else:
     if args.scraper == "tiingo":
         scraper = tiingo

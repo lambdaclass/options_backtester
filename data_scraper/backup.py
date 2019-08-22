@@ -14,13 +14,7 @@ def backup_data():
     """Uploads scraped files to S3 bucket.
     Set bucket name in environment variable $S3_BUCKET
     """
-    try:
-        bucket_name = utils.get_environment_var("S3_BUCKET")
-    except EnvironmentError as e:
-        logger.error(str(e))
-        slack_notification("Backup failed. Set $S3_BUCKET env variable",
-                           __name__)
-        raise e
+    bucket_name = _get_bucket_name()
 
     s3 = boto3.resource("s3")
     bucket = s3.Bucket(bucket_name)
@@ -43,10 +37,14 @@ def backup_data():
             for folder in os.listdir(tiingo_data)
         ]
 
-    done_cboe, fail_cboe = _upload_folders(
-        bucket, "cboe", cboe_folders, remove_files=False)
-    done_tiingo, fail_tiingo = _upload_folders(
-        bucket, "tiingo", tiingo_folders, remove_files=True)
+    done_cboe, fail_cboe = _upload_folders(bucket,
+                                           "cboe",
+                                           cboe_folders,
+                                           remove_files=False)
+    done_tiingo, fail_tiingo = _upload_folders(bucket,
+                                               "tiingo",
+                                               tiingo_folders,
+                                               remove_files=True)
 
     done = done_cboe + done_tiingo
     failed = fail_cboe + fail_tiingo
@@ -55,6 +53,40 @@ def backup_data():
         slack_notification(msg, __name__, status=Status.Success)
     if len(failed) > 0:
         msg = "Unable to backup symbols: " + ", ".join(done)
+        slack_notification(msg, __name__, status=Status.Warning)
+
+
+def backup_cboe_data_daily():
+    """Uploads daily cboe scraped files to S3 bucket.
+    Set bucket name in environment variable $S3_BUCKET
+    """
+    bucket_name = _get_bucket_name()
+
+    s3 = boto3.resource("s3")
+    bucket = s3.Bucket(bucket_name)
+
+    data_path = utils.get_save_data_path()
+
+    cboe_data = os.path.join(data_path, "cboe")
+    cboe_folders = []
+    if os.path.exists(cboe_data):
+        cboe_folders = [
+            os.path.join(cboe_data, folder) for folder in os.listdir(cboe_data)
+            if folder.endswith("daily")
+        ]
+
+    done_cboe, fail_cboe = _upload_folders(bucket,
+                                           "cboe",
+                                           cboe_folders,
+                                           remove_files=False)
+
+    done = done_cboe
+    failed = fail_cboe
+    if len(done) > 0:
+        msg = "Successful backup of daily cboe symbols: " + ", ".join(done)
+        slack_notification(msg, __name__, status=Status.Success)
+    if len(failed) > 0:
+        msg = "Unable to backup daily symbols: " + ", ".join(done)
         slack_notification(msg, __name__, status=Status.Warning)
 
 
@@ -105,10 +137,21 @@ def _key_exists(bucket, key):
         bucket.Object(key).load()
     except ClientError as e:
         return int(e.response["Error"]["Code"]) != 404
-    return False
+    return True
 
 
 def _remove_old_files(bucket, prefix):
     old_files = bucket.objects.filter(Prefix=prefix)
     for file in old_files:
         file.delete()
+
+
+def _get_bucket_name():
+    try:
+        bucket_name = utils.get_environment_var("S3_BUCKET")
+    except EnvironmentError as e:
+        logger.error(str(e))
+        slack_notification("Backup failed. Set $S3_BUCKET env variable",
+                           __name__)
+        raise e
+    return bucket_name
