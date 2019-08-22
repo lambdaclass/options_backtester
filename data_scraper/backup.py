@@ -14,7 +14,7 @@ def backup_data():
     """Uploads scraped files to S3 bucket.
     Set bucket name in environment variable $S3_BUCKET
     """
-    bucket_name = get_bucket_name()
+    bucket_name = _get_bucket_name()
 
     s3 = boto3.resource("s3")
     bucket = s3.Bucket(bucket_name)
@@ -37,10 +37,14 @@ def backup_data():
             for folder in os.listdir(tiingo_data)
         ]
 
-    done_cboe, fail_cboe = _upload_folders(
-        bucket, "cboe", cboe_folders, remove_files=False)
-    done_tiingo, fail_tiingo = _upload_folders(
-        bucket, "tiingo", tiingo_folders, remove_files=True)
+    done_cboe, fail_cboe = _upload_folders(bucket,
+                                           "cboe",
+                                           cboe_folders,
+                                           remove_files=False)
+    done_tiingo, fail_tiingo = _upload_folders(bucket,
+                                               "tiingo",
+                                               tiingo_folders,
+                                               remove_files=True)
 
     done = done_cboe + done_tiingo
     failed = fail_cboe + fail_tiingo
@@ -51,11 +55,12 @@ def backup_data():
         msg = "Unable to backup symbols: " + ", ".join(done)
         slack_notification(msg, __name__, status=Status.Warning)
 
+
 def backup_cboe_data_daily():
     """Uploads daily cboe scraped files to S3 bucket.
     Set bucket name in environment variable $S3_BUCKET
     """
-    bucket_name = get_bucket_name()
+    bucket_name = _get_bucket_name()
 
     s3 = boto3.resource("s3")
     bucket = s3.Bucket(bucket_name)
@@ -70,8 +75,10 @@ def backup_cboe_data_daily():
             if folder.endswith("daily")
         ]
 
-    done_cboe, fail_cboe = _upload_folders(
-        bucket, "cboe", cboe_folders, remove_files=False)
+    done_cboe, fail_cboe = _upload_folders(bucket,
+                                           "cboe",
+                                           cboe_folders,
+                                           remove_files=False)
 
     done = done_cboe
     failed = fail_cboe
@@ -139,7 +146,7 @@ def _remove_old_files(bucket, prefix):
         file.delete()
 
 
-def get_bucket_name():
+def _get_bucket_name():
     try:
         bucket_name = utils.get_environment_var("S3_BUCKET")
     except EnvironmentError as e:
