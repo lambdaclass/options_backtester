@@ -52,7 +52,7 @@ def backup_data():
         msg = "Successful backup of symbols: " + ", ".join(done)
         slack_notification(msg, __name__, status=Status.Success)
     if len(failed) > 0:
-        msg = "Unable to backup symbols: " + ", ".join(done)
+        msg = "Unable to backup symbols: " + ", ".join(failed)
         slack_notification(msg, __name__, status=Status.Warning)
 
 
@@ -75,18 +75,16 @@ def backup_cboe_data_daily():
             if folder.endswith("daily")
         ]
 
-    done_cboe, fail_cboe = _upload_folders(bucket,
-                                           "cboe",
-                                           cboe_folders,
-                                           remove_files=False)
+    done, failed = _upload_folders(bucket,
+                                   "cboe",
+                                   cboe_folders,
+                                   remove_files=False)
 
-    done = done_cboe
-    failed = fail_cboe
     if len(done) > 0:
         msg = "Successful backup of daily cboe symbols: " + ", ".join(done)
         slack_notification(msg, __name__, status=Status.Success)
     if len(failed) > 0:
-        msg = "Unable to backup daily symbols: " + ", ".join(done)
+        msg = "Unable to backup daily symbols: " + ", ".join(failed)
         slack_notification(msg, __name__, status=Status.Warning)
 
 
@@ -110,7 +108,7 @@ def _upload_folders(bucket, scraper, folders, remove_files=False):
 
 
 def _upload_folder(bucket, folder, data_path):
-    """Uploads folder contents to S3 bucket"""
+    """Uploads folder contents to S3 bucket and *deletes* local files"""
     if not os.path.isdir(folder):
         return
 
@@ -123,13 +121,15 @@ def _upload_folder(bucket, folder, data_path):
                 continue
             try:
                 bucket.upload_file(file_path, key)
-                logger.debug("Uploaded file %s to S3", file)
             except Exception as e:
                 msg = "Error uploading data file {} to S3.\nReceived exception message {}".format(
                     file_path, str(e))
                 logger.error(msg, exc_info=True)
                 slack_notification(msg, __name__)
                 raise e
+            else:
+                logger.debug("Uploaded file %s to S3", file)
+                utils.remove_file(file_path, __name__)
 
 
 def _key_exists(bucket, key):
@@ -148,10 +148,9 @@ def _remove_old_files(bucket, prefix):
 
 def _get_bucket_name():
     try:
-        bucket_name = utils.get_environment_var("S3_BUCKET")
+        return utils.get_environment_var("S3_BUCKET")
     except EnvironmentError as e:
         logger.error(str(e))
         slack_notification("Backup failed. Set $S3_BUCKET env variable",
                            __name__)
         raise e
-    return bucket_name
