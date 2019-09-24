@@ -7,7 +7,6 @@
 
 import io
 import os
-import logging
 
 import pandas as pd
 from scrapy.exceptions import DropItem

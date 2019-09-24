@@ -4,7 +4,7 @@ import os
 
 def create_spider_path(spider_name):
     """Reads data path from environment variable `$SCRAPER_DATA_PATH`.
-    If it is not set, defaults to `./data`, and under it creates a dir 
+    If it is not set, defaults to `./data`, and under it creates a dir
     `spider_name`.
     Returns the full path of that dir.
     """
