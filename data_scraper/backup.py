@@ -112,6 +112,7 @@ def _upload_folder(bucket, folder, data_path):
     if not os.path.isdir(folder):
         return
 
+    cleanup_files = []
     for root, dirs, files in os.walk(folder):
         for file in files:
             file_path = os.path.join(root, file)
@@ -129,7 +130,10 @@ def _upload_folder(bucket, folder, data_path):
                 raise e
             else:
                 logger.debug("Uploaded file %s to S3", file)
-                utils.remove_file(file_path, __name__)
+                cleanup_files.append(file_path)
+
+    for file in cleanup_files:
+        utils.remove_file(file, __name__)
 
 
 def _key_exists(bucket, key):
