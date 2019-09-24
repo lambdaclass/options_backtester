@@ -35,10 +35,10 @@ aggregate:
 	pipenv run python -m data_scraper -a
 
 backup:
-	pipenv run python -m data_scraper -b
+	pipenv run python -m data_scraper -b -v
 
 backup_daily:
-	pipenv run python -m data_scraper -d
+	pipenv run python -m data_scraper -d -v
 	
 bench:
 	pipenv run python backtester/test/run_benchmark.py
