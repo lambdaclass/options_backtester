@@ -147,7 +147,6 @@ class FormatData:
         merged.insert(loc=2, column="exchange", value="CBOE")
         merged.insert(loc=6, column="quotedate", value=quote_date)
 
-        spider.logger.warning(merged)
         item['data'] = [merged.to_csv(index=False)]
 
         return item
