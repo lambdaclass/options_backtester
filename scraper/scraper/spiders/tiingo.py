@@ -18,19 +18,18 @@ class TiingoSpider(scrapy.Spider):
     spider_path = utils.create_spider_path(name)
 
     custom_settings = {
+        'ITEM_PIPELINES': {
+            'scraper.pipelines.ValidateAndMergeData': 300,
+            'scraper.pipelines.SaveDataPipeline': 500,
+            'scraper.pipelines.CleanupFiles': 600
+        },
         'SPIDER_DATA_PATH':
         spider_path,
         'FEED_URI':
         os.path.join(
             spider_path, 'tiingo_feed',
             '{}_feed_{}.csv'.format(name,
-                                    datetime.now().strftime('%Y%m%d%H%M%S'))),
-        'FEED_FORMAT':
-        'csv',
-        'FEED_EXPORT_ENCODING':
-        'utf-8',
-        'FEED_EXPORT_FIELDS':
-        ['symbol', 'start_date', 'end_date', 'symbol_path', 'filename']
+                                    datetime.now().strftime('%Y%m%d%H%M%S')))
     }
 
     def __init__(self, symbols_file=None, api_key=None, *args, **kwargs):
@@ -38,7 +37,7 @@ class TiingoSpider(scrapy.Spider):
         self.api_key = api_key or os.environ['TIINGO_API_KEY']
 
         with open(symbols_file, 'r') as f:
-            self.symbols = [symbol.upper() for symbol in f]
+            self.symbols = [symbol.rstrip('\n').upper() for symbol in f]
 
         # Fetch data from 1990-01-01 to current day
         self.start_date = date(1990, 1, 1).strftime('%Y-%m-%d')

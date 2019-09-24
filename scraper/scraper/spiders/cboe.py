@@ -23,20 +23,14 @@ class CBOESpider(scrapy.Spider):
         os.path.join(
             spider_path, 'cboe_feed',
             '{}_feed_{}.csv'.format(name,
-                                    datetime.now().strftime('%Y%m%d%H%M%S'))),
-        'FEED_FORMAT':
-        'csv',
-        'FEED_EXPORT_ENCODING':
-        'utf-8',
-        'FEED_EXPORT_FIELDS':
-        ['symbol', 'start_date', 'end_date', 'symbol_path', 'filename']
+                                    datetime.now().strftime('%Y%m%d%H%M%S')))
     }
 
     def __init__(self, symbols_file=None, *args, **kwargs):
         super(CBOESpider, self).__init__(*args, **kwargs)
 
         with open(symbols_file, 'r') as f:
-            self.symbols = [symbol.upper() for symbol in f]
+            self.symbols = [symbol.rstrip('\n').upper() for symbol in f]
 
     def start_requests(self):
         return [

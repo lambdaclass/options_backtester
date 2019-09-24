@@ -75,6 +75,13 @@ TELNETCONSOLE_ENABLED = False
 # See https://docs.scrapy.org/en/latest/topics/item-pipeline.html
 ITEM_PIPELINES = {'scraper.pipelines.SaveDataPipeline': 500}
 
+# Feed settings
+FEED_FORMAT = 'csv'
+FEED_EXPORT_ENCODING = 'utf-8'
+FEED_EXPORT_FIELDS = [
+    'symbol', 'start_date', 'end_date', 'symbol_path', 'filename'
+]
+
 # Enable and configure the AutoThrottle extension (disabled by default)
 # See https://docs.scrapy.org/en/latest/topics/autothrottle.html
 #AUTOTHROTTLE_ENABLED = True
