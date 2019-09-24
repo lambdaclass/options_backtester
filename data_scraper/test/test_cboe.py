@@ -105,6 +105,7 @@ class TestCBOE(unittest.TestCase):
         self.assertTrue(mocked_notification.called)
         self.assertFalse(mocked_remove.called)
 
+    @staticmethod
     def remove_files(file_path):
         if os.path.exists(file_path):
             shutil.rmtree(file_path)

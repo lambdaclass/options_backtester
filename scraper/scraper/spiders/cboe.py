@@ -17,6 +17,10 @@ class CBOESpider(scrapy.Spider):
     spider_path = utils.create_spider_path(name)
 
     custom_settings = {
+        'ITEM_PIPELINES': {
+            'scraper.pipelines.FormatData': 100,
+            'scraper.pipelines.SaveDataPipeline': 200
+        },
         'SPIDER_DATA_PATH':
         spider_path,
         'FEED_URI':

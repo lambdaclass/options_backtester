@@ -7,11 +7,13 @@
 
 import io
 import os
+import logging
 
 import pandas as pd
 from scrapy.exceptions import DropItem
 
 from scraper.utils import file_hash_matches_data
+from datetime import date
 
 
 class SaveDataPipeline:
@@ -103,5 +105,50 @@ class CleanupFiles:
             spider.logger.debug('Removed {}'.format(file))
             file_path = os.path.join(spider_path, symbol_path, file)
             os.remove(file_path)
+
+        return item
+
+
+class FormatData:
+    """CBOE data formatting"""
+    def process_item(self, item, spider):
+        item_data, = item['data']
+        symbol, = item['symbol']
+        string_data = io.StringIO(item_data)
+        first_line = string_data.readline()
+        spot_price = float(first_line.split(",")[-2])
+        quote_date = date.today().strftime("%m/%d/%Y")
+
+        data = pd.read_csv(string_data, skiprows=1)
+        call_columns = [
+            "Calls", "Expiration Date", "Strike", "Last Sale", "Net", "Bid",
+            "Ask", "Vol", "Open Int", "IV", "Delta", "Gamma"
+        ]
+        calls = data[call_columns]
+
+        put_columns = [
+            "Puts", "Expiration Date", "Strike", "Last Sale.1", "Net.1",
+            "Bid.1", "Ask.1", "Vol.1", "Open Int.1", "IV.1", "Delta.1",
+            "Gamma.1"
+        ]
+        puts = data[put_columns]
+
+        renamed_columns = [
+            "optionroot", "expiration", "strike", "last", "net", "bid", "ask",
+            "volume", "openinterest", "impliedvol", "delta", "gamma"
+        ]
+        calls.columns = renamed_columns
+        calls.insert(loc=1, column="type", value="call")
+        puts.columns = renamed_columns
+        puts.insert(loc=1, column="type", value="put")
+
+        merged = pd.concat([calls, puts])
+        merged.insert(loc=0, column="underlying", value=symbol)
+        merged.insert(loc=1, column="underlying_last", value=spot_price)
+        merged.insert(loc=2, column="exchange", value="CBOE")
+        merged.insert(loc=6, column="quotedate", value=quote_date)
+
+        spider.logger.warning(merged)
+        item['data'] = [merged.to_csv(index=False)]
 
         return item
