@@ -119,6 +119,7 @@ def _upload_folder(bucket, folder, data_path):
             key = os.path.relpath(file_path, data_path)
             if _key_exists(bucket, key):
                 logger.debug("File already exists in S3")
+                cleanup_files.append(file_path)
                 continue
             try:
                 bucket.upload_file(file_path, key)
@@ -133,7 +134,7 @@ def _upload_folder(bucket, folder, data_path):
                 cleanup_files.append(file_path)
 
     for file in cleanup_files:
-        utils.remove_file(file, __name__)
+        utils.remove_file(file, logger)
 
 
 def _key_exists(bucket, key):
