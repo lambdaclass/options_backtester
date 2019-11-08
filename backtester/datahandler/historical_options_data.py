@@ -1,17 +1,26 @@
 import pandas as pd
+import os
 from .schema import Schema
 
 
 class HistoricalOptionsData:
     """Historical Options Data container class."""
-
     def __init__(self, file, schema=None, **params):
         if schema:
             assert isinstance(schema, Schema)
         else:
             self.schema = HistoricalOptionsData.default_schema()
 
-        self._data = pd.read_hdf(file, **params)
+        file_extension = os.path.splitext(file)[1]
+
+        if file_extension == '.h5':
+            self._data = pd.read_hdf(file, **params)
+        elif file_extension == '.csv':
+            params["parse_dates"] = [
+                self.schema.expiration.mapping, self.schema.date.mapping
+            ]
+            self._data = pd.read_csv(file, **params)
+
         columns = self._data.columns
         assert all((col in columns for _key, col in self.schema))
 

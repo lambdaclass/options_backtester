@@ -10,7 +10,6 @@ class Strategy:
     Takes in a number of `legs` (option contracts), and filters that determine
     entry and exit conditions.
     """
-
     def __init__(self, schema):
         assert isinstance(schema, Schema)
         self.schema = schema

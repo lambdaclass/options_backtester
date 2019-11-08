@@ -33,7 +33,7 @@ class Schema:
 
     def __setitem__(self, key, value):
         self._mappings[key] = value
-
+    
     def __getitem__(self, key):
         """Returns mapping of given `key`"""
         return self._mappings[key]
@@ -44,6 +44,9 @@ class Schema:
     def __repr__(self):
         return "Schema({})".format(
             [Field(k, m) for k, m in self._mappings.items()])
+
+    def __eq__(self, other):
+        return self._mappings == other._mappings
 
 
 class Field:
