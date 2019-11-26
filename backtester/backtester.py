@@ -46,14 +46,31 @@ class Backtest:
         for date, entry_signals, exit_signals in self._strategy.signals(
                 self._data):
             self._execute_exit(date, exit_signals)
-            entry_orders = self.process_entry_signals(entry_signals)
-            self._execute_entry(date, entry_orders, entry_signals)
+            self._execute_entry(date, entry_signals)
 
         return self.trade_log
 
-    def process_entry_signals(self, entry_signals):
+    def _execute_entry(self, date, orders, entry_signals):
+        """Executes entry orders and updates `self.inventory` and `self.trade_log`"""
+
+        orders = self._process_entry_signals(entry_signals)
+
+        for leg, (idx, qty) in orders.items():
+            row = entry_signals[leg].loc[idx, :]
+            contract = row["contract"]
+            order = row["order"]
+            price = row["price"]
+            expiration = row["expiration"]
+            cost = price * qty * self.shares_per_contract
+            cost *= -1 if order == Order.STO.name else 1
+            if self.capital >= cost:
+                self.capital -= cost
+                self._inventory.add((contract, leg, qty, expiration))
+                self.strategy.register_entry(contract, price)
+                self._update_trade_log(date, contract, order, qty, -cost)
+
+    def _process_entry_signals(self, entry_signals):
         """Returns a dictionary containing the orders to execute."""
-        # TODO: Move this logic to Strategy.
         # Pass `qty` of contracts to buy/sell to `Backtest.__init__`
 
         orders = {}
@@ -70,21 +87,6 @@ class Backtest:
                 else:
                     orders[leg] = (leg_signals["price"].idxmax(), 1)
         return orders
-
-    def _execute_entry(self, date, orders, entry_signals):
-        """Executes entry orders and updates `self.inventory` and `self.trade_log`"""
-        for leg, (idx, qty) in orders.items():
-            row = entry_signals[leg].loc[idx, :]
-            contract = row["contract"]
-            order = row["order"]
-            price = row["price"]
-            expiration = row["expiration"]
-            cost = price * qty * self.shares_per_contract
-            cost *= -1 if order == Order.STO.name else 1
-            if self.capital >= cost:
-                self.capital -= cost
-                self._inventory.add((contract, leg, qty, expiration))
-                self._update_trade_log(date, contract, order, qty, -cost)
 
     def _execute_exit(self, date, exit_signals):
         """Executes exits and updates `self.inventory` and `self.trade_log`"""

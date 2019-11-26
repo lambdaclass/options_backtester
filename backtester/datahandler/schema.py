@@ -33,7 +33,7 @@ class Schema:
 
     def __setitem__(self, key, value):
         self._mappings[key] = value
-    
+
     def __getitem__(self, key):
         """Returns mapping of given `key`"""
         return self._mappings[key]
