@@ -1,3 +1,6 @@
+from functools import reduce
+from operator import add
+
 import pandas as pd
 
 from .strategy import Strategy
@@ -50,7 +53,26 @@ class Backtest:
 
         return self.trade_log
 
-    def _execute_entry(self, date, orders, entry_signals):
+    def _execute_exit(self, date, exit_signals):
+        """Executes exits and updates `self.inventory` and `self.trade_log`"""
+        remove_set = set()
+
+        for contract, leg, qty, expiration in self._inventory:
+            if contract in exit_signals[leg]["contract"].values:
+                row = exit_signals[leg].query("contract == @contract")
+                price = row["price"].values[0]
+                order = row["order"].values[0]
+                profit = price * qty * self.shares_per_contract
+                profit *= 1 if order == Order.STC.name else -1
+                self.capital += profit
+                self._update_trade_log(date, contract, order, qty, profit)
+                remove_set.add((contract, leg, qty, expiration))
+            elif expiration <= date:
+                remove_set.add((contract, leg, qty, expiration))
+
+        self._inventory.difference_update(remove_set)
+
+    def _execute_entry(self, date, entry_signals):
         """Executes entry orders and updates `self.inventory` and `self.trade_log`"""
 
         orders = self._process_entry_signals(entry_signals)
@@ -73,39 +95,12 @@ class Backtest:
         """Returns a dictionary containing the orders to execute."""
         # Pass `qty` of contracts to buy/sell to `Backtest.__init__`
 
-        orders = {}
-
         if not entry_signals.empty:
-            for leg in entry_signals.legs:
-                leg_signals = entry_signals[leg]
-                # Filter out zero priced options
-                leg_signals = leg_signals.query("price > 0.0")
-                if leg_signals.empty:
-                    return {}
-                if (leg_signals["order"] == Order.BTO.name).any():
-                    orders[leg] = (leg_signals["price"].idxmin(), 1)
-                else:
-                    orders[leg] = (leg_signals["price"].idxmax(), 1)
-        return orders
-
-    def _execute_exit(self, date, exit_signals):
-        """Executes exits and updates `self.inventory` and `self.trade_log`"""
-        remove_set = set()
-
-        for contract, leg, qty, expiration in self._inventory:
-            if contract in exit_signals[leg]["contract"].values:
-                row = exit_signals[leg].query("contract == @contract")
-                price = row["price"].values[0]
-                order = row["order"].values[0]
-                profit = price * qty * self.shares_per_contract
-                profit *= 1 if order == Order.STC.name else -1
-                self.capital += profit
-                self._update_trade_log(date, contract, order, qty, profit)
-                remove_set.add((contract, leg, qty, expiration))
-            elif expiration <= date:
-                remove_set.add((contract, leg, qty, expiration))
-
-        self._inventory.difference_update(remove_set)
+            legs = entry_signals.columns.levels[0]
+            costs = reduce(add, (entry_signals[leg]["cost"] for leg in legs))
+            return entry_signals.loc[costs.idxmin()]
+        else:
+            return entry_signals
 
     def _update_trade_log(self, date, contract, order, qty, profit):
         """Adds entry for the given order to `self.trade_log`."""

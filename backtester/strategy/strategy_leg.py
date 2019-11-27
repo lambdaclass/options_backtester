@@ -13,8 +13,9 @@ class StrategyLeg:
         self.schema = schema
         self.type = option_type
         self.direction = direction
-        self._entry_filter = self.schema.type == self.type.value
-        self._exit_filter = self.schema.type == self.type.value
+
+        self._entry_filter = self._base_entry_filter()
+        self._exit_filter = self._base_exit_filter()
 
     @property
     def entry_filter(self):
@@ -24,7 +25,7 @@ class StrategyLeg:
     @entry_filter.setter
     def entry_filter(self, flt):
         """Sets the entry filter"""
-        self._entry_filter = (self.schema.type == self.type.value) & flt
+        self._entry_filter = self._base_entry_filter() & flt
 
     @property
     def exit_filter(self):
@@ -34,7 +35,18 @@ class StrategyLeg:
     @exit_filter.setter
     def exit_filter(self, flt):
         """Sets the exit filter"""
-        self._exit_filter = (self.schema.type == self.type.value) & flt
+        self._exit_filter = self._base_exit_filter() & flt
+
+    def _base_entry_filter(self):
+        if self.direction == Direction.BUY:
+            return (self.schema.type == self.type.value) & (self.schema.ask >
+                                                            0)
+        else:
+            return (self.schema.type == self.type.value) & (self.schema.bid >
+                                                            0)
+
+    def _base_exit_filter(self):
+        return self.schema.type == self.type.value
 
     def __repr__(self):
         return "StrategyLeg(type={}, direction={}, entry_filter={}, exit_filter={})".format(

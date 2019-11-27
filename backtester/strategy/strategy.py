@@ -3,6 +3,7 @@ from collections import namedtuple
 import pandas as pd
 
 from backtester.datahandler import Schema
+from backtester.option import Direction
 from .strategy_leg import StrategyLeg
 from .signal import Signal, get_order
 
@@ -78,7 +79,7 @@ class Strategy:
 
             exit_legs = self._filter_legs(group, signal=Signal.EXIT)
             exit_df = pd.concat(exit_legs, axis=1)
-            entry_df.legs = exit_df.legs = exit_df.columns.levels[0]
+            # entry_df.legs = exit_df.legs = exit_df.columns.levels[0]
 
             yield (date, entry_df, exit_df)
 
@@ -88,13 +89,13 @@ class Strategy:
         """
         schema = self.schema
         dfs = []
-        for number, leg in enumerate(self.legs, start=1):
+        for leg in self.legs:
             if signal == Signal.ENTRY:
                 flt = leg.entry_filter
-                price = leg.direction.value
+                cost = leg.direction.value
             else:
                 flt = leg.exit_filter
-                price = (~leg.direction).value
+                cost = (~leg.direction).value
 
             df = flt(data)
             fields = {
@@ -103,13 +104,18 @@ class Strategy:
                 schema["expiration"]: "expiration",
                 schema["type"]: "type",
                 schema["strike"]: "strike",
-                schema[price]: "price"
+                schema[cost]: "cost"
             }
             subset_df = df.loc[:, fields.keys()]
             subset_df.rename(columns=fields, inplace=True)
 
             order = get_order(leg.direction, signal)
             subset_df["order"] = order.name
+
+            # Change sign of cost for SELL orders
+            if leg.direction == Direction.SELL:
+                subset_df["cost"] = -subset_df["cost"]
+
             dfs.append(subset_df.reset_index(drop=True))
 
         return self._apply_conditions(dfs)
