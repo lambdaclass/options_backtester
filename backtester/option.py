@@ -1,14 +1,20 @@
 # Option Enum types
 from enum import Enum
 
-Type = Enum("Type", {"CALL": "call", "PUT": "put"})
-Direction = Enum("Direction", {"BUY": "ask", "SELL": "bid"})
+
+class Type(Enum):
+    CALL = 'call'
+    PUT = 'put'
+
+    def __invert__(self):
+        flip = Type.PUT if self == Type.CALL else Type.CALL
+        return flip
 
 
-def flip(enum_type):
-    """Returns the other value of `Type` or `Direction`"""
-    assert isinstance(enum_type, Type) or isinstance(enum_type, Direction)
+class Direction(Enum):
+    BUY = 'ask'
+    SELL = 'bid'
 
-    for e in type(enum_type):
-        if e != enum_type:
-            return e
+    def __invert__(self):
+        flip = Direction.SELL if self == Direction.BUY else Direction.SELL
+        return flip

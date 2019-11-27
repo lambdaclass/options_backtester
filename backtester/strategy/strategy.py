@@ -3,7 +3,6 @@ from collections import namedtuple
 import pandas as pd
 
 from backtester.datahandler import Schema
-from backtester.option import flip
 from .strategy_leg import StrategyLeg
 from .signal import Signal, get_order
 
@@ -95,7 +94,7 @@ class Strategy:
                 price = leg.direction.value
             else:
                 flt = leg.exit_filter
-                price = flip(leg.direction).value
+                price = (~leg.direction).value
 
             df = flt(data)
             fields = {
