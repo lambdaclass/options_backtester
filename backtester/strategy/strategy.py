@@ -63,7 +63,7 @@ class Strategy:
         given profit/loss levels"""
         self.entries.add(contract)
 
-    def signals(self, data):
+    def signals(self, data, bt):
         """Iterates over `data` and yields a tuple of
         `(date, entry_signals, exit_signals)` for each time step.
         """
@@ -77,10 +77,10 @@ class Strategy:
             else:
                 entry_df = pd.concat(entry_legs, axis=1)
 
-            exit_legs = self._filter_legs(group, signal=Signal.EXIT)
-            exit_df = pd.concat(exit_legs, axis=1)
-            # entry_df.legs = exit_df.legs = exit_df.columns.levels[0]
-
+            # exit_legs = self._filter_legs(group, signal=Signal.EXIT)
+            # exit_df = pd.concat(exit_legs, axis=1)
+            exit_df = self._filter_exits(data, bt.inventory,
+                                         ['leg_1', 'leg_2'])
             yield (date, entry_df, exit_df)
 
     def _filter_legs(self, data, signal=Signal.ENTRY):
@@ -119,6 +119,30 @@ class Strategy:
             dfs.append(subset_df.reset_index(drop=True))
 
         return self._apply_conditions(dfs)
+
+    def _filter_exits(self, data, inventory, legs):
+        exits = []
+        for index, row in inventory.iterrows():
+            old_price = 0
+            current_price = 0
+            contracts = set()
+            for leg in legs:
+                contract = row[leg]['contract']
+                order = get_order(~leg.direction, Signal.EXIT)
+                contracts.add((contract, order))
+                old_price += row[leg]['price']
+                option = data[data['optionroot'] == contract]
+                if order[0] == 'B':
+                    current_price -= option['ask']
+                else:
+                    current_price += option['bid']
+            if (current_price <= 0.8 * old_price) & (current_price >=
+                                                     1.2 * old_price):
+                exits.append((contracts, current_price))
+            else:
+                # Filter the data according to the exit filters and append to exits the contracts that need to exit
+                pass
+        return exits
 
     def _apply_conditions(self, dfs):
         """Applies conditions on the specified legs."""
