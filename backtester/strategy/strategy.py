@@ -5,7 +5,7 @@ import pandas as pd
 from backtester.datahandler import Schema
 from backtester.option import Direction
 from .strategy_leg import StrategyLeg
-from .signal import Signal, get_order
+from .signal import Signal, get_order, Order
 
 Condition = namedtuple('Condition', 'fields legs tolerance')
 
@@ -22,11 +22,14 @@ class Strategy:
         self.legs = []
         self.conditions = []
         self.entries = set()
+        self.exit_thresholds = []
+        self.dte_on_exit = 2
 
     def add_leg(self, leg):
         """Adds leg to the strategy"""
         assert isinstance(leg, StrategyLeg)
         assert self.schema == leg.schema
+        leg.name = "leg_{}".format(len(self.legs) + 1)
         self.legs.append(leg)
         return self
 
@@ -35,7 +38,7 @@ class Strategy:
         for leg in legs:
             assert isinstance(leg, StrategyLeg)
             assert self.schema == leg.schema
-        self.legs.extend(legs)
+            self.add_leg(leg)
         return self
 
     def remove_leg(self, leg_number):
@@ -77,10 +80,8 @@ class Strategy:
             else:
                 entry_df = pd.concat(entry_legs, axis=1)
 
-            # exit_legs = self._filter_legs(group, signal=Signal.EXIT)
-            # exit_df = pd.concat(exit_legs, axis=1)
-            exit_df = self._filter_exits(data, bt.inventory,
-                                         ['leg_1', 'leg_2'])
+            exit_df = self._filter_exits(group, bt.inventory)
+
             yield (date, entry_df, exit_df)
 
     def _filter_legs(self, data, signal=Signal.ENTRY):
@@ -120,28 +121,46 @@ class Strategy:
 
         return self._apply_conditions(dfs)
 
-    def _filter_exits(self, data, inventory, legs):
+    def _filter_exits(self, data, inventory):
         exits = []
-        for index, row in inventory.iterrows():
+        for _, row in inventory.iterrows():
             old_price = 0
             current_price = 0
             contracts = set()
-            for leg in legs:
-                contract = row[leg]['contract']
-                order = get_order(~leg.direction, Signal.EXIT)
-                contracts.add((contract, order))
-                old_price += row[leg]['price']
+            is_empty = False
+            filters_exit = False
+            for leg in self.legs:
+                contract = row[(leg.name, 'contract')]
+                order = get_order(leg.direction, Signal.EXIT).name
+                old_price += row[(leg.name, 'cost')]
                 option = data[data['optionroot'] == contract]
-                if order[0] == 'B':
-                    current_price -= option['ask']
+
+                # This was originally to skip (and then remove) entries that are past their expiration and therefore
+                # don't have a corresponding exit anymore (i.e, option is empty). It doesn't work, however, because
+                # option might just be empty because of missing data in the middle. Moreover, even if the entry is
+                # past its expiration the current code will still execute the other exit legs associated with it,
+                # which is inaccurate. This last point can only be truly resolved by not executing the entry
+                # in the first place.
+                if option.empty:
+                    is_empty = True
+                    contracts.add((contract, order, 0))
+                    continue
+                #
+                if order == Order.BTC.name:
+                    ask = option['ask'].values[0]
+                    current_price -= ask
+                    contracts.add((contract, order, -ask))
                 else:
-                    current_price += option['bid']
-            if (current_price <= 0.8 * old_price) & (current_price >=
-                                                     1.2 * old_price):
+                    bid = option['bid'].values[0]
+                    current_price += bid
+                    contracts.add((contract, order, bid))
+                flt = leg.exit_filter
+                option = flt(option)
+                if not option.empty:
+                    filters_exit = True
+            if is_empty or filters_exit or self._is_past_threshold(
+                    current_price, old_price):
                 exits.append((contracts, current_price))
-            else:
-                # Filter the data according to the exit filters and append to exits the contracts that need to exit
-                pass
         return exits
 
     def _apply_conditions(self, dfs):
@@ -165,6 +184,12 @@ class Strategy:
                 [["leg_{}".format(i + 1)], dfs[i].columns])
 
         return dfs
+
+    def _is_past_threshold(self, current_price, old_price):
+        current_abs = abs(current_price)
+        old_abs = abs(old_price)
+        return (current_abs <= self.exit_thresholds[0] * old_abs) or (
+            current_abs >= self.exit_thresholds[1] * old_abs)
 
     def __repr__(self):
         return "Strategy(legs={}, conditions={})".format(
