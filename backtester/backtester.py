@@ -62,25 +62,22 @@ class Backtest:
         cost = total_price * self.qty * self.shares_per_contract
 
         if (not self.stop_if_broke) or (self.capital >= cost):
-            self.capital -= cost
             self.inventory = self.inventory.append(entry, ignore_index=True)
-            legs = entry_signals.columns.levels[0]
-            for leg in legs:
-                row = entry[leg]
+            for leg in self._strategy.legs:
+                row = entry[leg.name]
                 contract = row["contract"]
                 order = row["order"]
                 price = row["cost"] * self.shares_per_contract
+                self.capital -= price
                 self._update_trade_log(date, contract, order, self.qty, -price)
 
     def _execute_exit(self, date, exit_signals):
         """Executes exits and updates `self.inventory` and `self.trade_log`"""
         for contracts, price in exit_signals:
-            profit = price * self.qty * self.shares_per_contract
             for contract, order, individual_price in contracts:
-                self._update_trade_log(
-                    date, contract, order, self.qty,
-                    individual_price * self.shares_per_contract)
-            self.capital += profit
+                profit = individual_price * self.qty * self.shares_per_contract
+                self.capital += profit
+                self._update_trade_log(date, contract, order, self.qty, profit)
             for leg in self._strategy.legs:
                 self.inventory = self.inventory.drop(
                     self.inventory[self.inventory[(
