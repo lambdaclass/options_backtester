@@ -5,11 +5,16 @@ from backtester.datahandler import Schema
 class StrategyLeg:
     """Strategy Leg data class"""
 
-    def __init__(self, schema, option_type=Type.CALL, direction=Direction.BUY):
+    def __init__(self,
+                 name,
+                 schema,
+                 option_type=Type.CALL,
+                 direction=Direction.BUY):
         assert isinstance(schema, Schema)
         assert isinstance(option_type, Type)
         assert isinstance(direction, Direction)
 
+        self.name = name
         self.schema = schema
         self.type = option_type
         self.direction = direction
@@ -49,5 +54,6 @@ class StrategyLeg:
         return self.schema.type == self.type.value
 
     def __repr__(self):
-        return "StrategyLeg(type={}, direction={}, entry_filter={}, exit_filter={})".format(
-            self.type, self.direction, self._entry_filter, self._exit_filter)
+        return "StrategyLeg(name={}, type={}, direction={}, entry_filter={}, exit_filter={})".format(
+            self.name, self.type, self.direction, self._entry_filter,
+            self._exit_filter)

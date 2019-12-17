@@ -1,6 +1,3 @@
-from functools import reduce
-from operator import add
-
 import pandas as pd
 
 from .strategy import Strategy
@@ -27,7 +24,6 @@ class Backtest:
     def strategy(self, strat):
         assert isinstance(strat, Strategy)
         self._strategy = strat
-        return self
 
     @property
     def data(self):
@@ -37,18 +33,20 @@ class Backtest:
     def data(self, data):
         assert isinstance(data, HistoricalOptionsData)
         self._data = data
-        return self
 
     def run(self):
-        """Runs the backtest and returns a `pd.DataFrame` of the orders executed."""
+        """Runs the backtest and returns a `pd.DataFrame` of the orders executed (`self.trade_log`)"""
         assert self._data is not None
         assert self._strategy is not None
+        assert self._data.schema == self._strategy.schema
 
         self.trade_log = pd.DataFrame(
             columns=["date", "contract", "order", "qty", "profit", "capital"])
 
-        for date, entry_signals, exit_signals in self._strategy.signals(
-                self._data, self):
+        for date, options in self._data.iter_dates():
+            entry_signals = self._strategy.filter_entries(options)
+            exit_signals = self._strategy.filter_exits(options, self.inventory)
+
             self._execute_exit(date, exit_signals)
             self._execute_entry(date, entry_signals)
 
@@ -62,12 +60,13 @@ class Backtest:
         cost = total_price * self.qty * self.shares_per_contract
 
         if (not self.stop_if_broke) or (self.capital >= cost):
+            entry['totals']['cost'] = cost
             self.inventory = self.inventory.append(entry, ignore_index=True)
             for leg in self._strategy.legs:
                 row = entry[leg.name]
                 contract = row["contract"]
                 order = row["order"]
-                price = row["cost"] * self.shares_per_contract
+                price = row["cost"] * self.qty * self.shares_per_contract
                 self.capital -= price
                 self._update_trade_log(date, contract, order, self.qty, -price)
 
@@ -88,7 +87,7 @@ class Backtest:
 
         if not entry_signals.empty:
             legs = entry_signals.columns.levels[0]
-            costs = reduce(add, (entry_signals[leg]["cost"] for leg in legs))
+            costs = sum((entry_signals[leg]["cost"] for leg in legs))
             return entry_signals.loc[costs.idxmin()], costs.min()
         else:
             return entry_signals, 0
