@@ -158,7 +158,7 @@ class Filter:
 
     def __call__(self, data):
         """Returns dataframe of filtered data"""
-        return data.query(self.query)
+        return data.eval(self.query)
 
     def __repr__(self):
         return "Filter(query='{}')".format(self.query)

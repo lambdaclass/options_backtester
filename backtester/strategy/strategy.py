@@ -60,12 +60,14 @@ class Strategy:
         return self
 
     def add_exit_thresholds(self, profit_pct=0.0, loss_pct=0.0):
-        """Adds maximum profit/loss thresholds.
+        """Adds maximum profit/loss thresholds. Both **must** be >= 0.0
 
         Args:
             profit_pct (float, optional):   Max profit level. Defaults to 0.0
             loss_pct (float, optional):     Max loss level. Defaults to 0.0
         """
+        assert profit_pct >= 0
+        assert loss_pct >= 0
         self.exit_thresholds = (profit_pct, loss_pct)
 
     def filter_entries(self, options):
@@ -133,17 +135,17 @@ class Strategy:
                 flt = leg.exit_filter
                 cost_field = (~leg.direction).value
 
-            df = flt(options)
+            df = options[flt(options)]
             fields = self._signal_fields(cost_field)
             subset_df = df.loc[:, fields.keys()]
             subset_df.rename(columns=fields, inplace=True)
 
             order = get_order(leg.direction, signal)
-            subset_df["order"] = order.name
+            subset_df['order'] = order.name
 
             # Change sign of cost for SELL orders
             if leg.direction == Direction.SELL:
-                subset_df["cost"] = -subset_df["cost"]
+                subset_df['cost'] = -subset_df['cost']
 
             dfs.append(subset_df.reset_index(drop=True))
 
