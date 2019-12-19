@@ -8,7 +8,24 @@ Signal = Enum("Signal", "ENTRY EXIT")
 # BTC: Buy to Close
 # STO: Sell to Open
 # STC: Sell to Close
-Order = Enum("Order", "BTO BTC STO STC")
+# Order = Enum("Order", "BTO BTC STO STC")
+
+
+class Order(Enum):
+    BTO = 'BTO'
+    BTC = 'BTC'
+    STO = 'STO'
+    STC = 'STC'
+
+    def __invert__(self):
+        if self == Order.BTO:
+            return Order.STC
+        elif self == Order.BTC:
+            return Order.STO
+        elif self == Order.STO:
+            return Order.BTC
+        elif self == Order.STC:
+            return Order.BTO
 
 
 def get_order(direction, signal):

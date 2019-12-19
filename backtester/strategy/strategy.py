@@ -3,10 +3,11 @@ from collections import namedtuple
 import pandas as pd
 import numpy as np
 
+from functools import reduce
 from backtester.datahandler import Schema
 from backtester.option import Direction
 from .strategy_leg import StrategyLeg
-from .signal import Signal, get_order, Order
+from .signal import Signal, get_order
 
 Condition = namedtuple('Condition', 'fields legs tolerance')
 
@@ -92,27 +93,44 @@ class Strategy:
             pd.DataFrame:               Exit signals
         """
 
+        # inventory could be empty, in which case this function breaks.
+        if inventory.empty:
+            return
+
         underlying_col, spot_col = self.schema['underlying'], self.schema[
             'underlying_last']
         underlying_symbols = options.loc[:, (
             underlying_col, spot_col)].drop_duplicates(underlying_col)
         spot_prices = underlying_symbols.set_index(underlying_col).to_dict()
 
-        leg_costs = [
-            self._exit_costs(~l.direction, inventory[l.name], options,
-                             spot_prices) for l in self.legs
+        leg_candidates = [
+            self._exit_candidates(l.direction, inventory[l.name], options,
+                                  spot_prices) for l in self.legs
         ]
 
-        total_costs = sum((l['current_cost'] for l in leg_costs))
-        threshold_exits = self._filter_thresholds(inventory['cost'],
+        total_costs = sum([l['cost'] for l in leg_candidates])
+        threshold_exits = self._filter_thresholds(inventory['totals']['cost'],
                                                   total_costs)
 
-        # Only check exits for options in inventory
-        subset = options[self.schema['contract']].isin(inventory['contract'])
-        options_in_inventory = options[subset]
+        filter_mask = []
+        for i, leg in enumerate(self.legs):
+            flt = leg.exit_filter
+            filter_mask.append(flt(leg_candidates[i]))
+            fields = self._signal_fields((~leg.direction).value)
+            leg_candidates[i] = leg_candidates[i].loc[:, fields.values()]
+            leg_candidates[i].columns = pd.MultiIndex.from_product(
+                [["leg_{}".format(i + 1)], leg_candidates[i].columns])
 
-        exit_df = self._filter_legs(options_in_inventory, Signal.EXIT)
-        return total_costs & threshold_exits
+        totals = pd.DataFrame.from_dict({"cost": total_costs})
+        totals.columns = pd.MultiIndex.from_product([["totals"],
+                                                     totals.columns])
+        leg_candidates.append(totals)
+        filter_mask = reduce(lambda x, y: x | y, filter_mask)
+        exits_mask = threshold_exits | filter_mask
+
+        exits = pd.concat([l[exits_mask] for l in leg_candidates], axis=1)
+
+        return (exits, exits_mask, total_costs[exits_mask])
 
     def _filter_legs(self, options, signal):
         """Returns a hierarchically indexed `pd.DataFrame` containing signals for each
@@ -137,7 +155,7 @@ class Strategy:
 
             df = options[flt(options)]
             fields = self._signal_fields(cost_field)
-            subset_df = df.loc[:, fields.keys()]
+            subset_df = df.reindex(columns=fields.keys())
             subset_df.rename(columns=fields, inplace=True)
 
             order = get_order(leg.direction, signal)
@@ -146,6 +164,11 @@ class Strategy:
             # Change sign of cost for SELL orders
             if leg.direction == Direction.SELL:
                 subset_df['cost'] = -subset_df['cost']
+
+            # shares_per_contract_ hardcoded, we calculate this here so that inventory['totals']['cost'] shows the
+            # actual value that was paid to enter (we should multiply by qty as well but its default value is 1).
+            # This should probably be moved?
+            subset_df['cost'] *= 100
 
             dfs.append(subset_df.reset_index(drop=True))
 
@@ -158,7 +181,9 @@ class Strategy:
             self.schema['expiration']: 'expiration',
             self.schema['type']: 'type',
             self.schema['strike']: 'strike',
-            self.schema[cost_field]: 'cost'
+            self.schema[cost_field]: 'cost',
+            self.schema['date']: 'date',
+            'order': 'order'
         }
 
         return fields
@@ -179,14 +204,24 @@ class Strategy:
                 dfs[i] = dfs[i].loc[condition_idx]
                 dfs[i].reset_index(inplace=True)
 
+        if any(df.empty for df in dfs):
+            return pd.DataFrame()
+
+        cost = sum(leg["cost"] for leg in dfs)
+        totals = pd.DataFrame.from_dict({"cost": cost})
+        totals.columns = pd.MultiIndex.from_product([["totals"],
+                                                     totals.columns])
+
         for i in range(len(dfs)):
             dfs[i].columns = pd.MultiIndex.from_product(
                 [["leg_{}".format(i + 1)], dfs[i].columns])
 
-        return dfs
+        dfs.append(totals)
 
-    def _exit_costs(self, direction, inventory_leg, options, spot_prices):
-        """Returns the exit cost (positive for STC orders) for the given inventory leg.
+        return pd.concat(dfs, axis=1)
+
+    def _exit_candidates(self, direction, inventory_leg, options, spot_prices):
+        """Returns the exit candidates for the given inventory leg with their order and cost (positive for STC orders).
 
         Args:
             direction (option.Direction):   Direction of the leg for `Signal.EXIT`
@@ -199,36 +234,27 @@ class Strategy:
             (possibly imputed) cost for the contracts in `inventory_leg`
         """
 
-        options_cost = options[[
-            self.schema['contract'], self.schema[direction.value]
-        ]]
-
         # FIXME: Leaky abstraction (inventory schema)
-        leg_cost = inventory_leg[['underlying', 'contract', 'cost'
-                                  ]].merge(options_cost,
-                                           how='left',
-                                           left_on='contract',
-                                           right_on=self.schema['contract'])
+        # This is a left join to ensure that the result has the same length as the inventory. If the contract isn't in
+        # the daily data the values will all be NaN and the filters should all yield False.
+        fields = self._signal_fields((~direction).value)
+        options = options.rename(columns=fields)
+        candidates = inventory_leg[['contract']].merge(options,
+                                                       how='left',
+                                                       on='contract')
 
-        def calculate_cost(row):
-            price = row[self.schema[direction.value]]
-            if pd.isna(price):
-                # Impute contract price from the difference between spot and strike
-                imputed = spot_prices[row['underlying']] - row['strike']
-                if row['type'] == 'put':
-                    imputed = -imputed
-
-                price = max(imputed, 0)
-
-            return price
-
-        leg_cost['current_cost'] = leg_cost.apply(calculate_cost, axis=1)
+        order = get_order(direction, Signal.EXIT)
+        candidates['order'] = order.name
 
         # Change sign of cost for SELL orders
-        if direction == Direction.SELL:
-            leg_cost['current_cost'] = -leg_cost['current_cost']
+        if ~direction == Direction.SELL:
+            candidates['cost'] = -candidates['cost']
 
-        return leg_cost
+        # This is shares_per_contract hardcoded because it is currently an attribute of the backtester. See the comment
+        # on _filter_legs.
+        candidates['cost'] *= 100
+
+        return candidates
 
     def _filter_thresholds(self, entry_cost, current_cost):
         """Returns a `pd.Series` of booleans indicating where profit (loss) levels
