@@ -6,10 +6,9 @@ from .datahandler import HistoricalOptionsData
 
 class Backtest:
     """Processes signals from the Strategy object"""
-    def __init__(self, qty=1, capital=1_000_000, shares_per_contract=100):
+
+    def __init__(self, capital=1_000_000):
         self.capital = capital
-        self.shares_per_contract = shares_per_contract
-        self.qty = qty
         self._strategy = None
         self._data = None
         self.inventory = pd.DataFrame()
@@ -47,12 +46,22 @@ class Backtest:
         assert self._strategy is not None
         assert self._data.schema == self._strategy.schema
 
+        index = pd.MultiIndex.from_product(
+            [[l.name for l in self._strategy.legs],
+             [
+                 'contract', 'underlying', 'expiration', 'type', 'strike',
+                 'cost', 'date', 'order'
+             ]])
+        index_totals = pd.MultiIndex.from_product([['totals'], ['cost']])
+        self.inventory = pd.DataFrame(columns=index.append(index_totals))
         self.trade_log = pd.DataFrame()
 
-        data_iterator = self._data.iter_months() if monthly else self._data.iter_dates()
+        data_iterator = self._data.iter_months(
+        ) if monthly else self._data.iter_dates()
 
         for _date, options in data_iterator:
-            entry_signals = self._strategy.filter_entries(options, self.inventory)
+            entry_signals = self._strategy.filter_entries(
+                options, self.inventory)
             exit_signals = self._strategy.filter_exits(options, self.inventory)
 
             self._execute_exit(exit_signals)
@@ -84,9 +93,11 @@ class Backtest:
 
         if not entry_signals.empty:
             costs = entry_signals['totals']['cost']
-            return entry_signals.loc[costs.idxmin():costs.idxmin()], costs.min()
+            return entry_signals.loc[costs.idxmin():costs.idxmin()], costs.min(
+            )
         else:
             return entry_signals, 0
 
     def __repr__(self):
-        return "Backtest(capital={}, strategy={})".format(self.capital, self._strategy)
+        return "Backtest(capital={}, strategy={})".format(
+            self.capital, self._strategy)
