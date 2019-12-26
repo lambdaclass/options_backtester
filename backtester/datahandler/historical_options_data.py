@@ -16,16 +16,13 @@ class HistoricalOptionsData:
         if file_extension == '.h5':
             self._data = pd.read_hdf(file, **params)
         elif file_extension == '.csv':
-            params["parse_dates"] = [
-                self.schema.expiration.mapping, self.schema.date.mapping
-            ]
+            params["parse_dates"] = [self.schema.expiration.mapping, self.schema.date.mapping]
             self._data = pd.read_csv(file, **params)
 
         columns = self._data.columns
         assert all((col in columns for _key, col in self.schema))
 
-        self._data["dte"] = (self._data["expiration"] -
-                             self._data["quotedate"]).dt.days
+        self._data["dte"] = (self._data["expiration"] - self._data["quotedate"]).dt.days
         self.schema.update({"dte": "dte"})
 
     def apply_filter(self, f):
@@ -35,6 +32,10 @@ class HistoricalOptionsData:
     def iter_dates(self):
         """Returns `pd.DataFrameGroupBy` that groups contracts by date"""
         return self._data.groupby(self.schema["date"])
+
+    def iter_months(self):
+        """Returns `pd.DataFrameGroupBy` that groups contracts by month"""
+        return self._data.groupby(pd.Grouper(key=self.schema["date"], freq="MS"))
 
     def __getattr__(self, attr):
         """Pass method invocation to `self._data`"""
