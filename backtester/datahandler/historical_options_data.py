@@ -35,7 +35,12 @@ class HistoricalOptionsData:
 
     def iter_months(self):
         """Returns `pd.DataFrameGroupBy` that groups contracts by month"""
-        return self._data.groupby(pd.Grouper(key=self.schema["date"], freq="MS"))
+        date_col = self.schema["date"]
+        iterator = self._data.groupby(
+            pd.Grouper(key=date_col,
+                       freq="MS")).apply(lambda g: g[g[date_col] == g[date_col].min()]).reset_index(drop=True).groupby(
+                           pd.Grouper(key=date_col, freq="MS"))
+        return iterator
 
     def __getattr__(self, attr):
         """Pass method invocation to `self._data`"""
@@ -51,8 +56,11 @@ class HistoricalOptionsData:
             return method
 
     def __getitem__(self, item):
-        key = self.schema[item]
-        return self._data[key]
+        if isinstance(item, pd.Series):
+            return self._data[item]
+        else:
+            key = self.schema[item]
+            return self._data[key]
 
     def __setitem__(self, key, value):
         self._data[key] = value
