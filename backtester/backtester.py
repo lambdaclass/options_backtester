@@ -1,4 +1,5 @@
 import pandas as pd
+import pyprind
 
 from .strategy import Strategy
 from .datahandler import HistoricalOptionsData
@@ -48,24 +49,22 @@ class Backtest:
 
         index = pd.MultiIndex.from_product(
             [[l.name for l in self._strategy.legs],
-             [
-                 'contract', 'underlying', 'expiration', 'type', 'strike',
-                 'cost', 'date', 'order'
-             ]])
+             ['contract', 'underlying', 'expiration', 'type', 'strike', 'cost', 'date', 'order']])
         index_totals = pd.MultiIndex.from_product([['totals'], ['cost']])
         self.inventory = pd.DataFrame(columns=index.append(index_totals))
         self.trade_log = pd.DataFrame()
 
-        data_iterator = self._data.iter_months(
-        ) if monthly else self._data.iter_dates()
+        data_iterator = self._data.iter_months() if monthly else self._data.iter_dates()
+        bar = pyprind.ProgBar(data_iterator.ngroups, bar_char='█')
 
         for _date, options in data_iterator:
-            entry_signals = self._strategy.filter_entries(
-                options, self.inventory)
+            entry_signals = self._strategy.filter_entries(options, self.inventory)
             exit_signals = self._strategy.filter_exits(options, self.inventory)
 
             self._execute_exit(exit_signals)
             self._execute_entry(entry_signals)
+
+            bar.update()
 
         return self.trade_log
 
@@ -92,12 +91,11 @@ class Backtest:
         """Returns a dictionary containing the orders to execute."""
 
         if not entry_signals.empty:
-            costs = entry_signals['totals']['cost']
-            return entry_signals.loc[costs.idxmin():costs.idxmin()], costs.min(
-            )
+            # costs = entry_signals['totals']['cost']
+            # return entry_signals.loc[costs.idxmin():costs.idxmin()], costs.min()
+            return entry_signals.iloc[0], entry_signals.iloc[0]['totals']['cost']
         else:
             return entry_signals, 0
 
     def __repr__(self):
-        return "Backtest(capital={}, strategy={})".format(
-            self.capital, self._strategy)
+        return "Backtest(capital={}, strategy={})".format(self.capital, self._strategy)

@@ -18,6 +18,7 @@ class Strategy:
     Takes in a number of `StrategyLeg`'s (option contracts), and filters that determine
     entry and exit conditions.
     """
+
     def __init__(self, schema, qty=1, shares_per_contract=100):
         assert isinstance(schema, Schema)
         self.schema = schema

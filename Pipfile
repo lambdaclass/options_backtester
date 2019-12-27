@@ -14,6 +14,7 @@ pandas-market-calendars = "*"
 boto3 = "*"
 pytest = "*"
 tables = "*"
+pyprind = "*"
 
 [dev-packages]
 yapf = "*"
