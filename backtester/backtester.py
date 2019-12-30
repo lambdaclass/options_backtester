@@ -96,5 +96,29 @@ class Backtest:
         else:
             return entry_signals, 0
 
+    def summary(self):
+        df = self.trade_log
+
+        entries_mask = df.apply(lambda row: row['leg_1']['order'][2] == 'O', axis=1)
+        entries = df.loc[entries_mask]
+        exits = df.loc[~entries_mask]
+        trades = entries.merge(exits,
+                               on=[(l.name, 'contract') for l in self._strategy.legs],
+                               suffixes=['_entry', '_exit'])
+
+        costs = trades.apply(lambda row: row['totals_entry']['cost'] + row['totals_exit']['cost'], axis=1)
+        wins_mask = costs < 0
+        total_trades = len(trades)
+        win_number = sum(wins_mask)
+        loss_number = total_trades - win_number
+        win_pct = win_number / total_trades
+        largest_loss = costs.max()
+
+        data = [total_trades, win_number, loss_number, win_pct, largest_loss]
+        stats = ['Total trades', 'Number of wins', 'Number of losses', 'Win %', 'Largest loss']
+        strat = ['Strategy']
+        summary = pd.DataFrame(data, stats, strat)
+        return summary
+
     def __repr__(self):
         return "Backtest(capital={}, strategy={})".format(self.current_capital, self._strategy)
