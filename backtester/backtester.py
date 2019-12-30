@@ -7,9 +7,8 @@ from .datahandler import HistoricalOptionsData
 
 class Backtest:
     """Processes signals from the Strategy object"""
-
     def __init__(self, capital=1_000_000):
-        self.capital = capital
+        self.initial_capital = self.current_capital = capital
         self._strategy = None
         self._data = None
         self.inventory = pd.DataFrame()
@@ -72,10 +71,10 @@ class Backtest:
         """Executes entry orders and updates `self.inventory` and `self.trade_log`"""
         entry, total_price = self._process_entry_signals(entry_signals)
 
-        if (not self.stop_if_broke) or (self.capital >= total_price):
+        if (not self.stop_if_broke) or (self.current_capital >= total_price):
             self.inventory = self.inventory.append(entry, ignore_index=True)
             self.trade_log = self.trade_log.append(entry, ignore_index=True)
-            self.capital -= total_price
+            self.current_capital -= total_price
 
     def _execute_exit(self, exit_signals):
         """Executes exits and updates `self.inventory` and `self.trade_log`"""
@@ -85,7 +84,7 @@ class Backtest:
 
         self.trade_log = self.trade_log.append(exits, ignore_index=True)
         self.inventory.drop(self.inventory[exits_mask].index, inplace=True)
-        self.capital -= sum(total_costs)
+        self.current_capital -= sum(total_costs)
 
     def _process_entry_signals(self, entry_signals):
         """Returns a dictionary containing the orders to execute."""
@@ -98,4 +97,4 @@ class Backtest:
             return entry_signals, 0
 
     def __repr__(self):
-        return "Backtest(capital={}, strategy={})".format(self.capital, self._strategy)
+        return "Backtest(capital={}, strategy={})".format(self.current_capital, self._strategy)
