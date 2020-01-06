@@ -1,4 +1,5 @@
 import pandas as pd
+import numpy as np
 import pyprind
 
 from .strategy import Strategy
@@ -78,8 +79,6 @@ class Backtest:
 
     def _execute_exit(self, exit_signals):
         """Executes exits and updates `self.inventory` and `self.trade_log`"""
-        if exit_signals is None:
-            return
         exits, exits_mask, total_costs = exit_signals
 
         self.trade_log = self.trade_log.append(exits, ignore_index=True)
@@ -98,24 +97,51 @@ class Backtest:
 
     def summary(self):
         df = self.trade_log
+        df.loc[:, ('totals', 'capital')] = (-df['totals']['cost']).cumsum() + self.initial_capital
+        df.loc[:, ('totals', 'return')] = (df['totals']['capital'].pct_change() * 100)
 
         entries_mask = df.apply(lambda row: row['leg_1']['order'][2] == 'O', axis=1)
         entries = df.loc[entries_mask]
         exits = df.loc[~entries_mask]
-        trades = entries.merge(exits,
-                               on=[(l.name, 'contract') for l in self._strategy.legs],
-                               suffixes=['_entry', '_exit'])
 
-        costs = trades.apply(lambda row: row['totals_entry']['cost'] + row['totals_exit']['cost'], axis=1)
-        wins_mask = costs < 0
-        total_trades = len(trades)
-        win_number = sum(wins_mask)
+        costs = np.array([])
+        returns = np.array([])
+        for contract in entries['leg_1']['contract']:
+            entry = entries.loc[entries['leg_1']['contract'] == contract]
+            exit_ = exits.loc[exits['leg_1']['contract'] == contract]
+            try:
+                # Here we assume we are entering only once per contract (i.e both entry and exit_ have only one row)
+                costs = np.append(costs, entry['totals']['cost'].values[0] + exit_['totals']['cost'].values[0])
+                returns = np.append(returns, exit_['totals']['return'])
+            except IndexError:
+                continue
+
+        # trades = entries.merge(exits,
+        #                        on=[(l.name, 'contract') for l in self._strategy.legs],
+        #                        suffixes=['_entry', '_exit'])
+
+        # costs = trades.apply(lambda row: row['totals_entry']['cost'] + row['totals_exit']['cost'], axis=1)
+
+        wins = costs < 0
+        losses = costs >= 0
+        profit_factor = np.sum(wins) / np.sum(losses)
+        total_trades = len(exits)
+        win_number = np.sum(wins)
         loss_number = total_trades - win_number
         win_pct = win_number / total_trades
-        largest_loss = costs.max()
+        largest_loss = np.max(costs)
+        avg_profit = np.sum(-costs) / len(costs)
+        profit_loss = returns
+        avg_pl = np.mean(profit_loss)
+        total_pl = np.sum(profit_loss)
 
-        data = [total_trades, win_number, loss_number, win_pct, largest_loss]
-        stats = ['Total trades', 'Number of wins', 'Number of losses', 'Win %', 'Largest loss']
+        data = [
+            total_trades, win_number, loss_number, win_pct, largest_loss, profit_factor, avg_profit, avg_pl, total_pl
+        ]
+        stats = [
+            'Total trades', 'Number of wins', 'Number of losses', 'Win %', 'Largest loss', 'Profit factor',
+            'Average profit', 'Average P&L %', 'Total P&L %'
+        ]
         strat = ['Strategy']
         summary = pd.DataFrame(data, stats, strat)
         return summary
