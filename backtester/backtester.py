@@ -8,8 +8,7 @@ from .datahandler import HistoricalOptionsData
 
 class Backtest:
     """Processes signals from the Strategy object"""
-    def __init__(self, capital=1_000_000):
-        self.initial_capital = self.current_capital = capital
+    def __init__(self):
         self._strategy = None
         self._data = None
         self.inventory = pd.DataFrame()
@@ -23,6 +22,7 @@ class Backtest:
     def strategy(self, strat):
         assert isinstance(strat, Strategy)
         self._strategy = strat
+        self.current_capital = strat.initial_capital
 
     @property
     def data(self):
@@ -50,7 +50,7 @@ class Backtest:
         index = pd.MultiIndex.from_product(
             [[l.name for l in self._strategy.legs],
              ['contract', 'underlying', 'expiration', 'type', 'strike', 'cost', 'date', 'order']])
-        index_totals = pd.MultiIndex.from_product([['totals'], ['cost']])
+        index_totals = pd.MultiIndex.from_product([['totals'], ['cost', 'qty']])
         self.inventory = pd.DataFrame(columns=index.append(index_totals))
         self.trade_log = pd.DataFrame()
 
@@ -91,7 +91,8 @@ class Backtest:
         if not entry_signals.empty:
             # costs = entry_signals['totals']['cost']
             # return entry_signals.loc[costs.idxmin():costs.idxmin()], costs.min()
-            return entry_signals.iloc[0], entry_signals.iloc[0]['totals']['cost']
+            entry = entry_signals.iloc[0]
+            return entry, entry['totals']['cost'] * entry['totals']['qty']
         else:
             return entry_signals, 0
 

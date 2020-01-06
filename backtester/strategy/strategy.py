@@ -18,11 +18,12 @@ class Strategy:
     Takes in a number of `StrategyLeg`'s (option contracts), and filters that determine
     entry and exit conditions.
     """
-    def __init__(self, schema, qty=1, shares_per_contract=100):
+    def __init__(self, schema, qty=1, shares_per_contract=100, initial_capital=1_000_000):
         assert isinstance(schema, Schema)
         self.schema = schema
         self.qty = qty
         self._shares_per_contract = shares_per_contract
+        self.initial_capital = initial_capital
         self.legs = []
         self.conditions = []
         self.exit_thresholds = (0.0, 0.0)
@@ -121,15 +122,17 @@ class Strategy:
             leg_candidates[i].columns = pd.MultiIndex.from_product([["leg_{}".format(i + 1)],
                                                                     leg_candidates[i].columns])
 
-        totals = pd.DataFrame.from_dict({"cost": total_costs})
+        qtys = inventory['totals']['qty']
+        totals = pd.DataFrame.from_dict({"cost": total_costs, "qty": qtys})
         totals.columns = pd.MultiIndex.from_product([["totals"], totals.columns])
         leg_candidates.append(totals)
         filter_mask = reduce(lambda x, y: x | y, filter_mask)
         exits_mask = threshold_exits | filter_mask
 
         exits = pd.concat([l[exits_mask] for l in leg_candidates], axis=1)
+        total_costs = total_costs[exits_mask] * exits['totals']['qty']
 
-        return (exits, exits_mask, total_costs[exits_mask])
+        return (exits, exits_mask, total_costs)
 
     def _filter_legs(self, options, signal):
         """Returns a hierarchically indexed `pd.DataFrame` containing signals for each
@@ -164,7 +167,7 @@ class Strategy:
             if leg.direction == Direction.SELL:
                 subset_df['cost'] = -subset_df['cost']
 
-            subset_df['cost'] *= self._shares_per_contract * self.qty
+            subset_df['cost'] *= self._shares_per_contract
 
             dfs.append(subset_df.reset_index(drop=True))
 
@@ -204,7 +207,11 @@ class Strategy:
             return pd.DataFrame()
 
         cost = sum(leg["cost"] for leg in dfs)
-        totals = pd.DataFrame.from_dict({"cost": cost})
+        # Put qty of contracts to buy/sell in ['totals']['qty']
+        qty = np.floor(self.initial_capital / cost)
+        qty = np.abs(qty)
+        # qty = qty.astype(int)
+        totals = pd.DataFrame.from_dict({"cost": cost, "qty": qty})
         totals.columns = pd.MultiIndex.from_product([["totals"], totals.columns])
 
         for i in range(len(dfs)):
@@ -242,7 +249,7 @@ class Strategy:
         if ~direction == Direction.SELL:
             candidates['cost'] = -candidates['cost']
 
-        candidates['cost'] *= self._shares_per_contract * self.qty
+        candidates['cost'] *= self._shares_per_contract
 
         return candidates
 
