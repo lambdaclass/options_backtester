@@ -207,9 +207,8 @@ class Strategy:
 
         cost = sum(leg["cost"] for leg in dfs)
         # Put qty of contracts to buy/sell in ['totals']['qty']
-        qty = np.floor(self.initial_capital / cost)
+        qty = self.initial_capital // cost
         qty = np.abs(qty)
-        # qty = qty.astype(int)
         totals = pd.DataFrame.from_dict({"cost": cost, "qty": qty, "date": date})
         totals.columns = pd.MultiIndex.from_product([["totals"], totals.columns])
 
