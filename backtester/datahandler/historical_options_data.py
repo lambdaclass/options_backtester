@@ -36,10 +36,9 @@ class HistoricalOptionsData:
     def iter_months(self):
         """Returns `pd.DataFrameGroupBy` that groups contracts by month"""
         date_col = self.schema["date"]
-        iterator = self._data.groupby(
-            pd.Grouper(key=date_col,
-                       freq="MS")).apply(lambda g: g[g[date_col] == g[date_col].min()]).reset_index(drop=True).groupby(
-                           pd.Grouper(key=date_col, freq="MS"))
+        iterator = self._data.groupby(pd.Grouper(
+            key=date_col,
+            freq="MS")).apply(lambda g: g[g[date_col] == g[date_col].min()]).reset_index(drop=True).groupby(date_col)
         return iterator
 
     def __getattr__(self, attr):
