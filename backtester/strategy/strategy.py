@@ -18,10 +18,9 @@ class Strategy:
     Takes in a number of `StrategyLeg`'s (option contracts), and filters that determine
     entry and exit conditions.
     """
-    def __init__(self, schema, qty=1, shares_per_contract=100, initial_capital=1_000_000):
+    def __init__(self, schema, shares_per_contract=100, initial_capital=1_000_000):
         assert isinstance(schema, Schema)
         self.schema = schema
-        self.qty = qty
         self._shares_per_contract = shares_per_contract
         self.initial_capital = initial_capital
         self.legs = []
@@ -74,7 +73,7 @@ class Strategy:
         assert loss_pct >= 0
         self.exit_thresholds = (profit_pct, loss_pct)
 
-    def filter_entries(self, options, inventory):
+    def filter_entries(self, options, inventory, date):
         """Returns the entry signals chosen by the strategy for the given
         (daily) options.
 
@@ -89,9 +88,9 @@ class Strategy:
         inventory_contracts = pd.concat([inventory[leg.name]['contract'] for leg in self.legs])
         subset_options = options[~options[self.schema['contract']].isin(inventory_contracts)]
 
-        return self._filter_legs(subset_options, Signal.ENTRY)
+        return self._filter_legs(subset_options, Signal.ENTRY, date)
 
-    def filter_exits(self, options, inventory):
+    def filter_exits(self, options, inventory, date):
         """Returns the exit signals chosen by the strategy for the given
         (daily) options.
 
@@ -123,7 +122,8 @@ class Strategy:
                                                                     leg_candidates[i].columns])
 
         qtys = inventory['totals']['qty']
-        totals = pd.DataFrame.from_dict({"cost": total_costs, "qty": qtys})
+        dates = [date] * len(inventory)
+        totals = pd.DataFrame.from_dict({"cost": total_costs, "qty": qtys, "date": dates})
         totals.columns = pd.MultiIndex.from_product([["totals"], totals.columns])
         leg_candidates.append(totals)
         filter_mask = reduce(lambda x, y: x | y, filter_mask)
@@ -134,7 +134,7 @@ class Strategy:
 
         return (exits, exits_mask, total_costs)
 
-    def _filter_legs(self, options, signal):
+    def _filter_legs(self, options, signal, date):
         """Returns a hierarchically indexed `pd.DataFrame` containing signals for each
         leg in the strategy.
 
@@ -171,7 +171,7 @@ class Strategy:
 
             dfs.append(subset_df.reset_index(drop=True))
 
-        return self._apply_conditions(dfs)
+        return self._apply_conditions(dfs, date)
 
     def _signal_fields(self, cost_field):
         fields = {
@@ -181,13 +181,12 @@ class Strategy:
             self.schema['type']: 'type',
             self.schema['strike']: 'strike',
             self.schema[cost_field]: 'cost',
-            self.schema['date']: 'date',
             'order': 'order'
         }
 
         return fields
 
-    def _apply_conditions(self, dfs):
+    def _apply_conditions(self, dfs, date):
         """Applies conditions on the specified legs."""
 
         for condition in self.conditions:
@@ -211,7 +210,7 @@ class Strategy:
         qty = np.floor(self.initial_capital / cost)
         qty = np.abs(qty)
         # qty = qty.astype(int)
-        totals = pd.DataFrame.from_dict({"cost": cost, "qty": qty})
+        totals = pd.DataFrame.from_dict({"cost": cost, "qty": qty, "date": date})
         totals.columns = pd.MultiIndex.from_product([["totals"], totals.columns])
 
         for i in range(len(dfs)):

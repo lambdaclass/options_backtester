@@ -1,6 +1,8 @@
 import pandas as pd
 import numpy as np
 import pyprind
+import seaborn as sns
+import matplotlib.pyplot as plt
 
 from .strategy import Strategy
 from .datahandler import HistoricalOptionsData
@@ -49,17 +51,17 @@ class Backtest:
 
         index = pd.MultiIndex.from_product(
             [[l.name for l in self._strategy.legs],
-             ['contract', 'underlying', 'expiration', 'type', 'strike', 'cost', 'date', 'order']])
-        index_totals = pd.MultiIndex.from_product([['totals'], ['cost', 'qty']])
+             ['contract', 'underlying', 'expiration', 'type', 'strike', 'cost', 'order']])
+        index_totals = pd.MultiIndex.from_product([['totals'], ['cost', 'qty', 'date']])
         self.inventory = pd.DataFrame(columns=index.append(index_totals))
         self.trade_log = pd.DataFrame()
 
         data_iterator = self._data.iter_months() if monthly else self._data.iter_dates()
         bar = pyprind.ProgBar(data_iterator.ngroups, bar_char='█')
 
-        for _date, options in data_iterator:
-            entry_signals = self._strategy.filter_entries(options, self.inventory)
-            exit_signals = self._strategy.filter_exits(options, self.inventory)
+        for date, options in data_iterator:
+            entry_signals = self._strategy.filter_entries(options, self.inventory, date)
+            exit_signals = self._strategy.filter_exits(options, self.inventory, date)
 
             self._execute_exit(exit_signals)
             self._execute_entry(entry_signals)
@@ -97,23 +99,28 @@ class Backtest:
             return entry_signals, 0
 
     def summary(self):
+        """Returns a table with summary statistics about the trade log"""
         df = self.trade_log
-        df.loc[:, ('totals', 'capital')] = (-df['totals']['cost']).cumsum() + self.initial_capital
-        df.loc[:, ('totals', 'return')] = (df['totals']['capital'].pct_change() * 100)
+        df.loc[:,
+               ('totals',
+                'capital')] = (-df['totals']['cost'] * df['totals']['qty']).cumsum() + self._strategy.initial_capital
+
+        daily_df = df.groupby(('totals', 'date'))
+        daily_capital = daily_df.apply(lambda row: row['totals']['capital'].tail(1))
+        daily_returns = daily_capital.pct_change() * 100
 
         entries_mask = df.apply(lambda row: row['leg_1']['order'][2] == 'O', axis=1)
         entries = df.loc[entries_mask]
         exits = df.loc[~entries_mask]
 
         costs = np.array([])
-        returns = np.array([])
         for contract in entries['leg_1']['contract']:
             entry = entries.loc[entries['leg_1']['contract'] == contract]
             exit_ = exits.loc[exits['leg_1']['contract'] == contract]
             try:
                 # Here we assume we are entering only once per contract (i.e both entry and exit_ have only one row)
-                costs = np.append(costs, entry['totals']['cost'].values[0] + exit_['totals']['cost'].values[0])
-                returns = np.append(returns, exit_['totals']['return'])
+                costs = np.append(costs, (entry['totals']['cost'] * entry['totals']['qty']).values[0] +
+                                  (exit_['totals']['cost'] * exit_['totals']['qty']).values[0])
             except IndexError:
                 continue
 
@@ -132,9 +139,8 @@ class Backtest:
         win_pct = win_number / total_trades
         largest_loss = np.max(costs)
         avg_profit = np.sum(-costs) / len(costs)
-        profit_loss = returns
-        avg_pl = np.mean(profit_loss)
-        total_pl = np.sum(profit_loss)
+        avg_pl = np.mean(daily_returns)
+        total_pl = (df['totals']['capital'].iloc[-1] / self._strategy.initial_capital) * 100
 
         data = [
             total_trades, win_number, loss_number, win_pct, largest_loss, profit_factor, avg_profit, avg_pl, total_pl
@@ -145,6 +151,19 @@ class Backtest:
         ]
         strat = ['Strategy']
         summary = pd.DataFrame(data, stats, strat)
+
+        daily_returns = daily_returns[1:].reset_index(level=1, drop=True)
+        daily_returns_df = pd.DataFrame(data=daily_returns.groupby(daily_returns.index.year).apply(list).array,
+                                        index=daily_returns.index.year.unique(),
+                                        columns=[
+                                            'January', 'February', 'March', 'April', 'May', 'June', 'July', 'August',
+                                            'September', 'October', 'November', 'December'
+                                        ])
+
+        sns.heatmap(daily_returns_df, linewidth=0.5, annot=True, fmt='f', cmap='YlGnBu', cbar=False)
+        plt.title('Monthly returns heatmap (in percentage)')
+        plt.show()
+
         return summary
 
     def __repr__(self):
