@@ -161,7 +161,7 @@ class Strategy:
             subset_df.rename(columns=fields, inplace=True)
 
             order = get_order(leg.direction, signal)
-            subset_df['order'] = order.name
+            subset_df['order'] = order
 
             # Change sign of cost for SELL orders
             if leg.direction == Direction.SELL:
@@ -241,7 +241,7 @@ class Strategy:
         candidates = inventory_leg[['contract']].merge(options, how='left', on='contract')
 
         order = get_order(direction, Signal.EXIT)
-        candidates['order'] = order.name
+        candidates['order'] = order
 
         # Change sign of cost for SELL orders
         if ~direction == Direction.SELL:

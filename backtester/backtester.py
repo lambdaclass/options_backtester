@@ -1,10 +1,8 @@
 import pandas as pd
 import numpy as np
 import pyprind
-import seaborn as sns
-import matplotlib.pyplot as plt
 
-from .strategy import Strategy
+from .strategy import Strategy, Order
 from .datahandler import HistoricalOptionsData
 
 
@@ -105,18 +103,18 @@ class Backtest:
                ('totals',
                 'capital')] = (-df['totals']['cost'] * df['totals']['qty']).cumsum() + self._strategy.initial_capital
 
-        daily_df = df.groupby(('totals', 'date'))
-        daily_capital = daily_df.apply(lambda row: row['totals']['capital'].tail(1))
-        daily_returns = daily_capital.pct_change() * 100
+        daily_returns = df.groupby(('totals', 'date')).last()['totals']['capital'].pct_change() * 100
 
-        entries_mask = df.apply(lambda row: row['leg_1']['order'][2] == 'O', axis=1)
-        entries = df.loc[entries_mask]
-        exits = df.loc[~entries_mask]
+        first_leg = self._strategy.legs[0].name
+
+        entry_mask = df[first_leg].eval('(order == @Order.BTO) | (order == @Order.STO)')
+        entries = df.loc[entry_mask]
+        exits = df.loc[~entry_mask]
 
         costs = np.array([])
-        for contract in entries['leg_1']['contract']:
-            entry = entries.loc[entries['leg_1']['contract'] == contract]
-            exit_ = exits.loc[exits['leg_1']['contract'] == contract]
+        for contract in entries[first_leg]['contract']:
+            entry = entries.loc[entries[first_leg]['contract'] == contract]
+            exit_ = exits.loc[exits[first_leg]['contract'] == contract]
             try:
                 # Here we assume we are entering only once per contract (i.e both entry and exit_ have only one row)
                 costs = np.append(costs, (entry['totals']['cost'] * entry['totals']['qty']).values[0] +
@@ -151,18 +149,6 @@ class Backtest:
         ]
         strat = ['Strategy']
         summary = pd.DataFrame(data, stats, strat)
-
-        daily_returns = daily_returns[1:].reset_index(level=1, drop=True)
-        daily_returns_df = pd.DataFrame(data=daily_returns.groupby(daily_returns.index.year).apply(list).array,
-                                        index=daily_returns.index.year.unique(),
-                                        columns=[
-                                            'January', 'February', 'March', 'April', 'May', 'June', 'July', 'August',
-                                            'September', 'October', 'November', 'December'
-                                        ])
-
-        sns.heatmap(daily_returns_df, linewidth=0.5, annot=True, fmt='f', cmap='YlGnBu', cbar=False)
-        plt.title('Monthly returns heatmap (in percentage)')
-        plt.show()
 
         return summary
 
