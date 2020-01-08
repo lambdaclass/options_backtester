@@ -101,14 +101,7 @@ class Strategy:
             pd.DataFrame:               Exit signals
         """
 
-        underlying_col, spot_col = self.schema['underlying'], self.schema['underlying_last']
-        underlying_symbols = options.loc[:, (underlying_col, spot_col)].drop_duplicates(underlying_col)
-        spot_prices = underlying_symbols.set_index(underlying_col).to_dict()
-
-        leg_candidates = [
-            self._exit_candidates(l.direction, inventory[l.name], options, spot_prices) for l in self.legs
-        ]
-
+        leg_candidates = [self._exit_candidates(l.direction, inventory[l.name], options) for l in self.legs]
         total_costs = sum([l['cost'] for l in leg_candidates])
         threshold_exits = self._filter_thresholds(inventory['totals']['cost'], total_costs)
 
@@ -219,18 +212,16 @@ class Strategy:
 
         return pd.concat(dfs, axis=1)
 
-    def _exit_candidates(self, direction, inventory_leg, options, spot_prices):
+    def _exit_candidates(self, direction, inventory_leg, options):
         """Returns the exit candidates for the given inventory leg with their order and cost (positive for STC orders).
 
         Args:
             direction (option.Direction):   Direction of the leg for `Signal.EXIT`
             inventory_leg (pd.DataFrame):   DataFrame of contracts in the inventory leg
             options (pd.DataFrame):         Options in the current time step
-            spot_prices (dict):             Dictionary mapping underlying symbols to their spot prices
 
         Returns:
-            pd.DataFrame:                   DataFrame with a `current_cost` column with the
-            (possibly imputed) cost for the contracts in `inventory_leg`
+            pd.DataFrame:                   DataFrame with the cost for the contracts in `inventory_leg`
         """
 
         # FIXME: Leaky abstraction (inventory schema)

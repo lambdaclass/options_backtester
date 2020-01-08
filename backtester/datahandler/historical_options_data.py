@@ -16,14 +16,20 @@ class HistoricalOptionsData:
         if file_extension == '.h5':
             self._data = pd.read_hdf(file, **params)
         elif file_extension == '.csv':
-            params["parse_dates"] = [self.schema.expiration.mapping, self.schema.date.mapping]
+            params['parse_dates'] = [self.schema.expiration.mapping, self.schema.date.mapping]
             self._data = pd.read_csv(file, **params)
 
         columns = self._data.columns
         assert all((col in columns for _key, col in self.schema))
 
-        self._data["dte"] = (self._data["expiration"] - self._data["quotedate"]).dt.days
-        self.schema.update({"dte": "dte"})
+        date_col = self.schema['date']
+        expiration_col = self.schema['expiration']
+
+        self._data['dte'] = (self._data[expiration_col] - self._data[date_col]).dt.days
+        self.schema.update({'dte': 'dte'})
+
+        self.start_date = self._data[date_col].min()
+        self.end_date = self._data[date_col].max()
 
     def apply_filter(self, f):
         """Apply Filter `f` to the data. Returns a `pd.DataFrame` with the filtered rows."""
@@ -31,11 +37,11 @@ class HistoricalOptionsData:
 
     def iter_dates(self):
         """Returns `pd.DataFrameGroupBy` that groups contracts by date"""
-        return self._data.groupby(self.schema["date"])
+        return self._data.groupby(self.schema['date'])
 
     def iter_months(self):
         """Returns `pd.DataFrameGroupBy` that groups contracts by month"""
-        date_col = self.schema["date"]
+        date_col = self.schema['date']
         iterator = self._data.groupby(pd.Grouper(
             key=date_col,
             freq="MS")).apply(lambda g: g[g[date_col] == g[date_col].min()]).reset_index(drop=True).groupby(date_col)
@@ -45,7 +51,7 @@ class HistoricalOptionsData:
         """Pass method invocation to `self._data`"""
 
         method = getattr(self._data, attr)
-        if hasattr(method, "__call__"):
+        if hasattr(method, '__call__'):
 
             def df_method(*args, **kwargs):
                 return method(*args, **kwargs)
@@ -76,14 +82,14 @@ class HistoricalOptionsData:
         """Returns default schema for Historical Options Data"""
         schema = Schema.canonical()
         schema.update({
-            "contract": "optionroot",
-            "date": "quotedate",
-            "last": "last",
-            "open_interest": "openinterest",
-            "impliedvol": "impliedvol",
-            "delta": "delta",
-            "gamma": "gamma",
-            "theta": "theta",
-            "vega": "vega"
+            'contract': 'optionroot',
+            'date': 'quotedate',
+            'last': 'last',
+            'open_interest': 'openinterest',
+            'impliedvol': 'impliedvol',
+            'delta': 'delta',
+            'gamma': 'gamma',
+            'theta': 'theta',
+            'vega': 'vega'
         })
         return schema

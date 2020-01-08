@@ -11,7 +11,6 @@ class Backtest:
     def __init__(self):
         self._strategy = None
         self._data = None
-        self.inventory = pd.DataFrame()
         self.stop_if_broke = True
 
     @property
@@ -22,7 +21,7 @@ class Backtest:
     def strategy(self, strat):
         assert isinstance(strat, Strategy)
         self._strategy = strat
-        self.current_capital = strat.initial_capital
+        self.current_cash = strat.initial_capital
 
     @property
     def data(self):
@@ -37,22 +36,27 @@ class Backtest:
         """Runs the backtest and returns a `pd.DataFrame` of the orders executed (`self.trade_log`)
 
         Args:
-            monthly (bool, optional): Iterates through data monthly rather than daily. Defaults to False.
+            monthly (bool, optional):   Iterates through data monthly rather than daily. Defaults to False.
 
         Returns:
-            pd.DataFrame: Log of the trades executed.
+            pd.DataFrame:               Log of the trades executed.
         """
 
         assert self._data is not None
         assert self._strategy is not None
         assert self._data.schema == self._strategy.schema
 
-        index = pd.MultiIndex.from_product(
+        columns = pd.MultiIndex.from_product(
             [[l.name for l in self._strategy.legs],
              ['contract', 'underlying', 'expiration', 'type', 'strike', 'cost', 'order']])
-        index_totals = pd.MultiIndex.from_product([['totals'], ['cost', 'qty', 'date']])
-        self.inventory = pd.DataFrame(columns=index.append(index_totals))
+        totals = pd.MultiIndex.from_product([['totals'], ['cost', 'qty', 'date']])
+        self.inventory = pd.DataFrame(columns=columns.append(totals))
         self.trade_log = pd.DataFrame()
+        self.balance = pd.DataFrame({
+            'capital': self.current_cash,
+            'cash': self.current_cash
+        },
+                                    index=[self.data.start_date - pd.Timedelta(1, unit='day')])
 
         data_iterator = self._data.iter_months() if monthly else self._data.iter_dates()
         bar = pyprind.ProgBar(data_iterator.ngroups, bar_char='█')
@@ -63,8 +67,12 @@ class Backtest:
 
             self._execute_exit(exit_signals)
             self._execute_entry(entry_signals)
+            self._update_balance(date, options)
 
             bar.update()
+
+        self.balance['% change'] = self.balance['capital'].pct_change()
+        self.balance['accumulated return'] = (1.0 + self.balance['% change']).cumprod() - 1
 
         return self.trade_log
 
@@ -72,10 +80,10 @@ class Backtest:
         """Executes entry orders and updates `self.inventory` and `self.trade_log`"""
         entry, total_price = self._process_entry_signals(entry_signals)
 
-        if (not self.stop_if_broke) or (self.current_capital >= total_price):
+        if (not self.stop_if_broke) or (self.current_cash >= total_price):
             self.inventory = self.inventory.append(entry, ignore_index=True)
             self.trade_log = self.trade_log.append(entry, ignore_index=True)
-            self.current_capital -= total_price
+            self.current_cash -= total_price
 
     def _execute_exit(self, exit_signals):
         """Executes exits and updates `self.inventory` and `self.trade_log`"""
@@ -83,10 +91,10 @@ class Backtest:
 
         self.trade_log = self.trade_log.append(exits, ignore_index=True)
         self.inventory.drop(self.inventory[exits_mask].index, inplace=True)
-        self.current_capital -= sum(total_costs)
+        self.current_cash -= sum(total_costs)
 
     def _process_entry_signals(self, entry_signals):
-        """Returns a dictionary containing the orders to execute."""
+        """Returns the entry signals to execute and their cost."""
 
         if not entry_signals.empty:
             # costs = entry_signals['totals']['cost']
@@ -95,6 +103,38 @@ class Backtest:
             return entry, entry['totals']['cost'] * entry['totals']['qty']
         else:
             return entry_signals, 0
+
+    def _update_balance(self, date, options):
+        """Updates positions and calculates statistics for the current date.
+
+        Args:
+            date (pd.Timestamp):    Current date.
+            options (pd.DataFrame): DataFrame of (daily/monthly) options.
+        """
+
+        leg_candidates = [
+            self._strategy._exit_candidates(l.direction, self.inventory[l.name], options) for l in self._strategy.legs
+        ]
+
+        calls_value = -np.sum(
+            np.sum(leg['cost'] * self.inventory['totals']['qty']
+                   for leg in leg_candidates if (leg['type'] == 'call').any()))
+        puts_value = -np.sum(
+            np.sum(leg['cost'] * self.inventory['totals']['qty']
+                   for leg in leg_candidates if (leg['type'] == 'put').any()))
+
+        capital = calls_value + puts_value + self.current_cash
+
+        row = pd.Series(
+            {
+                'qty': self.inventory['totals']['qty'].sum(),
+                'calls value': calls_value,
+                'puts value': puts_value,
+                'cash': self.current_cash,
+                'capital': capital,
+            },
+            name=date)
+        self.balance = self.balance.append(row)
 
     def summary(self):
         """Returns a table with summary statistics about the trade log"""
@@ -153,4 +193,4 @@ class Backtest:
         return summary
 
     def __repr__(self):
-        return "Backtest(capital={}, strategy={})".format(self.current_capital, self._strategy)
+        return "Backtest(capital={}, strategy={})".format(self.current_cash, self._strategy)
