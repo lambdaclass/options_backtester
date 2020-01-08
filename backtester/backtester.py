@@ -72,7 +72,7 @@ class Backtest:
             bar.update()
 
         self.balance['% change'] = self.balance['capital'].pct_change()
-        self.balance['accumulated return'] = (1.0 + self.balance['% change']).cumprod() - 1
+        self.balance['accumulated return'] = (1.0 + self.balance['% change']).cumprod()
 
         return self.trade_log
 
