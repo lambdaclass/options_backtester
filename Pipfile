@@ -13,6 +13,7 @@ pandas-datareader = "*"
 pandas-market-calendars = "*"
 boto3 = "*"
 tenacity = "*"
+matplotlib = "*"
 
 [dev-packages]
 yapf = "*"
