@@ -24,8 +24,7 @@ def returns_chart(report):
 
     text = areas.mark_text(
         align='left', dx=5,
-        dy=-5).encode(text=alt.condition(nearest, 'accumulated return:Q', alt.value(' '))).transform_calculate(
-            label='datum.y + " %"')
+        dy=-5).encode(text=alt.condition(nearest, 'accumulated return:Q', alt.value(' '), format='.2%'))
 
     layered = alt.layer(selectors,
                         points,
