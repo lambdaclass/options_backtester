@@ -116,6 +116,11 @@ class Backtest:
             self._strategy._exit_candidates(l.direction, self.inventory[l.name], options) for l in self._strategy.legs
         ]
 
+        # If a contract is missing we replace the NaN values with those of the inventory
+        # except for cost, which we imput as zero.
+        for leg in leg_candidates:
+            leg['cost'].fillna(0, inplace=True)
+
         calls_value = -np.sum(
             np.sum(leg['cost'] * self.inventory['totals']['qty']
                    for leg in leg_candidates if (leg['type'] == 'call').any()))

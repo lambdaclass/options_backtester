@@ -25,7 +25,7 @@ class Strategy:
         self.initial_capital = initial_capital
         self.legs = []
         self.conditions = []
-        self.exit_thresholds = (0.0, 0.0)
+        self.exit_thresholds = (math.inf, math.inf)
 
     def add_leg(self, leg):
         """Adds leg to the strategy"""
@@ -108,7 +108,11 @@ class Strategy:
         filter_mask = []
         for i, leg in enumerate(self.legs):
             flt = leg.exit_filter
-            filter_mask.append(flt(leg_candidates[i]))
+
+            # This mask is to ensure that legs with missing contracts exit.
+            missing_contracts_mask = leg_candidates[i]['cost'].isna()
+
+            filter_mask.append(flt(leg_candidates[i]) | missing_contracts_mask)
             fields = self._signal_fields((~leg.direction).value)
             leg_candidates[i] = leg_candidates[i].loc[:, fields.values()]
             leg_candidates[i].columns = pd.MultiIndex.from_product([["leg_{}".format(i + 1)],
@@ -122,7 +126,14 @@ class Strategy:
         filter_mask = reduce(lambda x, y: x | y, filter_mask)
         exits_mask = threshold_exits | filter_mask
 
-        exits = pd.concat([l[exits_mask] for l in leg_candidates], axis=1)
+        candidates = pd.concat(leg_candidates, axis=1)
+
+        # If a contract is missing we replace the NaN values with those of the inventory
+        # except for cost, which we imput as zero.
+        imputed_inventory = self._imput_missing_data(inventory)
+        candidates = candidates.fillna(imputed_inventory)
+
+        exits = candidates[exits_mask]
         total_costs = total_costs[exits_mask] * exits['totals']['qty']
 
         return (exits, exits_mask, total_costs)
@@ -259,6 +270,20 @@ class Strategy:
 
         excess_return = (current_cost / entry_cost + 1) * -np.sign(entry_cost)
         return (excess_return >= profit_pct) | (excess_return <= -loss_pct)
+
+    def _imput_missing_data(self, inventory):
+        """Returns a copy of the inventory with the cost of all its contracts set to zero.
+
+        Args:
+            inventory (pd.DataFrame): current inventory
+
+        Returns:
+            pd.DataFrame: imputed version of current inventory
+        """
+        df = inventory.copy()
+        for l in self.legs:
+            df.at[:, (l.name, 'cost')] = 0
+        return df
 
     def __repr__(self):
         return "Strategy(legs={}, conditions={})".format(self.legs, self.conditions)
