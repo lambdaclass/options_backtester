@@ -102,8 +102,6 @@ class Strategy:
         """
 
         leg_candidates = [self._exit_candidates(l.direction, inventory[l.name], options) for l in self.legs]
-        total_costs = sum([l['cost'] for l in leg_candidates])
-        threshold_exits = self._filter_thresholds(inventory['totals']['cost'], total_costs)
 
         filter_mask = []
         for i, leg in enumerate(self.legs):
@@ -118,20 +116,25 @@ class Strategy:
             leg_candidates[i].columns = pd.MultiIndex.from_product([["leg_{}".format(i + 1)],
                                                                     leg_candidates[i].columns])
 
-        qtys = inventory['totals']['qty']
-        dates = [date] * len(inventory)
-        totals = pd.DataFrame.from_dict({"cost": total_costs, "qty": qtys, "date": dates})
-        totals.columns = pd.MultiIndex.from_product([["totals"], totals.columns])
-        leg_candidates.append(totals)
-        filter_mask = reduce(lambda x, y: x | y, filter_mask)
-        exits_mask = threshold_exits | filter_mask
-
         candidates = pd.concat(leg_candidates, axis=1)
 
         # If a contract is missing we replace the NaN values with those of the inventory
         # except for cost, which we imput as zero.
         imputed_inventory = self._imput_missing_data(inventory)
         candidates = candidates.fillna(imputed_inventory)
+        total_costs = sum([candidates[l.name]['cost'] for l in self.legs])
+
+        # Append the 'totals' column to candidates
+        qtys = inventory['totals']['qty']
+        dates = [date] * len(inventory)
+        totals = pd.DataFrame.from_dict({"cost": total_costs, "qty": qtys, "date": dates})
+        totals.columns = pd.MultiIndex.from_product([["totals"], totals.columns])
+        candidates = pd.concat([candidates, totals], axis=1)
+
+        # Compute which contracts need to exit, either because of price thresholds or user exit filters
+        threshold_exits = self._filter_thresholds(inventory['totals']['cost'], total_costs)
+        filter_mask = reduce(lambda x, y: x | y, filter_mask)
+        exits_mask = threshold_exits | filter_mask
 
         exits = candidates[exits_mask]
         total_costs = total_costs[exits_mask] * exits['totals']['qty']
