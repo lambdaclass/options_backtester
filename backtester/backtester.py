@@ -179,7 +179,7 @@ class Backtest:
         total_trades = len(exits)
         win_number = np.sum(wins)
         loss_number = total_trades - win_number
-        win_pct = win_number / total_trades
+        win_pct = (win_number / total_trades) * 100
         largest_loss = np.max(costs)
         avg_profit = np.sum(-costs) / len(costs)
         avg_pl = np.mean(daily_returns)
@@ -195,7 +195,31 @@ class Backtest:
         strat = ['Strategy']
         summary = pd.DataFrame(data, stats, strat)
 
-        return summary
+        # Applies formatters to rows
+        def format_row_wise(styler, formatters):
+            for row, row_formatter in formatters.items():
+                row_num = styler.index.get_loc(row)
+
+                for col_num in range(len(styler.columns)):
+                    styler._display_funcs[(row_num, col_num)] = row_formatter
+
+            return styler
+
+        formatters = {
+            "Total trades": lambda x: f"{x:.0f}",
+            "Number of wins": lambda x: f"{x:.0f}",
+            "Number of losses": lambda x: f"{x:.0f}",
+            "Win %": lambda x: f"{x:.2f}%",
+            "Largest loss": lambda x: f"${x:.2f}",
+            "Profit factor": lambda x: f"{x:.2f}",
+            "Average profit": lambda x: f"${x:.2f}",
+            "Average P&L %": lambda x: f"{x:.2f}%",
+            "Total P&L %": lambda x: f"{x:.2f}%"
+        }
+
+        styler = format_row_wise(summary.style, formatters)
+
+        return styler
 
     def __repr__(self):
         return "Backtest(capital={}, strategy={})".format(self.current_cash, self._strategy)
