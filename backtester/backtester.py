@@ -144,11 +144,12 @@ class Backtest:
     def summary(self):
         """Returns a table with summary statistics about the trade log"""
         df = self.trade_log
+        balance = self.balance
         df.loc[:,
                ('totals',
                 'capital')] = (-df['totals']['cost'] * df['totals']['qty']).cumsum() + self._strategy.initial_capital
 
-        daily_returns = df.groupby(('totals', 'date')).last()['totals']['capital'].pct_change() * 100
+        daily_returns = balance['% change'] * 100
 
         first_leg = self._strategy.legs[0].name
 
@@ -181,7 +182,7 @@ class Backtest:
         loss_number = total_trades - win_number
         win_pct = (win_number / total_trades) * 100
         largest_loss = np.max(costs)
-        avg_profit = np.sum(-costs) / len(costs)
+        avg_profit = np.mean(-costs)
         avg_pl = np.mean(daily_returns)
         total_pl = (df['totals']['capital'].iloc[-1] / self._strategy.initial_capital) * 100
 
