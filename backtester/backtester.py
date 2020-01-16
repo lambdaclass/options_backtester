@@ -113,7 +113,8 @@ class Backtest:
         """
 
         leg_candidates = [
-            self._strategy._exit_candidates(l.direction, self.inventory[l.name], options) for l in self._strategy.legs
+            self._strategy._exit_candidates(l.direction, self.inventory[l.name], options, self.inventory.index)
+            for l in self._strategy.legs
         ]
 
         # If a contract is missing we replace the NaN values with those of the inventory
