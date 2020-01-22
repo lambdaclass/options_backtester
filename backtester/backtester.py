@@ -123,11 +123,11 @@ class Backtest:
             leg['cost'].fillna(0, inplace=True)
 
         calls_value = -np.sum(
-            np.sum(leg['cost'] * self.inventory['totals']['qty']
-                   for leg in leg_candidates if (leg['type'] == 'call').any()))
+            sum(leg['cost'] * self.inventory['totals']['qty']
+                for leg in leg_candidates if (leg['type'] == 'call').any()))
         puts_value = -np.sum(
-            np.sum(leg['cost'] * self.inventory['totals']['qty']
-                   for leg in leg_candidates if (leg['type'] == 'put').any()))
+            sum(leg['cost'] * self.inventory['totals']['qty']
+                for leg in leg_candidates if (leg['type'] == 'put').any()))
 
         capital = calls_value + puts_value + self.current_cash
 
