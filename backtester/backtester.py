@@ -182,7 +182,7 @@ class Backtest:
         win_number = np.sum(wins)
         loss_number = total_trades - win_number
         win_pct = (win_number / total_trades) * 100
-        largest_loss = np.max(costs)
+        largest_loss = max(0, np.max(costs))
         avg_profit = np.mean(-costs)
         avg_pl = np.mean(daily_returns)
         total_pl = (df['totals']['capital'].iloc[-1] / self._strategy.initial_capital) * 100
