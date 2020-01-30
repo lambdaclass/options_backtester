@@ -1,2 +1,2 @@
 from .schema import *
-from .historical_stock_data import HistoricalStockData
+from .historical_asset_data import HistoricalAssetData

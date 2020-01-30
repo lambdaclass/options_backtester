@@ -1,24 +1,23 @@
 import pandas as pd
-import numpy as np
 import pyprind
-from strategy.strategy import Strategy
+
+from portfolio.portfolio import Portfolio
 
 
 class Backtest:
-    """Processes signals from the Strategy object"""
     def __init__(self, schema):
         self.schema = schema
-        self._strategy = None
+        self._portfolio = None
         self._data = None
 
     @property
-    def strategy(self):
-        return self._strategy
+    def portfolio(self):
+        return self._portfolio
 
-    @strategy.setter
-    def strategy(self, strat):
-        assert isinstance(strat, Strategy)
-        self._strategy = strat
+    @portfolio.setter
+    def portfolio(self, portfolio):
+        assert isinstance(portfolio, Portfolio)
+        self._portfolio = portfolio
 
     @property
     def data(self):
@@ -29,88 +28,83 @@ class Backtest:
         self._data = data
 
     def run(self, initial_capital=1_000_000, periods='1'):
+        """Runs a backtest and returns a dataframe with the daily balance"""
         assert self._data is not None
-        assert self._strategy is not None
+        assert self._portfolio is not None
 
         self.current_capital = 0
         self.current_cash = initial_capital
-
         self.inventory = pd.DataFrame(columns=['symbol', 'cost', 'qty'])
         self.balance = pd.DataFrame()
 
         data_iterator = self._data.iter_dates()
-        monthly_iterator = self._data.iter_months()
-    
-        rebalancing_days = pd.date_range(self._data['date'].iloc[0], self._data['date'].iloc[-1], freq=periods + 'BMS').to_pydatetime()
-       
+
+        first_day = self._data['date'].iloc[0]
+        last_day = self._data['date'].iloc[-1]
+        rebalancing_days = pd.date_range(first_day, last_day, freq=periods +
+                                         'BMS').to_pydatetime() if periods is not None else []
+
         bar = pyprind.ProgBar(data_iterator.ngroups, bar_char='█')
 
-        self.balance = pd.DataFrame(
-            {
-                'capital': self.current_cash,
-                'cash': self.current_cash
-            },
-            index=[self.data.start_date - pd.Timedelta(1, unit='day')])
+        self.balance = pd.DataFrame({
+            'capital': self.current_cash,
+            'cash': self.current_cash
+        },
+                                    index=[self._data.start_date - pd.Timedelta(1, unit='day')])
 
-        for date, stocks in data_iterator:
+        for date, data in data_iterator:
             if date == self._data._data['date'][0]:
-                self.rebalance_portfolio(stocks)
-            self._update_balance(date, stocks)
-           
+                self._rebalance_portfolio(data)
+
+            self._update_balance(date, data)
+
             if date in rebalancing_days:
-                self.rebalance_portfolio(stocks)
+                self._rebalance_portfolio(data)
+
             bar.update()
 
         self.balance['% change'] = self.balance['capital'].pct_change()
-        self.balance['accumulated return'] = (
-            1.0 + self.balance['% change']).cumprod()
+        self.balance['accumulated return'] = (1.0 + self.balance['% change']).cumprod()
 
         return self.balance
 
-    def rebalance_portfolio(self, stocks):
+    def _rebalance_portfolio(self, data):
+        """Rebalances the portfolio so that the total money is allocated according to the given percentages"""
         money_total = self.current_cash + self.current_capital
-        for asset in self._strategy.assets:
-            stock = stocks[stocks['symbol'] == asset.symbol]
-            stock_price = stock[self.schema['Adj Close']].values[0]
-            qty = (money_total * asset.percentage) // stock_price
-            inventory_entry = self.inventory[self.inventory['symbol'] ==
-                                             asset.symbol]
+        for asset in self._portfolio.assets:
+            asset_current = data[data['symbol'] == asset.symbol]
+            asset_price = asset_current[self.schema['Adj Close']].values[0]
+
+            qty = (money_total * asset.percentage) // asset_price
+            inventory_entry = self.inventory[self.inventory['symbol'] == asset.symbol]
             self.inventory.drop(inventory_entry.index, inplace=True)
-            update = pd.Series([asset.symbol, stock_price, qty])
-            update.index = self.inventory.columns
-            self.inventory = self.inventory.append(update, ignore_index=True)
+            updated_asset = pd.Series([asset.symbol, asset_price, qty])
+            updated_asset.index = self.inventory.columns
+            self.inventory = self.inventory.append(updated_asset, ignore_index=True)
 
         # Update current cash
         invested_capital = sum(self.inventory['cost'] * self.inventory['qty'])
         self.current_cash = money_total - invested_capital
 
-    def _update_balance(self, date, stocks):
-        """Updates positions and calculates statistics for the current date.
-
-        Args:
-            date (pd.Timestamp):    Current date.
-            stocks (pd.DataFrame): DataFrame of (daily/monthly) stocks.
-        """
-
+    def _update_balance(self, date, data):
+        """Updates self.balance for the given date"""
         costs = []
 
-        for asset in self._strategy.assets:
-            asset_entry = stocks[stocks['symbol'] == asset.symbol]
-            inventory_asset_entry = self.inventory[self.inventory['symbol'] ==
-                                                   asset.symbol]
-            cost = asset_entry[self.schema['Adj Close']].values[0]
-            qty = inventory_asset_entry['qty'].values[0]
+        for asset in self._portfolio.assets:
+            asset_current = data[data['symbol'] == asset.symbol]
+            inventory_asset = self.inventory[self.inventory['symbol'] == asset.symbol]
+
+            cost = asset_current[self.schema['Adj Close']].values[0]
+            qty = inventory_asset['qty'].values[0]
             costs.append(cost * qty)
 
         total_value = sum(costs)
         self.current_capital = total_value
         money_total = total_value + self.current_cash
 
-        row = pd.Series(
-            {
-                'total_value': total_value,
-                'cash': self.current_cash,
-                'capital': money_total,
-            },
-            name=date)
+        row = pd.Series({
+            'total_value': total_value,
+            'cash': self.current_cash,
+            'capital': money_total,
+        }, name=date)
         self.balance = self.balance.append(row)

@@ -3,9 +3,7 @@ class Schema:
     Used to run validations and provide uniform access to fields in the data set.
     """
 
-    columns = [
-        "symbol", "date", "open", "close", "high", "low", "volume", "Adj Close"
-    ]
+    columns = ["symbol", "date", "open", "close", "high", "low", "volume", "Adj Close"]
 
     def canonical():
         """Builder method that returns a `Schema` with default mappings"""
@@ -41,8 +39,7 @@ class Schema:
         return iter(self._mappings.items())
 
     def __repr__(self):
-        return "Schema({})".format(
-            [Field(k, m) for k, m in self._mappings.items()])
+        return "Schema({})".format([Field(k, m) for k, m in self._mappings.items()])
 
     def __eq__(self, other):
         return self._mappings == other._mappings
@@ -67,8 +64,7 @@ class Field:
     def _combine_fields(self, op, other, invert=False):
         if isinstance(other, Field):
             name = Field._format_query(self.name, op, other.name, invert)
-            mapping = Field._format_query(self.mapping, op, other.mapping,
-                                          invert)
+            mapping = Field._format_query(self.mapping, op, other.mapping, invert)
         elif isinstance(other, (int, float)):
             name = Field._format_query(self.name, op, other, invert)
             mapping = Field._format_query(self.mapping, op, other, invert)

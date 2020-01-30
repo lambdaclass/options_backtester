@@ -3,13 +3,13 @@ from .schema import Schema
 import pandas as pd
 
 
-class HistoricalStockData:
-    """Historical Stock Data container class."""
+class HistoricalAssetData:
+    """Historical Asset Data container class."""
     def __init__(self, file, schema=None, **params):
         if schema:
             assert isinstance(schema, Schema)
         else:
-            self.schema = HistoricalStockData.default_schema()
+            self.schema = HistoricalAssetData.default_schema()
 
         file_extension = os.path.splitext(file)[1]
 
@@ -34,14 +34,6 @@ class HistoricalStockData:
     def iter_dates(self):
         """Returns `pd.DataFrameGroupBy` that groups contracts by date"""
         return self._data.groupby(self.schema['date'])
-
-    def iter_months(self):
-        """Returns `pd.DataFrameGroupBy` that groups contracts by month"""
-        date_col = self.schema['date']
-        iterator = self._data.groupby(pd.Grouper(
-            key=date_col, freq="MS")).apply(lambda g: g[g[date_col] == g[
-                date_col].min()]).reset_index(drop=True).groupby(date_col)
-        return iterator
 
     def __getattr__(self, attr):
         """Pass method invocation to `self._data`"""
@@ -75,6 +67,6 @@ class HistoricalStockData:
         return self._data.__repr__()
 
     def default_schema():
-        """Returns default schema for Historical Options Data"""
+        """Returns default schema for Historical Asset Data"""
         schema = Schema.canonical()
         return schema
