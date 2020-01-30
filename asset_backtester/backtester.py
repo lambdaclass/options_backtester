@@ -1,7 +1,6 @@
 import pandas as pd
 import numpy as np
 import pyprind
-
 from strategy.strategy import Strategy
 
 
@@ -29,7 +28,7 @@ class Backtest:
     def data(self, data):
         self._data = data
 
-    def run(self, initial_capital=1_000_000):
+    def run(self, initial_capital=1_000_000, periods='1'):
         assert self._data is not None
         assert self._strategy is not None
 
@@ -41,11 +40,9 @@ class Backtest:
 
         data_iterator = self._data.iter_dates()
         monthly_iterator = self._data.iter_months()
-
-        rebalancing_days = []
-        for date, _ in monthly_iterator:
-            rebalancing_days.append(date)
-
+    
+        rebalancing_days = pd.date_range(self._data['date'].iloc[0], self._data['date'].iloc[-1], freq=periods + 'BMS').to_pydatetime()
+       
         bar = pyprind.ProgBar(data_iterator.ngroups, bar_char='█')
 
         self.balance = pd.DataFrame(
@@ -56,12 +53,12 @@ class Backtest:
             index=[self.data.start_date - pd.Timedelta(1, unit='day')])
 
         for date, stocks in data_iterator:
-
+            if date == self._data._data['date'][0]:
+                self.rebalance_portfolio(stocks)
+            self._update_balance(date, stocks)
+           
             if date in rebalancing_days:
                 self.rebalance_portfolio(stocks)
-
-            self._update_balance(date, stocks)
-
             bar.update()
 
         self.balance['% change'] = self.balance['capital'].pct_change()
