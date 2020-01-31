@@ -1,11 +1,8 @@
-from .direction import Direction
 from .asset import Asset
 
 
 class Portfolio:
-    def __init__(self, direction=Direction.BUY):
-        assert isinstance(direction, Direction)
-        self.direction = direction
+    def __init__(self):
         self.assets = []
 
     def add_asset(self, asset):

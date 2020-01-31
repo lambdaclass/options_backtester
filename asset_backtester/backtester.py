@@ -1,7 +1,7 @@
 import pandas as pd
 import pyprind
 
-from portfolio.portfolio import Portfolio
+from portfolio import Portfolio
 
 
 class Backtest:
