@@ -9,6 +9,7 @@ class Backtest:
         self.schema = schema
         self._portfolio = None
         self._data = None
+        self.data_symbol = None
 
     @property
     def portfolio(self):
@@ -26,8 +27,9 @@ class Backtest:
     @data.setter
     def data(self, data):
         self._data = data
+        self.data_symbol = df_symbol(data)
 
-    def run(self, initial_capital=1_000_000, periods='1'):
+    def run(self, initial_capital=1_000_000, periods='1', sma_months=None):
         """Runs a backtest and returns a dataframe with the daily balance"""
         assert self._data is not None
         assert self._portfolio is not None
@@ -108,3 +110,29 @@ class Backtest:
             'capital': money_total,
         }, name=date)
         self.balance = self.balance.append(row)
+class df_symbol:
+
+    def __init__(self, data, sma_months = None):
+
+        self.columns = data['symbol'].drop_duplicates(keep = 'first')
+
+        cols  = pd.MultiIndex.from_product([self.columns.to_list(),data.columns[1:-1].to_list()]) 
+        df = pd.DataFrame(columns = cols, index =  data['date'].unique())
+
+        for col in cols:
+            symbol = data[data['symbol']==col[0]]
+            symbol = symbol.set_index('date')
+            df[col[0],col[1]] = symbol[col[1]]
+
+        self.data_symbol = df
+
+    def sma(self, sma_days):
+
+        df = pd.DataFrame(columns = self.columns)
+
+        for col in self.columns:
+            df[col] = self.data_symbol[col]['Adj Close'].rolling(sma_days, min_periods = 10).mean()
+        return df
+       
+            
+        
