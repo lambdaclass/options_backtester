@@ -1,7 +1,7 @@
 import pandas as pd
 import pyprind
 
-from portfolio import Portfolio
+from .portfolio import Portfolio
 
 
 class Backtest:
@@ -9,7 +9,6 @@ class Backtest:
         self.schema = schema
         self._portfolio = None
         self._data = None
-        self.data_symbol = None
 
     @property
     def portfolio(self):
@@ -27,9 +26,8 @@ class Backtest:
     @data.setter
     def data(self, data):
         self._data = data
-        self.data_symbol = df_symbol(data)
 
-    def run(self, initial_capital=1_000_000, periods='1', sma_months=None):
+    def run(self, initial_capital=1_000_000, periods=1, sma_months=None):
         """Runs a backtest and returns a dataframe with the daily balance"""
         assert self._data is not None
         assert self._portfolio is not None
@@ -41,9 +39,9 @@ class Backtest:
 
         data_iterator = self._data.iter_dates()
 
-        first_day = self._data['date'].iloc[0]
-        last_day = self._data['date'].iloc[-1]
-        rebalancing_days = pd.date_range(first_day, last_day, freq=periods +
+        first_day = self._data['date'].min()
+        last_day = self._data['date'].max()
+        rebalancing_days = pd.date_range(first_day, last_day, freq=str(periods) +
                                          'BMS').to_pydatetime() if periods is not None else []
 
         bar = pyprind.ProgBar(data_iterator.ngroups, bar_char='█')
@@ -55,14 +53,10 @@ class Backtest:
                                     index=[self._data.start_date - pd.Timedelta(1, unit='day')])
 
         for date, data in data_iterator:
-            if date == self._data._data['date'][0]:
+            if date in rebalancing_days or date == first_day:
                 self._rebalance_portfolio(data)
 
             self._update_balance(date, data)
-
-            if date in rebalancing_days:
-                self._rebalance_portfolio(data)
-
             bar.update()
 
         self.balance['% change'] = self.balance['capital'].pct_change()
@@ -73,12 +67,15 @@ class Backtest:
     def _rebalance_portfolio(self, data):
         """Rebalances the portfolio so that the total money is allocated according to the given percentages"""
         money_total = self.current_cash + self.current_capital
+
         for asset in self._portfolio.assets:
-            asset_current = data[data['symbol'] == asset.symbol]
-            asset_price = asset_current[self.schema['Adj Close']].values[0]
+            query = '{} == "{}"'.format(self.schema['symbol'], asset.symbol)
+
+            asset_current = data.query(query)
+            asset_price = asset_current[self.schema['adjClose']].values[0]
 
             qty = (money_total * asset.percentage) // asset_price
-            inventory_entry = self.inventory[self.inventory['symbol'] == asset.symbol]
+            inventory_entry = self.inventory.query(query)
             self.inventory.drop(inventory_entry.index, inplace=True)
             updated_asset = pd.Series([asset.symbol, asset_price, qty])
             updated_asset.index = self.inventory.columns
@@ -93,10 +90,11 @@ class Backtest:
         costs = []
 
         for asset in self._portfolio.assets:
-            asset_current = data[data['symbol'] == asset.symbol]
-            inventory_asset = self.inventory[self.inventory['symbol'] == asset.symbol]
+            query = '{} == "{}"'.format(self.schema['symbol'], asset.symbol)
+            asset_current = data.query(query)
+            inventory_asset = self.inventory.query(query)
 
-            cost = asset_current[self.schema['Adj Close']].values[0]
+            cost = asset_current[self.schema['adjClose']].values[0]
             qty = inventory_asset['qty'].values[0]
             costs.append(cost * qty)
 
@@ -110,29 +108,27 @@ class Backtest:
             'capital': money_total,
         }, name=date)
         self.balance = self.balance.append(row)
+
+
 class df_symbol:
+    def __init__(self, data, sma_months=None):
 
-    def __init__(self, data, sma_months = None):
+        self.columns = data['symbol'].drop_duplicates(keep='first')
 
-        self.columns = data['symbol'].drop_duplicates(keep = 'first')
-
-        cols  = pd.MultiIndex.from_product([self.columns.to_list(),data.columns[1:-1].to_list()]) 
-        df = pd.DataFrame(columns = cols, index =  data['date'].unique())
+        cols = pd.MultiIndex.from_product([self.columns.to_list(), data.columns[1:-1].to_list()])
+        df = pd.DataFrame(columns=cols, index=data['date'].unique())
 
         for col in cols:
-            symbol = data[data['symbol']==col[0]]
+            symbol = data[data['symbol'] == col[0]]
             symbol = symbol.set_index('date')
-            df[col[0],col[1]] = symbol[col[1]]
+            df[col[0], col[1]] = symbol[col[1]]
 
         self.data_symbol = df
 
     def sma(self, sma_days):
 
-        df = pd.DataFrame(columns = self.columns)
+        df = pd.DataFrame(columns=self.columns)
 
         for col in self.columns:
-            df[col] = self.data_symbol[col]['Adj Close'].rolling(sma_days, min_periods = 10).mean()
+            df[col] = self.data_symbol[col]['Adj Close'].rolling(sma_days, min_periods=10).mean()
         return df
-       
-            
-        

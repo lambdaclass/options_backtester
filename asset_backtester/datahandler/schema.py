@@ -3,7 +3,10 @@ class Schema:
     Used to run validations and provide uniform access to fields in the data set.
     """
 
-    columns = ["symbol", "date", "open", "close", "high", "low", "volume", "Adj Close"]
+    columns = [
+        "symbol", "date", "open", "close", "high", "low", "volume", "adjClose", "adjHigh", "adjLow", "adjOpen",
+        "adjVolume", "divCash", "splitFactor"
+    ]
 
     def canonical():
         """Builder method that returns a `Schema` with default mappings"""

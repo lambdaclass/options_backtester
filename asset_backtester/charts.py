@@ -1,6 +1,7 @@
 """Generates charts from a portfolio report"""
 
 import altair as alt
+import pandas as pd
 
 
 def returns_chart(report):
@@ -60,3 +61,19 @@ def monthly_returns_heatmap(report):
         alt.Tooltip('mean(capital)', format='.2f')).properties(title='Monthly Returns')
 
     return chart
+
+
+def historical_values(data_sma, data_symbol, asset_name):
+
+    asset_sma = pd.DataFrame(data_sma[asset_name])
+    asset_sma = asset_sma.rename(columns={asset_name: 'value'})
+    asset_sma['id'] = ['sma value'] * (len(asset_sma.index))
+    asset_sma = asset_sma.dropna()
+    asset_value = pd.DataFrame(data_symbol[asset_name]['Adj Close'])
+    asset_value = asset_value.rename(columns={'Adj Close': 'value'})
+    asset_value['id'] = ['Adj Close'] * (len(asset_value.index))
+
+    asset_value = asset_value.append(asset_sma)
+    asset_value['index'] = asset_value.index
+    plot = alt.Chart(asset_value).mark_line().encode(x='index:T', y=alt.Y('value:Q'), color='id')
+    return plot

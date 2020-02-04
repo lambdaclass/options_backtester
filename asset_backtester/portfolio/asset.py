@@ -5,4 +5,4 @@ class Asset:
         self.percentage = percentage
 
     def __repr__(self):
-        return "Asset(symbol={}, percentage={}, direction={})".format(self.symbol, self.percentage, self.direction)
+        return "Asset(symbol={}, percentage={})".format(self.symbol, self.percentage)
