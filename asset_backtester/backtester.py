@@ -53,10 +53,12 @@ class Backtest:
                                     index=[self._data.start_date - pd.Timedelta(1, unit='day')])
 
         for date, data in data_iterator:
-            if date in rebalancing_days or date == first_day:
+            if date == first_day: 
+                self._rebalance_portfolio(data)
+            self._update_balance(date, data)
+            if date in rebalancing_days:
                 self._rebalance_portfolio(data)
 
-            self._update_balance(date, data)
             bar.update()
 
         self.balance['% change'] = self.balance['capital'].pct_change()
