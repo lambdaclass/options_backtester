@@ -70,3 +70,7 @@ class HistoricalAssetData:
         """Returns default schema for Historical Asset Data"""
         schema = Schema.canonical()
         return schema
+    def sma(self,months):
+        sma = self._data.groupby('symbol').rolling(months)['adjClose'].mean()
+        sma = sma.reset_index('symbol').sort_index()
+        self._data['sma'] = sma['adjClose']

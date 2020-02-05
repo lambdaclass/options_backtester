@@ -36,7 +36,9 @@ class Backtest:
         self.current_cash = initial_capital
         self.inventory = pd.DataFrame(columns=['symbol', 'cost', 'qty'])
         self.balance = pd.DataFrame()
-
+        if sma_months:
+            self._data.sma(sma_months)
+        
         data_iterator = self._data.iter_dates()
 
         first_day = self._data['date'].min()
@@ -112,25 +114,3 @@ class Backtest:
         self.balance = self.balance.append(row)
 
 
-class df_symbol:
-    def __init__(self, data, sma_months=None):
-
-        self.columns = data['symbol'].drop_duplicates(keep='first')
-
-        cols = pd.MultiIndex.from_product([self.columns.to_list(), data.columns[1:-1].to_list()])
-        df = pd.DataFrame(columns=cols, index=data['date'].unique())
-
-        for col in cols:
-            symbol = data[data['symbol'] == col[0]]
-            symbol = symbol.set_index('date')
-            df[col[0], col[1]] = symbol[col[1]]
-
-        self.data_symbol = df
-
-    def sma(self, sma_days):
-
-        df = pd.DataFrame(columns=self.columns)
-
-        for col in self.columns:
-            df[col] = self.data_symbol[col]['Adj Close'].rolling(sma_days, min_periods=10).mean()
-        return df
