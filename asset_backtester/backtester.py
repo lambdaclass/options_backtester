@@ -114,7 +114,7 @@ class Backtest:
         money_total = total_value + self.current_cash
 
         row = pd.Series({
-            'total_value': total_value,
+            'total value': total_value,
             'cash': self.current_cash,
             'capital': money_total,
         }, name=date)
