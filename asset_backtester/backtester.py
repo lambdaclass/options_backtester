@@ -1,14 +1,14 @@
 import pandas as pd
 import pyprind
-import numpy as np
 from .portfolio import Portfolio
 
 
 class Backtest:
-    def __init__(self, schema):
+    def __init__(self, schema, initial_capital=1_000_000):
         self.schema = schema
         self._portfolio = None
         self._data = None
+        self.initial_capital = initial_capital
 
     @property
     def portfolio(self):
@@ -27,13 +27,13 @@ class Backtest:
     def data(self, data):
         self._data = data
 
-    def run(self, initial_capital=1_000_000, periods=1, sma_days=None):
+    def run(self, periods=1, sma_days=None):
         """Runs a backtest and returns a dataframe with the daily balance"""
         assert self._data is not None
         assert self._portfolio is not None
 
         self.current_capital = 0
-        self.current_cash = initial_capital
+        self.current_cash = self.initial_capital
         self.inventory = pd.DataFrame(columns=['symbol', 'cost', 'qty'])
         self.balance = pd.DataFrame()
         if sma_days:
