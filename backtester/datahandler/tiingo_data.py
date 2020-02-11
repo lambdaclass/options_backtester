@@ -1,32 +1,28 @@
-import pandas as pd
 import os
 from .schema import Schema
+import pandas as pd
 
 
-class HistoricalOptionsData:
-    """Historical Options Data container class."""
+class TiingoData:
+    """Tiingo (stocks & indeces) Data container class."""
     def __init__(self, file, schema=None, **params):
         if schema:
             assert isinstance(schema, Schema)
         else:
-            self.schema = HistoricalOptionsData.default_schema()
+            self.schema = TiingoData.default_schema()
 
         file_extension = os.path.splitext(file)[1]
 
         if file_extension == '.h5':
             self._data = pd.read_hdf(file, **params)
         elif file_extension == '.csv':
-            params['parse_dates'] = [self.schema.expiration.mapping, self.schema.date.mapping]
+            params['parse_dates'] = [self.schema.date.mapping]
             self._data = pd.read_csv(file, **params)
 
         columns = self._data.columns
         assert all((col in columns for _key, col in self.schema))
 
         date_col = self.schema['date']
-        expiration_col = self.schema['expiration']
-
-        self._data['dte'] = (self._data[expiration_col] - self._data[date_col]).dt.days
-        self.schema.update({'dte': 'dte'})
 
         self.start_date = self._data[date_col].min()
         self.end_date = self._data[date_col].max()
@@ -36,11 +32,11 @@ class HistoricalOptionsData:
         return self._data.query(f.query)
 
     def iter_dates(self):
-        """Returns `pd.DataFrameGroupBy` that groups contracts by date"""
+        """Returns `pd.DataFrameGroupBy` that groups stocks by date"""
         return self._data.groupby(self.schema['date'])
 
     def iter_months(self):
-        """Returns `pd.DataFrameGroupBy` that groups contracts by month"""
+        """Returns `pd.DataFrameGroupBy` that groups stocks by month"""
         date_col = self.schema['date']
         iterator = self._data.groupby(pd.Grouper(
             key=date_col,
@@ -79,17 +75,12 @@ class HistoricalOptionsData:
         return self._data.__repr__()
 
     def default_schema():
-        """Returns default schema for Historical Options Data"""
-        schema = Schema.options()
-        schema.update({
-            'contract': 'optionroot',
-            'date': 'quotedate',
-            'last': 'last',
-            'open_interest': 'openinterest',
-            'impliedvol': 'impliedvol',
-            'delta': 'delta',
-            'gamma': 'gamma',
-            'theta': 'theta',
-            'vega': 'vega'
-        })
-        return schema
+        """Returns default schema for Tiingo Data"""
+        return Schema.stocks()
+
+    def sma(self, months):
+        sma = self._data.groupby('symbol').rolling(months)['adjClose'].mean()
+        sma = sma.reset_index('symbol').sort_index()
+        sma = sma.fillna(0)
+        self._data['sma'] = sma['adjClose']
+        self.schema.update({'sma': 'sma'})

@@ -1,20 +1,31 @@
 class Schema:
     """Data schema class.
-    Used to run validations and provide uniform access to fields in the data set.
+    Used provide uniform access to fields in the data set.
     """
 
-    columns = [
+    stock_columns = [
+        "symbol", "date", "open", "close", "high", "low", "volume", "adjClose", "adjHigh", "adjLow", "adjOpen",
+        "adjVolume", "divCash", "splitFactor"
+    ]
+
+    option_columns = [
         "underlying", "underlying_last", "date", "contract", "type", "expiration", "strike", "bid", "ask", "volume",
         "open_interest"
     ]
 
-    def canonical():
-        """Builder method that returns a `Schema` with default mappings"""
-        mappings = {key: key for key in Schema.columns}
+    def stocks():
+        """Builder method that returns a `Schema` with default mappings for stocks"""
+        mappings = {key: key for key in Schema.stock_columns}
+        return Schema(mappings)
+
+    def options():
+        """Builder method that returns a `Schema` with default mappings for options"""
+        mappings = {key: key for key in Schema.option_columns}
         return Schema(mappings)
 
     def __init__(self, mappings):
-        assert all((key in mappings for key in Schema.columns))
+        assert all((key in mappings for key in Schema.stock_columns)) or all(
+            (key in mappings for key in Schema.option_columns))
 
         self._mappings = mappings
 
