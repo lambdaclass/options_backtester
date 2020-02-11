@@ -1,6 +1,6 @@
 from .strategy_leg import StrategyLeg
 from .strategy import Strategy
-from backtester.option import Direction, Type
+from backtester.enums import Direction, Type
 
 
 class Strangle(Strategy):

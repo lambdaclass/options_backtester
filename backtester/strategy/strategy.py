@@ -6,9 +6,8 @@ import pandas as pd
 import numpy as np
 
 from backtester.datahandler import Schema
-from backtester.option import Direction
+from backtester.enums import Direction, Signal, get_order
 from .strategy_leg import StrategyLeg
-from .signal import Signal, get_order
 
 Condition = namedtuple('Condition', 'fields legs tolerance')
 

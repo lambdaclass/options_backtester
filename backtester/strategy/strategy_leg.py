@@ -1,15 +1,10 @@
-from backtester.option import Type, Direction
+from backtester.enums import Type, Direction
 from backtester.datahandler import Schema
 
 
 class StrategyLeg:
     """Strategy Leg data class"""
-
-    def __init__(self,
-                 name,
-                 schema,
-                 option_type=Type.CALL,
-                 direction=Direction.BUY):
+    def __init__(self, name, schema, option_type=Type.CALL, direction=Direction.BUY):
         assert isinstance(schema, Schema)
         assert isinstance(option_type, Type)
         assert isinstance(direction, Direction)
@@ -44,16 +39,13 @@ class StrategyLeg:
 
     def _base_entry_filter(self):
         if self.direction == Direction.BUY:
-            return (self.schema.type == self.type.value) & (self.schema.ask >
-                                                            0)
+            return (self.schema.type == self.type.value) & (self.schema.ask > 0)
         else:
-            return (self.schema.type == self.type.value) & (self.schema.bid >
-                                                            0)
+            return (self.schema.type == self.type.value) & (self.schema.bid > 0)
 
     def _base_exit_filter(self):
         return self.schema.type == self.type.value
 
     def __repr__(self):
         return "StrategyLeg(name={}, type={}, direction={}, entry_filter={}, exit_filter={})".format(
-            self.name, self.type, self.direction, self._entry_filter,
-            self._exit_filter)
+            self.name, self.type, self.direction, self._entry_filter, self._exit_filter)
