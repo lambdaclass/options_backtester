@@ -5,8 +5,8 @@ from functools import reduce
 import pandas as pd
 import numpy as np
 
-from backtester.datahandler import Schema
-from backtester.enums import Direction, Signal, get_order
+from ..datahandler import Schema
+from ..enums import Direction, Signal, get_order
 from .strategy_leg import StrategyLeg
 
 Condition = namedtuple('Condition', 'fields legs tolerance')
@@ -245,12 +245,11 @@ class Strategy:
         fields = self._signal_fields((~direction).value)
         options = options.rename(columns=fields)
         candidates = inventory_leg[['contract']].merge(options, how='left', on='contract')
+
         # candidates.index needs to be the same as the inventory's so that the exit masks that are constructed
         # from it can be correctly applied to the inventory.
         candidates.index = inventory_index
-
-        order = get_order(direction, Signal.EXIT)
-        candidates['order'] = order
+        candidates['order'] = get_order(direction, Signal.EXIT)
 
         # Change sign of cost for SELL orders
         if ~direction == Direction.SELL:
