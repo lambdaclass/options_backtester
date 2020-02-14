@@ -9,7 +9,7 @@ from .datahandler import HistoricalOptionsData, TiingoData
 
 class Backtest:
     """Processes signals from the Strategy object"""
-    def __init__(self, allocation, initial_capital=1_000_000):
+    def __init__(self, allocation, initial_capital=1_000_000, options_percentaje=0.01, stocks_percentaje=0.99):
         assert isinstance(allocation, dict)
 
         assets = ('stocks', 'options', 'cash')
@@ -19,17 +19,28 @@ class Backtest:
         for asset in assets:
             self.allocation[asset] = allocation.get(asset, 0.0) / total_allocation
 
-        self.current_cash = self.initial_capital = initial_capital
+        self.total_current_cash = self.initial_capital = initial_capital
+        self.options_percentaje = options_percentaje
+        self.stocks_percentaje = stocks_percentaje
+        self.current_stocks_cash = initial_capital * stocks_percentaje
+        self.current_options_cash = initial_capital * options_percentaje
+        self.options_capital = self.total_current_cash * options_percentaje
+        self.stock_capital = self.total_current_cash * stocks_percentaje
+        self.total_capital = initial_capital
         self.stop_if_broke = True
         self._stocks = []
         self._options_strategy = None
         self._stock_data = None
         self._options_data = None
 
+    @property
+    def stocks(self):
+        return self._stocks
+
     def add_stock(self, stock):
         """Adds stock to the backtest"""
         assert isinstance(stock, Stock)
-        self.stocks.append(stock)
+        self._stocks.append(stock)
         return self
 
     def add_stocks(self, stocks):
@@ -92,38 +103,29 @@ class Backtest:
         totals = pd.MultiIndex.from_product([['totals'], ['cost', 'qty', 'date']])
         self.options_inventory = pd.DataFrame(columns=columns.append(totals))
 
-        self.stock_inventory = pd.DataFrame(columns=['symbol', 'cost', 'qty'])
+        self.stocks_inventory = pd.DataFrame(columns=['symbol', 'cost', 'qty'])
 
         rebalancing_days = pd.date_range(
-            self.stock_data.first_date, self.stock_data.end_date, freq=str(rebalance_freq) +
+            self.stock_data.start_date, self.stock_data.end_date, freq=str(rebalance_freq) +
             'BMS') if rebalance_freq else []
 
         self.trade_log = pd.DataFrame()
         self.balance = pd.DataFrame({
-            'capital': self.current_cash,
-            'cash': self.current_cash
+            'total_capital': self.current_cash,
+            'total_cash': self.current_cash
         },
                                     index=[self.stock_data.start_date - pd.Timedelta(1, unit='day')])
 
         data_iterator = self._data_iterator(monthly)
-        bar = pyprind.ProgBar(data_iterator.ngroups, bar_char='█')
-
+        #bar = pyprind.ProgBar(data_iterator.ngroups, bar_char='█')
         for date, stocks, options in data_iterator:
-            if date == first_day:
-                self._rebalance_portfolio(data, sma_days)
-            self._update_balance(date, data)
-            if date in rebalancing_days:
-                self._rebalance_portfolio(data, sma_days)
-            entry_signals = self._strategy.filter_entries(options, self.inventory, date)
-            exit_signals = self._strategy.filter_exits(options, self.inventory, date)
+            if (date == self.stock_data.start_date) or (date in rebalancing_days):
+                self._rebalance_portfolio(date, stocks, options)
+            self._update_balance(date, stocks, options)
 
-            self._execute_exit(exit_signals)
-            self._execute_entry(entry_signals)
-            self._update_balance(date, options)
+        #bar.update()
 
-            bar.update()
-
-        self.balance['% change'] = self.balance['capital'].pct_change()
+        self.balance['% change'] = self.balance['total_capital'].pct_change()
         self.balance['accumulated return'] = (1.0 + self.balance['% change']).cumprod()
 
         return self.trade_log
@@ -147,64 +149,159 @@ class Backtest:
         """Executes entry orders and updates `self.inventory` and `self.trade_log`"""
         entry, total_price = self._process_entry_signals(entry_signals)
 
-        if (not self.stop_if_broke) or (self.current_cash >= total_price):
-            self.inventory = self.inventory.append(entry, ignore_index=True)
+        if (not self.stop_if_broke) or (self.current_options_cash >= total_price):
+            self.options_inventory = self.options_inventory.append(entry, ignore_index=True)
             self.trade_log = self.trade_log.append(entry, ignore_index=True)
-            self.current_cash -= total_price
+            self.current_options_cash -= total_price
 
     def _execute_exit(self, exit_signals):
         """Executes exits and updates `self.inventory` and `self.trade_log`"""
         exits, exits_mask, total_costs = exit_signals
 
         self.trade_log = self.trade_log.append(exits, ignore_index=True)
-        self.inventory.drop(self.inventory[exits_mask].index, inplace=True)
-        self.current_cash -= sum(total_costs)
+        self.options_inventory.drop(self.options_inventory[exits_mask].index, inplace=True)
+        self.current_options_cash -= sum(total_costs)
 
     def _process_entry_signals(self, entry_signals):
         """Returns the entry signals to execute and their cost."""
 
         if not entry_signals.empty:
-            # costs = entry_signals['totals']['cost']
-            # return entry_signals.loc[costs.idxmin():costs.idxmin()], costs.min()
             entry = entry_signals.iloc[0]
             return entry, entry['totals']['cost'] * entry['totals']['qty']
         else:
             return entry_signals, 0
 
-    def _update_balance(self, date, options):
-        """Updates positions and calculates statistics for the current date.
+    def _rebalance_portfolio(self, date, stocks, options):
+        """Rebalance portfolio, done after an _update_balance"""
 
-        Args:
-            date (pd.Timestamp):    Current date.
-            options (pd.DataFrame): DataFrame of (daily/monthly) options.
-        """
+        #first we need to exit the options
+        exit_signals = self._options_strategy.filter_exits(options, self.options_inventory, date)
+        self._execute_exit(exit_signals)
 
         leg_candidates = [
-            self._strategy._exit_candidates(l.direction, self.inventory[l.name], options, self.inventory.index)
-            for l in self._strategy.legs
+            self._options_strategy._exit_candidates(l.direction, self.options_inventory[l.name], options,
+                                                    self.options_inventory.index) for l in self._options_strategy.legs
         ]
 
         # If a contract is missing we replace the NaN values with those of the inventory
         # except for cost, which we imput as zero.
+
         for leg in leg_candidates:
             leg['cost'].fillna(0, inplace=True)
 
         calls_value = -np.sum(
-            sum(leg['cost'] * self.inventory['totals']['qty']
+            sum(leg['cost'] * self.options_inventory['totals']['qty']
                 for leg in leg_candidates if (leg['type'] == 'call').any()))
         puts_value = -np.sum(
-            sum(leg['cost'] * self.inventory['totals']['qty']
+            sum(leg['cost'] * self.options_inventory['totals']['qty']
                 for leg in leg_candidates if (leg['type'] == 'put').any()))
 
-        capital = calls_value + puts_value + self.current_cash
+        options_capital = calls_value + puts_value
+        old_options_capital = self.current_options_cash + options_capital
+
+        costs = []
+        for stock in self.stocks:
+            query = '{} == "{}"'.format(self.stock_data.schema['symbol'], stock.symbol)
+            current_stock = stocks.query(query)
+            current_stock_price = current_stock[self.stock_data.schema['adjClose']].values[0]
+            stock_inventory = self.stocks_inventory.query(query)
+            if stock_inventory.empty:
+                qty = 0
+            else:
+                qty = stock_inventory['qty'].values[0]
+
+            costs.append(current_stock_price * qty)
+
+        old_stock_capital = self.current_stocks_cash + sum(costs)
+        if old_options_capital + old_stock_capital != 0:
+
+            self.total_capital = old_options_capital + old_stock_capital
+
+        new_stocks_capital = self.total_capital * self.stocks_percentaje
+
+        new_options_capital = self.total_capital * self.options_percentaje
+
+        #update stock with new_stock_capital
+        stocks_costs = []
+        for stock in self.stocks:
+            query = '{} == "{}"'.format(self.stock_data.schema['symbol'], stock.symbol)
+            current_stock = stocks.query(query)
+            current_stock_price = current_stock[self.stock_data.schema['adjClose']].values[0]
+            qty = (new_stocks_capital * stock.percentage) // current_stock_price
+            stocks_costs.append(qty * current_stock_price)
+            stocks_inventory_entry = self.stocks_inventory.query(query)
+            self.stocks_inventory.drop(stocks_inventory_entry.index, inplace=True)
+            updated_asset = pd.Series([stock.symbol, current_stock_price, qty])
+            updated_asset.index = self.stocks_inventory.columns
+            self.stocks_inventory = self.stocks_inventory.append(updated_asset, ignore_index=True)
+
+        self.stock_capital = new_stocks_capital
+        self.current_stocks_cash = self.stock_capital - sum(stocks_costs)
+        #update options
+
+        self.current_options_cash += new_options_capital - self.current_options_cash
+        self._options_strategy.initial_capital = new_options_capital
+        entry_signals = self._options_strategy.filter_entries(options, self.options_inventory, date)
+        self._execute_entry(entry_signals)
+        self.options_capital = new_options_capital
+
+    def _update_balance(self, date, stocks, options):
+        """Updates positions and calculates statistics for the current date.
+
+        Args:
+            date (pd.Timestamp):    Current date.
+            stocks (pd.DataFrame): DataFrame of stocks
+            options (pd.DataFrame): DataFrame of (daily/monthly) options.
+        """
+        exit_signals = self._options_strategy.filter_exits(options, self.options_inventory, date)
+        self._execute_exit(exit_signals)
+
+        #update options
+        leg_candidates = [
+            self._options_strategy._exit_candidates(l.direction, self.options_inventory[l.name], options,
+                                                    self.options_inventory.index) for l in self._options_strategy.legs
+        ]
+
+        # If a contract is missing we replace the NaN values with those of the inventory
+        # except for cost, which we imput as zero.
+
+        for leg in leg_candidates:
+            leg['cost'].fillna(0, inplace=True)
+
+        calls_value = -np.sum(
+            sum(leg['cost'] * self.options_inventory['totals']['qty']
+                for leg in leg_candidates if (leg['type'] == 'call').any()))
+        puts_value = -np.sum(
+            sum(leg['cost'] * self.options_inventory['totals']['qty']
+                for leg in leg_candidates if (leg['type'] == 'put').any()))
+
+        options_capital = calls_value + puts_value
+        self.options_capital = self.current_options_cash + options_capital
+        #   if self.balance ==
+        #update stocks portfolio information due to change in price over time
+        costs = []
+        for stock in self.stocks:
+            query = '{} == "{}"'.format(self.stock_data.schema['symbol'], stock.symbol)
+            asset_current = stocks.query(query)
+            cost = asset_current[self.stock_data.schema['adjClose']].values[0]
+            stock_inventory = self.stocks_inventory.query(query)
+            qty = qty = stock_inventory['qty'].values[0]
+
+            costs.append(cost * qty)
+        total_value = sum(costs)
+
+        self.stock_capital = total_value + self.current_stocks_cash
+        self.total_capital = self.stock_capital + self.options_capital
 
         row = pd.Series(
             {
-                'qty': self.inventory['totals']['qty'].sum(),
-                'calls value': calls_value,
-                'puts value': puts_value,
-                'cash': self.current_cash,
-                'capital': capital,
+                'options_qty': self.options_inventory['totals']['qty'].sum(),
+                'options_capital': options_capital,
+                'calls_value': calls_value,
+                'puts_value': puts_value,
+                'stocks_capital': self.stock_capital,
+                'total_cash': self.current_stocks_cash + self.current_options_cash,
+                'total_capital': self.stock_capital + self.options_capital,
             },
             name=date)
         self.balance = self.balance.append(row)
