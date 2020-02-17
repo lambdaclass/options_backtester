@@ -1,15 +1,15 @@
-import pandas as pd
 import numpy as np
+import pandas as pd
 import pyprind
 
-from .strategy import Strategy
 from .enums import Order, Stock
 from .datahandler import HistoricalOptionsData, TiingoData
+from .strategy import Strategy
 
 
 class Backtest:
     """Processes signals from the Strategy object"""
-    def __init__(self, allocation, initial_capital=1_000_000, options_percentaje=0.01, stocks_percentaje=0.99):
+    def __init__(self, allocation, initial_capital=1_000_000, shares_per_contract=100):
         assert isinstance(allocation, dict)
 
         assets = ('stocks', 'options', 'cash')
@@ -19,34 +19,23 @@ class Backtest:
         for asset in assets:
             self.allocation[asset] = allocation.get(asset, 0.0) / total_allocation
 
-        self.total_current_cash = self.initial_capital = initial_capital
-        self.options_percentaje = options_percentaje
-        self.stocks_percentaje = stocks_percentaje
-        self.current_stocks_cash = initial_capital * stocks_percentaje
-        self.current_options_cash = initial_capital * options_percentaje
-        self.options_capital = self.total_current_cash * options_percentaje
-        self.stock_capital = self.total_current_cash * stocks_percentaje
-        self.total_capital = initial_capital
+        self.current_cash = self.initial_capital = initial_capital
         self.stop_if_broke = True
+        self.shares_per_contract = shares_per_contract
         self._stocks = []
         self._options_strategy = None
-        self._stock_data = None
+        self._stocks_data = None
         self._options_data = None
 
     @property
     def stocks(self):
         return self._stocks
 
-    def add_stock(self, stock):
-        """Adds stock to the backtest"""
-        assert isinstance(stock, Stock)
-        self._stocks.append(stock)
-        return self
-
-    def add_stocks(self, stocks):
-        """Adds stocks to the backtest"""
-        for stock in stocks:
-            self.add_stock(stock)
+    @stocks.setter
+    def stocks(self, stocks):
+        assert all(isinstance(stock, Stock) for stock in stocks), 'Invalid stocks'
+        assert sum(stock.percentage for stock in stocks) == 1.0, 'Stock percentages must sum to 1.0'
+        self._stocks = list(stocks)
         return self
 
     @property
@@ -60,13 +49,14 @@ class Backtest:
         self.current_cash = strat.initial_capital
 
     @property
-    def stock_data(self):
-        return self._stock_data
+    def stocks_data(self):
+        return self._stocks_data
 
-    @stock_data.setter
-    def stock_data(self, data):
+    @stocks_data.setter
+    def stocks_data(self, data):
         assert isinstance(data, TiingoData)
-        self._stock_data = data
+        self._stocks_schema = data.schema
+        self._stocks_data = data
 
     @property
     def options_data(self):
@@ -75,6 +65,7 @@ class Backtest:
     @options_data.setter
     def options_data(self, data):
         assert isinstance(data, HistoricalOptionsData)
+        self._options_schema = data.schema
         self._options_data = data
 
     def run(self, rebalance_freq=0, monthly=False):
@@ -88,7 +79,7 @@ class Backtest:
             pd.DataFrame:                   Log of the trades executed.
         """
 
-        assert self._stock_data, 'Stock data not set'
+        assert self._stocks_data, 'Stock data not set'
         assert self._options_data, 'Options data not set'
         assert self._options_strategy, 'Options Strategy not set'
         assert self._options_data.schema == self._options_strategy.schema
@@ -97,18 +88,7 @@ class Backtest:
         stock_dates = self._stock_data['date'].unique()
         assert np.array_equal(stock_dates, option_dates), 'Stock and options dates do not match'
 
-        columns = pd.MultiIndex.from_product(
-            [[l.name for l in self._options_strategy.legs],
-             ['contract', 'underlying', 'expiration', 'type', 'strike', 'cost', 'order']])
-        totals = pd.MultiIndex.from_product([['totals'], ['cost', 'qty', 'date']])
-        self.options_inventory = pd.DataFrame(columns=columns.append(totals))
-
-        self.stocks_inventory = pd.DataFrame(columns=['symbol', 'cost', 'qty'])
-
-        rebalancing_days = pd.date_range(
-            self.stock_data.start_date, self.stock_data.end_date, freq=str(rebalance_freq) +
-            'BMS') if rebalance_freq else []
-
+        self._initialize_inventories()
         self.trade_log = pd.DataFrame()
         self.balance = pd.DataFrame({
             'total_capital': self.current_cash,
@@ -116,19 +96,34 @@ class Backtest:
         },
                                     index=[self.stock_data.start_date - pd.Timedelta(1, unit='day')])
 
-        data_iterator = self._data_iterator(monthly)
-        #bar = pyprind.ProgBar(data_iterator.ngroups, bar_char='█')
-        for date, stocks, options in data_iterator:
-            if (date == self.stock_data.start_date) or (date in rebalancing_days):
-                self._rebalance_portfolio(date, stocks, options)
-            self._update_balance(date, stocks, options)
+        rebalancing_days = pd.date_range(
+            self.stock_data.first_date, self.stock_data.end_date, freq=str(rebalance_freq) +
+            'BMS') if rebalance_freq else []
 
-        #bar.update()
+        data_iterator = self._data_iterator(monthly)
+        bar = pyprind.ProgBar(len(stock_dates), bar_char='█')
+
+        for date, stocks, options in data_iterator:
+            if date in rebalancing_days or date == self.stock_data.start_date:
+                self._rebalance_portfolio(date, stocks, options)
+
+            self._update_balance(date, stocks, options)
+            bar.update()
 
         self.balance['% change'] = self.balance['total_capital'].pct_change()
         self.balance['accumulated return'] = (1.0 + self.balance['% change']).cumprod()
 
         return self.trade_log
+
+    def _initialize_inventories(self):
+        """Initialize empty stocks and options inventories."""
+        columns = pd.MultiIndex.from_product(
+            [[l.name for l in self._options_strategy.legs],
+             ['contract', 'underlying', 'expiration', 'type', 'strike', 'cost', 'order']])
+        totals = pd.MultiIndex.from_product([['totals'], ['cost', 'qty', 'date']])
+        self._options_inventory = pd.DataFrame(columns=columns.append(totals))
+
+        self._stocks_inventory = pd.DataFrame(columns=['symbol', 'price', 'qty'])
 
     def _data_iterator(self, monthly):
         """Returns combined iterator for stock and options data.
@@ -136,7 +131,7 @@ class Backtest:
             (date, stocks, options)
 
         Returns:
-            generator: Daily/monthly iterator over `self.stock_data` and `self.options_data`
+            generator: Daily/monthly iterator over `self.stock_data` and `self.options_data`.
         """
         if monthly:
             it = zip(self._stock_data.iter_months(), self._options_data.iter_months())
@@ -144,6 +139,63 @@ class Backtest:
             it = zip(self._stock_data.iter_dates(), self._options_data.iter_dates())
 
         return ((date, stocks, options) for (date, stocks), (_, options) in it)
+
+    def _rebalance_portfolio(self, date, stocks, options):
+        """Rebalances the portfolio according to `self.allocation`."""
+
+        stock_capital = self._current_stock_capital(stocks)
+        options_capital = self._current_options_capital(options)
+        total_capital = self.current_cash + stock_capital + options_capital
+        options_allocation = self.allocation['options'] * total_capital
+        stocks_allocation = self.allocation['stocks'] * total_capital
+
+        # Clear inventories
+        self._initialize_inventories()
+
+        for stock in self._stocks:
+            query = '{} == "{}"'.format(self.schema['symbol'], stock.symbol)
+            stock_row = stocks.query(query)
+            stock_price = stock_row[self._stocks_schema['adjClose']].values[0]
+            qty = (stocks_allocation * stock.percentage) // stock_price
+            stock_entry = pd.Series([stock.symbol, stock_price, qty], index=self._stocks_inventory.columns)
+            self._stocks_inventory = self._stocks_inventory.append(stock_entry, ignore_index=True)
+
+        self._sell_options()
+        entry_signals = self._strategy.filter_entries(options, self.inventory, date)
+        self._execute_entry(entry_signals)
+
+        options_value = sum(self.options_inventory['totals']['cost'] * self.options_inventory['totals']['qty'])
+
+        # Update current cash
+        invested_capital = sum(self.inventory['cost'] * self.inventory['qty'])
+        self.current_cash = money_total - invested_capital
+
+    def _current_stock_capital(self, stocks):
+        """Return the current value of the stocks inventory.
+
+        Args:
+            stocks (pd.DataFrame): Stocks data for the current time step.
+
+        Returns:
+            float: Total capital in stocks.
+        """
+        current_stocks = self._stocks_inventory.merge(stocks,
+                                                      how='left',
+                                                      left_on='symbol',
+                                                      right_on=self._stock_schema['symbol'])
+        return (current_stocks[self._stocks_schema['adjClose']] * current_stocks['qty']).sum()
+
+    def _current_options_capital(self, options):
+        total_cost = 0.0
+        for leg in self._options_strategy.legs:
+            current_options = self._options_inventory[leg.name].merge(options,
+                                                                      how='left',
+                                                                      left_on='contract',
+                                                                      right_on=self._options_schema['contract'])
+            price_col = ~(leg.direction).value
+            total_cost += current_options[price_col].fillna(0.0).iloc[0] * current_options['qty']
+
+        return total_cost
 
     def _execute_entry(self, entry_signals):
         """Executes entry orders and updates `self.inventory` and `self.trade_log`"""
@@ -250,13 +302,13 @@ class Backtest:
 
         Args:
             date (pd.Timestamp):    Current date.
-            stocks (pd.DataFrame): DataFrame of stocks
+            stocks (pd.DataFrame):  DataFrame of stocks
             options (pd.DataFrame): DataFrame of (daily/monthly) options.
         """
         exit_signals = self._options_strategy.filter_exits(options, self.options_inventory, date)
         self._execute_exit(exit_signals)
 
-        #update options
+        # update options
         leg_candidates = [
             self._options_strategy._exit_candidates(l.direction, self.options_inventory[l.name], options,
                                                     self.options_inventory.index) for l in self._options_strategy.legs
@@ -295,13 +347,14 @@ class Backtest:
 
         row = pd.Series(
             {
-                'options_qty': self.options_inventory['totals']['qty'].sum(),
-                'options_capital': options_capital,
-                'calls_value': calls_value,
-                'puts_value': puts_value,
-                'stocks_capital': self.stock_capital,
-                'total_cash': self.current_stocks_cash + self.current_options_cash,
-                'total_capital': self.stock_capital + self.options_capital,
+                'total capital': self.stock_capital + self.options_capital,
+                'cash': self.current_stocks_cash + self.current_options_cash,
+                'stocks capital': self.stock_capital,
+                'stocks qty': self._stocks_inventory['qty'].sum(),
+                'options capital': options_capital,
+                'options qty': self._options_inventory['totals']['qty'].sum(),
+                'calls capital': calls_capital,
+                'puts capital': puts_capital
             },
             name=date)
         self.balance = self.balance.append(row)
@@ -388,4 +441,5 @@ class Backtest:
         return styler
 
     def __repr__(self):
-        return "Backtest(capital={}, strategy={})".format(self.current_cash, self._strategy)
+        return "Backtest(capital={}, allocation={}, stocks={}, strategy={})".format(
+            self.current_cash, self.allocation, self._stocks, self._options_strategy)
