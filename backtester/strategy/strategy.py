@@ -17,11 +17,10 @@ class Strategy:
     Takes in a number of `StrategyLeg`'s (option contracts), and filters that determine
     entry and exit conditions.
     """
-    def __init__(self, schema, shares_per_contract=100, initial_capital=1_000_000):
+    def __init__(self, schema, shares_per_contract=100):
         assert isinstance(schema, Schema)
         self.schema = schema
         self._shares_per_contract = shares_per_contract
-        self.initial_capital = initial_capital
         self.legs = []
         self.conditions = []
         self.exit_thresholds = (math.inf, math.inf)
@@ -72,7 +71,7 @@ class Strategy:
         assert loss_pct >= 0
         self.exit_thresholds = (profit_pct, loss_pct)
 
-    def filter_entries(self, options, inventory, date):
+    def filter_entries(self, options, inventory, date, capital):
         """Returns the entry signals chosen by the strategy for the given
         (daily) options.
 
@@ -87,7 +86,7 @@ class Strategy:
         inventory_contracts = pd.concat([inventory[leg.name]['contract'] for leg in self.legs])
         subset_options = options[~options[self.schema['contract']].isin(inventory_contracts)]
 
-        return self._filter_legs(subset_options, Signal.ENTRY, date)
+        return self._filter_legs(subset_options, Signal.ENTRY, date, capital)
 
     def filter_exits(self, options, inventory, date):
         """Returns the exit signals chosen by the strategy for the given
@@ -142,10 +141,10 @@ class Strategy:
 
         return (exits, exits_mask, total_costs)
 
-    def _filter_legs(self, options, signal, date):
+    def _filter_legs(self, options, signal, date, capital):
         """Returns a hierarchically indexed `pd.DataFrame` containing signals for each
         leg in the strategy.
-
+s
         Args:
             options (pd.DataFrame): DataFrame of (daily) options
             signal (Signal):        Either `Signal.ENTRY` or `Signal.EXIT`
@@ -179,7 +178,7 @@ class Strategy:
 
             dfs.append(subset_df.reset_index(drop=True))
 
-        return self._apply_conditions(dfs, date)
+        return self._apply_conditions(dfs, date, capital)
 
     def _signal_fields(self, cost_field):
         fields = {
@@ -194,7 +193,7 @@ class Strategy:
 
         return fields
 
-    def _apply_conditions(self, dfs, date):
+    def _apply_conditions(self, dfs, date, capital):
         """Applies conditions on the specified legs."""
 
         for condition in self.conditions:
@@ -215,7 +214,7 @@ class Strategy:
 
         cost = sum(leg["cost"] for leg in dfs)
         # Put qty of contracts to buy/sell in ['totals']['qty']
-        qty = self.initial_capital // cost
+        qty = capital // cost
         qty = np.abs(qty)
         totals = pd.DataFrame.from_dict({"cost": cost, "qty": qty, "date": date})
         totals.columns = pd.MultiIndex.from_product([["totals"], totals.columns])
