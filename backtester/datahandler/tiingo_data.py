@@ -78,9 +78,9 @@ class TiingoData:
         """Returns default schema for Tiingo Data"""
         return Schema.stocks()
 
-    def sma(self, months):
-        sma = self._data.groupby('symbol').rolling(months)['adjClose'].mean()
-        sma = sma.reset_index('symbol').sort_index()
+    def sma(self, periods):
+        sma = self._data.groupby('symbol', as_index=False).rolling(periods)['adjClose'].mean()
         sma = sma.fillna(0)
-        self._data['sma'] = sma['adjClose']
+        sma.index = sma.index.levels[1]
+        self._data['sma'] = sma
         self.schema.update({'sma': 'sma'})
