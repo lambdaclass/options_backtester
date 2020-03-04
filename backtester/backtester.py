@@ -127,8 +127,9 @@ class Backtest:
 
         self.balance['options capital'] = self.balance['calls capital'] + self.balance['puts capital']
         self.balance['stocks capital'] = sum(self.balance[stock.symbol] for stock in self._stocks)
-        self.balance[
-            'total capital'] = self.balance['options capital'] + self.balance['stocks capital'] + self.balance['cash']
+        self.balance['total capital'] = self.balance['cash'].add(self.balance['stocks capital'],
+                                                                 self.balance['options capital'],
+                                                                 fill_value=0)
         self.balance['% change'] = self.balance['total capital'].pct_change()
         self.balance['accumulated return'] = (1.0 + self.balance['% change']).cumprod()
 
