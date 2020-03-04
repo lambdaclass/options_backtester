@@ -282,10 +282,6 @@ class Backtest:
         stock_prices = inventory_stocks[self._stocks_schema['adjClose']]
 
         if sma_days:
-            print(stock_prices)
-            print(inventory_stocks['sma'])
-            print(allocation)
-            print(stock_percentages)
             qty = np.where(inventory_stocks['sma'] < stock_prices, (allocation * stock_percentages) // stock_prices, 0)
         else:
             qty = (allocation * stock_percentages) // stock_prices
@@ -300,21 +296,19 @@ class Backtest:
         calls_value = pd.Series(0, index=options_data['quotedate'].unique())
         puts_value = pd.Series(0, index=options_data['quotedate'].unique())
 
-        try:
-            options_qty = self._options_inventory['totals']['qty'].values[0]
-        except IndexError:
-            options_qty = 0
-
         for leg in self._options_strategy.legs:
             leg_inventory = self._options_inventory[leg.name]
-            current = leg_inventory[['contract']].merge(options_data,
-                                                        how='left',
-                                                        left_on='contract',
-                                                        right_on='optionroot').set_index('quotedate')
-            if (leg_inventory['type'] == 'call').any():
-                calls_value += current[(~leg.direction).value] * options_qty * self.shares_per_contract
-            else:
-                puts_value += current[(~leg.direction).value] * options_qty * self.shares_per_contract
+            for contract in leg_inventory['contract']:
+                leg_inventory_contract = leg_inventory.query('contract == "{}"'.format(contract))
+                qty = self._options_inventory.loc[leg_inventory_contract.index]['totals']['qty'].values[0]
+                current = leg_inventory_contract[['contract']].merge(options_data,
+                                                                     how='left',
+                                                                     left_on='contract',
+                                                                     right_on='optionroot').set_index('quotedate')
+                if (leg_inventory_contract['type'] == 'call').any():
+                    calls_value += current[(~leg.direction).value] * qty * self.shares_per_contract
+                else:
+                    puts_value += current[(~leg.direction).value] * qty * self.shares_per_contract
 
         stocks_current = self._stocks_inventory[['symbol', 'qty']].merge(stocks_data[['date', 'symbol', 'adjClose']],
                                                                          on='symbol')
@@ -324,8 +318,7 @@ class Backtest:
             stocks_current[stocks_current['symbol'] == stock.symbol].set_index('date')[['cost']].rename(
                 columns={'cost': stock.symbol}) for stock in self._stocks
         ],
-                        axis=1,
-                        sort=True)
+                        axis=1)
 
         add['cash'] = self.current_cash
         add['options qty'] = self._options_inventory['totals']['qty'].sum()
