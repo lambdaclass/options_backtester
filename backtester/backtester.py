@@ -87,7 +87,7 @@ class Backtest:
         assert self._options_data.schema == self._options_strategy.schema
 
         option_dates = self._options_data['date'].unique()
-        stock_dates = self._stocks_data['date'].unique()
+        stock_dates = self.stocks_data['date'].unique()
         assert np.array_equal(stock_dates,
                               option_dates), 'Stock and options dates do not match (check that TZ are equal)'
 
@@ -98,25 +98,37 @@ class Backtest:
             'total capital': self.current_cash,
             'cash': self.current_cash
         },
-                                    index=[self._stocks_data.start_date - pd.Timedelta(1, unit='day')])
+                                    index=[self.stocks_data.start_date - pd.Timedelta(1, unit='day')])
 
         if sma_days:
-            self._stocks_data.sma(sma_days)
+            self.stocks_data.sma(sma_days)
 
         rebalancing_days = pd.date_range(
-            self._stocks_data.start_date, self._stocks_data.end_date, freq=str(rebalance_freq) +
+            self._stocks_data.start_date, self.stocks_data.end_date, freq=str(rebalance_freq) +
             'BMS') if rebalance_freq else []
+
+        # Prepend the first day to the rebalancing days
+        rebalancing_days = pd.DatetimeIndex([self.stocks_data.start_date]).append(rebalancing_days)
 
         data_iterator = self._data_iterator(monthly)
         bar = pyprind.ProgBar(len(stock_dates), bar_char='█')
 
         for date, stocks, options in data_iterator:
-            if date in rebalancing_days or date == self._stocks_data.start_date:
+            if date in rebalancing_days:
+                previous_rb_date = rebalancing_days[rebalancing_days.get_loc(date) -
+                                                    1] if rebalancing_days.get_loc(date) != 0 else date
+                self._update_balance(previous_rb_date, date, self.stocks_data, self._options_data)
                 self._rebalance_portfolio(date, stocks, options, sma_days)
 
-            self._update_balance(date, stocks, options)
             bar.update()
 
+        # Update balance for the period between the last rebalancing day and the last day
+        self._update_balance(rebalancing_days[-1], self.stocks_data.end_date, self._stocks_data, self._options_data)
+
+        self.balance['options capital'] = self.balance['calls capital'] + self.balance['puts capital']
+        self.balance['stocks capital'] = sum(self.balance[stock.symbol] for stock in self._stocks)
+        self.balance[
+            'total capital'] = self.balance['options capital'] + self.balance['stocks capital'] + self.balance['cash']
         self.balance['% change'] = self.balance['total capital'].pct_change()
         self.balance['accumulated return'] = (1.0 + self.balance['% change']).cumprod()
 
@@ -170,15 +182,49 @@ class Backtest:
         self._initialize_inventories()
 
         self._buy_stocks(stocks, stocks_allocation, sma_days)
-        entry_signals = self._options_strategy.filter_entries(options, self._options_inventory, date,
-                                                              options_allocation)
-        self._execute_entry(entry_signals, options_allocation)
+        self._execute_option_entries(date, options, options_allocation)
 
         stocks_value = sum(self._stocks_inventory['price'] * self._stocks_inventory['qty'])
         options_value = sum(self._options_inventory['totals']['cost'] * self._options_inventory['totals']['qty'])
 
         # Update current cash
         self.current_cash = total_capital - options_value - stocks_value
+
+    def _sell_options(self, options, date):
+        # This method essentially recycles most of the code in the filter_exits method in Strategy.
+        # The whole thing needs a refactor.
+
+        leg_candidates = self._get_current_option_quotes(options)
+
+        for i, leg in enumerate(self._options_strategy.legs):
+            fields = self._signal_fields((~leg.direction).value)
+            leg_candidates[i] = leg_candidates[i].loc[:, fields.values()]
+            leg_candidates[i].columns = pd.MultiIndex.from_product([["leg_{}".format(i + 1)],
+                                                                    leg_candidates[i].columns])
+
+        candidates = pd.concat(leg_candidates, axis=1)
+
+        # If a contract is missing we replace the NaN values with those of the inventory
+        # except for cost, which we imput as zero.
+        imputed_inventory = self._impute_missing_option_values(self._options_inventory)
+        candidates = candidates.fillna(imputed_inventory)
+        total_costs = sum([candidates[l.name]['cost'] for l in self._options_strategy.legs])
+
+        # Append the 'totals' column to candidates
+        qtys = self._options_inventory['totals']['qty']
+        dates = [date] * len(self._options_inventory)
+        totals = pd.DataFrame.from_dict({"cost": total_costs, "qty": qtys, "date": dates})
+        totals.columns = pd.MultiIndex.from_product([["totals"], totals.columns])
+        candidates = pd.concat([candidates, totals], axis=1)
+
+        exits_mask = pd.Series([True] * len(self._options_inventory))
+        exits_mask.index = self._options_inventory.index
+
+        total_costs *= candidates['totals']['qty']
+
+        self._options_inventory.drop(self._options_inventory[exits_mask].index, inplace=True)
+        self.trade_log = self.trade_log.append(candidates, ignore_index=True)
+        self.current_cash -= sum(total_costs)
 
     def _current_stock_capital(self, stocks):
         """Return the current value of the stocks inventory.
@@ -206,9 +252,8 @@ class Backtest:
                                                                       right_on=self._options_schema['contract'])
             price_col = (~leg.direction).value
             try:
-                # 100 = shares_per_contract
                 cost = current_options[price_col].fillna(
-                    0.0).iloc[0] * self._options_inventory['totals']['qty'].values[0] * 100
+                    0.0).iloc[0] * self._options_inventory['totals']['qty'].values[0] * self.shares_per_contract
                 if price_col == 'bid':
                     total_cost += cost
                 else:
@@ -240,150 +285,51 @@ class Backtest:
 
         self._stocks_inventory = pd.DataFrame({'symbol': stock_symbols, 'price': stock_prices, 'qty': qty})
 
-    def _update_balance(self, date, stocks, options):
-        """Updates positions and calculates statistics for the current date.
+    def _update_balance(self, start_date, end_date, stocks, options):
+        """Updates bt.balance in batch in a certain period between rebalancing days"""
+        stocks_data = stocks.query('(date >= "{}") & (date < "{}")'.format(start_date, end_date))
+        options_data = options.query('(quotedate >= "{}") & (quotedate < "{}")'.format(start_date, end_date))
 
-        Args:
-            date (pd.Timestamp):    Current date.
-            stocks (pd.DataFrame):  DataFrame of stocks.
-            options (pd.DataFrame): DataFrame of (daily/monthly) options.
-        """
-        exit_signals = self.filter_exits(options, self._options_inventory, date)
-        self._execute_exit(exit_signals)
+        calls_value = pd.Series(0, index=options_data['quotedate'].unique())
+        puts_value = pd.Series(0, index=options_data['quotedate'].unique())
 
-        # update options
-        leg_candidates = [
-            self._exit_candidates(l.direction, self._options_inventory[l.name], options, self._options_inventory.index)
-            for l in self._options_strategy.legs
-        ]
+        try:
+            options_qty = self._options_inventory['totals']['qty'].values[0]
+        except IndexError:
+            options_qty = 0
 
-        # If a contract is missing we replace the NaN values with those of the inventory
-        # except for cost, which we imput as zero.
+        for leg in self._options_strategy.legs:
+            leg_inventory = self._options_inventory[leg.name]
+            current = leg_inventory[['contract']].merge(options_data,
+                                                        how='left',
+                                                        left_on='contract',
+                                                        right_on='optionroot').set_index('quotedate')
+            if (leg_inventory['type'] == 'call').any():
+                calls_value += current[(~leg.direction).value] * options_qty * self.shares_per_contract
+            else:
+                puts_value += current[(~leg.direction).value] * options_qty * self.shares_per_contract
 
-        for leg in leg_candidates:
-            leg['cost'].fillna(0, inplace=True)
+        stocks_current = self._stocks_inventory[['symbol', 'qty']].merge(stocks_data[['date', 'symbol', 'adjClose']],
+                                                                         on='symbol')
+        stocks_current['cost'] = stocks_current['qty'] * stocks_current['adjClose']
 
-        calls_value = -np.sum(
-            sum(leg['cost'] * self._options_inventory['totals']['qty']
-                for leg in leg_candidates if (leg['type'] == 'call').any()))
-        puts_value = -np.sum(
-            sum(leg['cost'] * self._options_inventory['totals']['qty']
-                for leg in leg_candidates if (leg['type'] == 'put').any()))
+        add = pd.concat([
+            stocks_current[stocks_current['symbol'] == stock.symbol].set_index('date')[['cost']].rename(
+                columns={'cost': stock.symbol}) for stock in self._stocks
+        ],
+                        axis=1,
+                        sort=True)
 
-        options_capital = calls_value + puts_value
-        self.options_capital = options_capital
-        # update stocks portfolio information due to change in price over time
-        costs = []
-        for stock in self.stocks:
-            query = '{} == "{}"'.format(self._stocks_data.schema['symbol'], stock.symbol)
-            stock_current = stocks.query(query)
-            cost = stock_current[self._stocks_data.schema['adjClose']].values[0]
-            stock_inventory = self._stocks_inventory.query(query)
-            try:
-                qty = stock_inventory['qty'].values[0]
-            except IndexError:
-                qty = 0
+        add['cash'] = self.current_cash
+        add['options qty'] = self._options_inventory['totals']['qty'].sum()
+        add['calls capital'] = calls_value
+        add['puts capital'] = puts_value
+        add['stocks qty'] = self._stocks_inventory['qty'].sum()
 
-            costs.append(cost * qty)
-        total_value = sum(costs)
-
-        self.stock_capital = total_value
-        self.total_capital = self.stock_capital + self.options_capital + self.current_cash
-
-        row = pd.Series(
-            {
-                'total capital': self.stock_capital + self.options_capital,
-                'cash': self.current_cash,
-                'stocks capital': self.stock_capital,
-                'stocks qty': self._stocks_inventory['qty'].sum(),
-                'options capital': options_capital,
-                'options qty': self._options_inventory['totals']['qty'].sum(),
-                'calls capital': calls_value,
-                'puts capital': puts_value
-            },
-            name=date)
-        self.balance = self.balance.append(row)
-
-    def summary(self):
-        """Returns a table with summary statistics about the trade log"""
-        df = self.trade_log
-        balance = self.balance
-        df.loc[:,
-               ('totals',
-                'capital')] = (-df['totals']['cost'] * df['totals']['qty']).cumsum() + self._strategy.initial_capital
-
-        daily_returns = balance['% change'] * 100
-
-        first_leg = self._strategy.legs[0].name
-
-        entry_mask = df[first_leg].eval('(order == @Order.BTO) | (order == @Order.STO)')
-        entries = df.loc[entry_mask]
-        exits = df.loc[~entry_mask]
-
-        costs = np.array([])
-        for contract in entries[first_leg]['contract']:
-            entry = entries.loc[entries[first_leg]['contract'] == contract]
-            exit_ = exits.loc[exits[first_leg]['contract'] == contract]
-            try:
-                # Here we assume we are entering only once per contract (i.e both entry and exit_ have only one row)
-                costs = np.append(costs, (entry['totals']['cost'] * entry['totals']['qty']).values[0] +
-                                  (exit_['totals']['cost'] * exit_['totals']['qty']).values[0])
-            except IndexError:
-                continue
-
-        # trades = entries.merge(exits,
-        #                        on=[(l.name, 'contract') for l in self._strategy.legs],
-        #                        suffixes=['_entry', '_exit'])
-
-        # costs = trades.apply(lambda row: row['totals_entry']['cost'] + row['totals_exit']['cost'], axis=1)
-
-        wins = costs < 0
-        losses = costs >= 0
-        profit_factor = np.sum(wins) / np.sum(losses)
-        total_trades = len(exits)
-        win_number = np.sum(wins)
-        loss_number = total_trades - win_number
-        win_pct = (win_number / total_trades) * 100
-        largest_loss = max(0, np.max(costs))
-        avg_profit = np.mean(-costs)
-        avg_pl = np.mean(daily_returns)
-        total_pl = (df['totals']['capital'].iloc[-1] / self._strategy.initial_capital) * 100
-
-        data = [
-            total_trades, win_number, loss_number, win_pct, largest_loss, profit_factor, avg_profit, avg_pl, total_pl
-        ]
-        stats = [
-            'Total trades', 'Number of wins', 'Number of losses', 'Win %', 'Largest loss', 'Profit factor',
-            'Average profit', 'Average P&L %', 'Total P&L %'
-        ]
-        strat = ['Strategy']
-        summary = pd.DataFrame(data, stats, strat)
-
-        # Applies formatters to rows
-        def format_row_wise(styler, formatters):
-            for row, row_formatter in formatters.items():
-                row_num = styler.index.get_loc(row)
-
-                for col_num in range(len(styler.columns)):
-                    styler._display_funcs[(row_num, col_num)] = row_formatter
-
-            return styler
-
-        formatters = {
-            "Total trades": lambda x: f"{x:.0f}",
-            "Number of wins": lambda x: f"{x:.0f}",
-            "Number of losses": lambda x: f"{x:.0f}",
-            "Win %": lambda x: f"{x:.2f}%",
-            "Largest loss": lambda x: f"${x:.2f}",
-            "Profit factor": lambda x: f"{x:.2f}",
-            "Average profit": lambda x: f"${x:.2f}",
-            "Average P&L %": lambda x: f"{x:.2f}%",
-            "Total P&L %": lambda x: f"{x:.2f}%"
-        }
-
-        styler = format_row_wise(summary.style, formatters)
-
-        return styler
+        # sort=False means we're assuming the updates are done in chronological order, i.e,
+        # the dates in add are the immediate successors to the ones at the end of self.balance.
+        # Pass sort=True to ensure self.balance is always sorted chronologically if needed.
+        self.balance = self.balance.append(add, sort=False)
 
     def _execute_option_entries(self, date, options, options_allocation):
         """Enters option positions according to `self._options_strategy`.
@@ -398,7 +344,7 @@ class Backtest:
         # Remove contracts already in inventory
         inventory_contracts = pd.concat(
             [self._options_inventory[leg.name]['contract'] for leg in self._options_strategy.legs])
-        subset_options = options[~options[self.schema['contract']].isin(inventory_contracts)]
+        subset_options = options[~options[self._options_schema['contract']].isin(inventory_contracts)]
 
         entry_signals = []
         for leg in self._options_strategy.legs:
@@ -421,12 +367,12 @@ class Backtest:
             if leg.direction == Direction.SELL:
                 leg_entries['cost'] = -leg_entries['cost']
 
-            leg_entries['cost'] *= self._shares_per_contract
+            leg_entries['cost'] *= self.shares_per_contract
             leg_entries.columns = pd.MultiIndex.from_product([[leg.name], leg_entries.columns])
             entry_signals.append(leg_entries.reset_index(drop=True))
 
         # Append the 'totals' column to entry_signals
-        total_costs = sum(leg_entries['cost'] for leg_entries in entry_signals)
+        total_costs = sum([leg_entry.droplevel(0, axis=1)['cost'] for leg_entry in entry_signals])
         qty = np.abs(options_allocation // total_costs)
         totals = pd.DataFrame.from_dict({'cost': total_costs, 'qty': qty, 'date': date})
         totals.columns = pd.MultiIndex.from_product([['totals'], totals.columns])
@@ -511,12 +457,12 @@ class Backtest:
 
     def _signal_fields(self, cost_field):
         fields = {
-            self.schema['contract']: 'contract',
-            self.schema['underlying']: 'underlying',
-            self.schema['expiration']: 'expiration',
-            self.schema['type']: 'type',
-            self.schema['strike']: 'strike',
-            self.schema[cost_field]: 'cost',
+            self._options_schema['contract']: 'contract',
+            self._options_schema['underlying']: 'underlying',
+            self._options_schema['expiration']: 'expiration',
+            self._options_schema['type']: 'type',
+            self._options_schema['strike']: 'strike',
+            self._options_schema[cost_field]: 'cost',
             'order': 'order'
         }
 
@@ -524,7 +470,7 @@ class Backtest:
 
     def _get_current_option_quotes(self, options):
         """Returns the current quotes for all the options in `self._options_inventory` as a list of DataFrames.
-        It also adds a `cost` column with the cost of closing the position in each contract and an `order` 
+        It also adds a `cost` column with the cost of closing the position in each contract and an `order`
         column with the corresponding exit order type.
 
         Args:
@@ -550,11 +496,12 @@ class Backtest:
             # from it can be correctly applied to the inventory.
             leg_options.index = self._options_inventory.index
             leg_options['order'] = get_order(leg.direction, Signal.EXIT)
+            leg_options['cost'] = leg_options[self._options_schema[(~leg.direction).value]]
 
             # Change sign of cost for SELL orders
             if ~leg.direction == Direction.SELL:
                 leg_options['cost'] = -leg_options['cost']
-            leg_options['cost'] *= self._shares_per_contract
+            leg_options['cost'] *= self.shares_per_contract
 
             current_options_quotes.append(leg_options)
 
