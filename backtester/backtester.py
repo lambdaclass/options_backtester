@@ -42,11 +42,11 @@ class Backtest:
         return self
 
     @property
-    def strategy(self):
+    def options_strategy(self):
         return self._options_strategy
 
-    @strategy.setter
-    def strategy(self, strat):
+    @options_strategy.setter
+    def options_strategy(self, strat):
         assert isinstance(strat, Strategy)
         self._options_strategy = strat
 
@@ -82,6 +82,8 @@ class Backtest:
         """
 
         assert self._stocks_data, 'Stock data not set'
+        assert all(stock.symbol in self._stocks_data['symbol'].values
+                   for stock in self._stocks), 'Ensure all stocks in portfolio are present in the data'
         assert self._options_data, 'Options data not set'
         assert self._options_strategy, 'Options Strategy not set'
         assert self._options_data.schema == self._options_strategy.schema
@@ -117,7 +119,7 @@ class Backtest:
             if date in rebalancing_days:
                 previous_rb_date = rebalancing_days[rebalancing_days.get_loc(date) -
                                                     1] if rebalancing_days.get_loc(date) != 0 else date
-                self._update_balance(previous_rb_date, date, self.stocks_data, self._options_data)
+                self._update_balance(previous_rb_date, date, self._stocks_data, self._options_data)
                 self._rebalance_portfolio(date, stocks, options, sma_days)
 
             bar.update()
@@ -280,6 +282,10 @@ class Backtest:
         stock_prices = inventory_stocks[self._stocks_schema['adjClose']]
 
         if sma_days:
+            print(stock_prices)
+            print(inventory_stocks['sma'])
+            print(allocation)
+            print(stock_percentages)
             qty = np.where(inventory_stocks['sma'] < stock_prices, (allocation * stock_percentages) // stock_prices, 0)
         else:
             qty = (allocation * stock_percentages) // stock_prices
