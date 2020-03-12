@@ -116,7 +116,8 @@ class Backtest:
         bar = pyprind.ProgBar(len(stock_dates), bar_char='█')
 
         for date, stocks, options in data_iterator:
-            if date in rebalancing_days:
+            if (date in rebalancing_days):
+
                 previous_rb_date = rebalancing_days[rebalancing_days.get_loc(date) -
                                                     1] if rebalancing_days.get_loc(date) != 0 else date
                 self._update_balance(previous_rb_date, date, self._stocks_data, self._options_data)
@@ -173,26 +174,37 @@ class Backtest:
             sma_days (int):         SMA window size
         """
 
-        # Sell all the options currently in the inventory
-        self._sell_options(options, date)
+        self._execute_option_exits(date, options)
 
         stock_capital = self._current_stock_capital(stocks)
-        total_capital = self.current_cash + stock_capital
+        options_capital = self._current_options_capital(options)
+
+        total_capital = self.current_cash + stock_capital + options_capital
         options_allocation = self.allocation['options'] * total_capital
+
+        #buy stocks
+
         stocks_allocation = self.allocation['stocks'] * total_capital
-
-        # Clear inventories
-        self._initialize_inventories()
-
+        self._stocks_inventory = pd.DataFrame(columns=['symbol', 'price', 'qty'])
         self._buy_stocks(stocks, stocks_allocation, sma_days)
-        self._execute_option_entries(date, options, options_allocation)
+        stock_capital = self._current_stock_capital(stocks)
 
-        stocks_value = sum(self._stocks_inventory['price'] * self._stocks_inventory['qty'])
-        options_value = sum(self._options_inventory['totals']['cost'] * self._options_inventory['totals']['qty'])
+        self.current_cash = stocks_allocation - stock_capital
 
-        # Update current cash
-        self.current_cash = total_capital - options_value - stocks_value
+        # exit/enter contracts
 
+        if self.allocation['options'] * total_capital >= options_capital:
+
+            self._execute_option_entries(date, options, options_allocation - options_capital)
+        else:
+            to_sell = options_capital - options_allocation
+            options_value = self._get_current_option_quotes(options)
+
+            self._sell_some_options(date, to_sell, options_value)
+        options_value = self._current_options_capital(options)
+        value = self._get_current_option_quotes(options)
+
+        #current cash due to options added _execute_option_entries or _options_to_sell
     def _sell_options(self, options, date):
         # This method essentially recycles most of the code in the filter_exits method in Strategy.
         # The whole thing needs a refactor.
@@ -229,6 +241,23 @@ class Backtest:
         self.trade_log = self.trade_log.append(candidates, ignore_index=True)
         self.current_cash -= sum(total_costs)
 
+    def _sell_some_options(self, date, to_sell, options_value):
+
+        sold = 0
+        values_by_row = [0] * len(options_value[0])
+        for i in range(len(self._options_strategy.legs)):
+            values_by_row += options_value[i]['cost'].values  # sum in each row all the values in the leg
+        for i, (contract_per_row, inventory_row) in enumerate(zip(values_by_row, self._options_inventory.iterrows())):
+            if to_sell - sold < -contract_per_row * inventory_row[1]['totals']['qty']:
+
+                qty_to_sell = to_sell // contract_per_row
+
+                self._options_inventory.at[i, ('totals', 'date')] = date
+                self._options_inventory.at[i, ('totals', 'qty')] += qty_to_sell
+
+                sold -= (qty_to_sell * contract_per_row)
+        self.current_cash = to_sell - sold
+
     def _current_stock_capital(self, stocks):
         """Return the current value of the stocks inventory.
 
@@ -246,25 +275,15 @@ class Backtest:
         return (current_stocks[self._stocks_schema['adjClose']] * current_stocks['qty']).sum()
 
     def _current_options_capital(self, options):
-        # Currently unused method
-        total_cost = 0.0
-        for leg in self._options_strategy.legs:
-            current_options = self._options_inventory[leg.name].merge(options,
-                                                                      how='left',
-                                                                      left_on='contract',
-                                                                      right_on=self._options_schema['contract'])
-            price_col = (~leg.direction).value
-            try:
-                cost = current_options[price_col].fillna(
-                    0.0).iloc[0] * self._options_inventory['totals']['qty'].values[0] * self.shares_per_contract
-                if price_col == 'bid':
-                    total_cost += cost
-                else:
-                    total_cost -= cost
-            except IndexError:
-                total_cost += 0.0
-
-        return total_cost
+        options_value = self._get_current_option_quotes(options)
+        values_by_row = [0] * len(options_value[0])
+        if len(options_value[0]) != 0:
+            for i in range(len(self._options_strategy.legs)):
+                values_by_row += options_value[i]['cost'].values
+            total = -sum(values_by_row * self._options_inventory['totals']['qty'].values)
+        else:
+            total = 0
+        return total
 
     def _buy_stocks(self, stocks, allocation, sma_days):
         """Buys stocks according to their given weight, optionally using an SMA entry filter.
@@ -384,7 +403,8 @@ class Backtest:
         # Update options inventory, trade log and current cash
         self._options_inventory = self._options_inventory.append(entries, ignore_index=True)
         self.trade_log = self.trade_log.append(entries, ignore_index=True)
-        self.current_cash -= sum(total_costs)
+
+        self.current_cash += options_allocation - sum(total_costs * qty)
 
     def _execute_option_exits(self, date, options):
         """Exits option positions according to `self._options_strategy`.
@@ -421,7 +441,7 @@ class Backtest:
 
         # Append the 'totals' column to exit_candidates
         qtys = self._options_inventory['totals']['qty']
-        total_costs = sum([exit_candidates[l.name]['cost'] for l in self.legs])
+        total_costs = sum([exit_candidates[l.name]['cost'] for l in self._options_strategy.legs])
         totals = pd.DataFrame.from_dict({'cost': total_costs, 'qty': qtys, 'date': date})
         totals.columns = pd.MultiIndex.from_product([['totals'], totals.columns])
         exit_candidates = pd.concat([exit_candidates, totals], axis=1)
