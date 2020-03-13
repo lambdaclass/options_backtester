@@ -202,10 +202,7 @@ class Backtest:
             options_value = self._get_current_option_quotes(options)
 
             self._sell_some_options(date, to_sell, options_value)
-        options_value = self._current_options_capital(options)
-        value = self._get_current_option_quotes(options)
 
-        # current cash due to options added _execute_option_entries or _options_to_sell
     def _sell_options(self, options, date):
         # This method essentially recycles most of the code in the filter_exits method in Strategy.
         # The whole thing needs a refactor.
@@ -257,7 +254,7 @@ class Backtest:
                 self._options_inventory.at[i, ('totals', 'qty')] += qty_to_sell
 
                 sold -= (qty_to_sell * contract_per_row)
-        self.current_cash = to_sell - sold
+        self.current_cash += to_sell - sold
 
     def _current_stock_capital(self, stocks):
         """Return the current value of the stocks inventory.
