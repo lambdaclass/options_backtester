@@ -4,7 +4,7 @@ import numpy as np
 import pandas as pd
 import pyprind
 
-from .enums import Order, Stock, Signal, Direction, get_order
+from .enums import Stock, Signal, Direction, get_order
 from .datahandler import HistoricalOptionsData, TiingoData
 from .strategy import Strategy
 
@@ -130,9 +130,10 @@ class Backtest:
 
         self.balance['options capital'] = self.balance['calls capital'] + self.balance['puts capital']
         self.balance['stocks capital'] = sum(self.balance[stock.symbol] for stock in self._stocks)
-        self.balance['total capital'] = self.balance['cash'].add(self.balance['stocks capital'],
-                                                                 self.balance['options capital'],
-                                                                 fill_value=0)
+        self.balance['stocks capital'].iloc[0] = 0
+        self.balance['options capital'].iloc[0] = 0
+        self.balance[
+            'total capital'] = self.balance['cash'] + self.balance['stocks capital'] + self.balance['options capital']
         self.balance['% change'] = self.balance['total capital'].pct_change()
         self.balance['accumulated return'] = (1.0 + self.balance['% change']).cumprod()
 
@@ -182,7 +183,7 @@ class Backtest:
         total_capital = self.current_cash + stock_capital + options_capital
         options_allocation = self.allocation['options'] * total_capital
 
-        #buy stocks
+        # buy stocks
 
         stocks_allocation = self.allocation['stocks'] * total_capital
         self._stocks_inventory = pd.DataFrame(columns=['symbol', 'price', 'qty'])
@@ -204,7 +205,7 @@ class Backtest:
         options_value = self._current_options_capital(options)
         value = self._get_current_option_quotes(options)
 
-        #current cash due to options added _execute_option_entries or _options_to_sell
+        # current cash due to options added _execute_option_entries or _options_to_sell
     def _sell_options(self, options, date):
         # This method essentially recycles most of the code in the filter_exits method in Strategy.
         # The whole thing needs a refactor.
@@ -308,7 +309,7 @@ class Backtest:
         self._stocks_inventory = pd.DataFrame({'symbol': stock_symbols, 'price': stock_prices, 'qty': qty})
 
     def _update_balance(self, start_date, end_date, stocks, options):
-        """Updates bt.balance in batch in a certain period between rebalancing days"""
+        """Updates self.balance in batch in a certain period between rebalancing days"""
         stocks_data = stocks.query('(date >= "{}") & (date < "{}")'.format(start_date, end_date))
         options_data = options.query('(quotedate >= "{}") & (quotedate < "{}")'.format(start_date, end_date))
 
@@ -317,6 +318,7 @@ class Backtest:
 
         for leg in self._options_strategy.legs:
             leg_inventory = self._options_inventory[leg.name]
+            cost_field = (~leg.direction).value
             for contract in leg_inventory['contract']:
                 leg_inventory_contract = leg_inventory.query('contract == "{}"'.format(contract))
                 qty = self._options_inventory.loc[leg_inventory_contract.index]['totals']['qty'].values[0]
@@ -324,10 +326,14 @@ class Backtest:
                                                                      how='left',
                                                                      left_on='contract',
                                                                      right_on='optionroot').set_index('quotedate')
+
+                if cost_field == 'ask':
+                    current[cost_field] = -current[cost_field]
+
                 if (leg_inventory_contract['type'] == 'call').any():
-                    calls_value += current[(~leg.direction).value] * qty * self.shares_per_contract
+                    calls_value += current[cost_field] * qty * self.shares_per_contract
                 else:
-                    puts_value += current[(~leg.direction).value] * qty * self.shares_per_contract
+                    puts_value += current[cost_field] * qty * self.shares_per_contract
 
         stocks_current = self._stocks_inventory[['symbol', 'qty']].merge(stocks_data[['date', 'symbol', 'adjClose']],
                                                                          on='symbol')
@@ -392,7 +398,7 @@ class Backtest:
 
         # Append the 'totals' column to entry_signals
         total_costs = sum([leg_entry.droplevel(0, axis=1)['cost'] for leg_entry in entry_signals])
-        qty = np.abs(options_allocation // total_costs)
+        qty = options_allocation // abs(total_costs)
         totals = pd.DataFrame.from_dict({'cost': total_costs, 'qty': qty, 'date': date})
         totals.columns = pd.MultiIndex.from_product([['totals'], totals.columns])
         entry_signals.append(totals)
