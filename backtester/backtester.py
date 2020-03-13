@@ -203,42 +203,6 @@ class Backtest:
 
             self._sell_some_options(date, to_sell, options_value)
 
-    def _sell_options(self, options, date):
-        # This method essentially recycles most of the code in the filter_exits method in Strategy.
-        # The whole thing needs a refactor.
-
-        leg_candidates = self._get_current_option_quotes(options)
-
-        for i, leg in enumerate(self._options_strategy.legs):
-            fields = self._signal_fields((~leg.direction).value)
-            leg_candidates[i] = leg_candidates[i].loc[:, fields.values()]
-            leg_candidates[i].columns = pd.MultiIndex.from_product([["leg_{}".format(i + 1)],
-                                                                    leg_candidates[i].columns])
-
-        candidates = pd.concat(leg_candidates, axis=1)
-
-        # If a contract is missing we replace the NaN values with those of the inventory
-        # except for cost, which we imput as zero.
-        imputed_inventory = self._impute_missing_option_values(self._options_inventory)
-        candidates = candidates.fillna(imputed_inventory)
-        total_costs = sum([candidates[l.name]['cost'] for l in self._options_strategy.legs])
-
-        # Append the 'totals' column to candidates
-        qtys = self._options_inventory['totals']['qty']
-        dates = [date] * len(self._options_inventory)
-        totals = pd.DataFrame.from_dict({"cost": total_costs, "qty": qtys, "date": dates})
-        totals.columns = pd.MultiIndex.from_product([["totals"], totals.columns])
-        candidates = pd.concat([candidates, totals], axis=1)
-
-        exits_mask = pd.Series([True] * len(self._options_inventory))
-        exits_mask.index = self._options_inventory.index
-
-        total_costs *= candidates['totals']['qty']
-
-        self._options_inventory.drop(self._options_inventory[exits_mask].index, inplace=True)
-        self.trade_log = self.trade_log.append(candidates, ignore_index=True)
-        self.current_cash -= sum(total_costs)
-
     def _sell_some_options(self, date, to_sell, options_value):
 
         sold = 0
@@ -407,7 +371,7 @@ class Backtest:
         self._options_inventory = self._options_inventory.append(entries, ignore_index=True)
         self.trade_log = self.trade_log.append(entries, ignore_index=True)
 
-        self.current_cash += options_allocation - sum(total_costs * qty)
+        self.current_cash += options_allocation - total_costs[0] * qty[0]
 
     def _execute_option_exits(self, date, options):
         """Exits option positions according to `self._options_strategy`.
