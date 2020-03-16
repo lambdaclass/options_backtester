@@ -190,18 +190,19 @@ class Backtest:
         self._buy_stocks(stocks, stocks_allocation, sma_days)
         stock_capital = self._current_stock_capital(stocks)
 
-        self.current_cash = stocks_allocation - stock_capital
+        stock_cash = stocks_allocation - stock_capital
 
         # exit/enter contracts
 
-        if self.allocation['options'] * total_capital >= options_capital:
-
-            self._execute_option_entries(date, options, options_allocation - options_capital)
+        if options_allocation >= options_capital:
+            options_cash = self._execute_option_entries(date, options, options_allocation - options_capital)
         else:
             to_sell = options_capital - options_allocation
             options_value = self._get_current_option_quotes(options)
 
-            self._sell_some_options(date, to_sell, options_value)
+            options_cash = self._sell_some_options(date, to_sell, options_value)
+
+        self.current_cash = stock_cash + options_cash
 
     def _sell_some_options(self, date, to_sell, options_value):
 
@@ -218,7 +219,7 @@ class Backtest:
                 self._options_inventory.at[i, ('totals', 'qty')] += qty_to_sell
 
                 sold -= (qty_to_sell * contract_per_row)
-        self.current_cash += to_sell - sold
+        return to_sell - sold
 
     def _current_stock_capital(self, stocks):
         """Return the current value of the stocks inventory.
@@ -340,7 +341,7 @@ class Backtest:
             leg_entries = subset_options[flt(subset_options)]
             # Exit if no entry signals for the current leg
             if leg_entries.empty:
-                return pd.DataFrame()
+                return options_allocation
 
             fields = self._signal_fields(cost_field)
             leg_entries = leg_entries.reindex(columns=fields.keys())
@@ -371,7 +372,7 @@ class Backtest:
         self._options_inventory = self._options_inventory.append(entries, ignore_index=True)
         self.trade_log = self.trade_log.append(entries, ignore_index=True)
 
-        self.current_cash += options_allocation - np.sum(entries['totals']['cost'] * entries['totals']['qty'])
+        return options_allocation - np.sum(entries['totals']['cost'] * entries['totals']['qty'])
 
     def _execute_option_exits(self, date, options):
         """Exits option positions according to `self._options_strategy`.
@@ -436,6 +437,7 @@ class Backtest:
             pd.DataFrame:                   DataFrame of entries to execute.
         """
 
+        entry_signals.drop(entry_signals[entry_signals['totals']['qty'] == 0].index, inplace=True)
         if not entry_signals.empty:
             # FIXME: This is a naive signal selection criterion, it simply picks the first one in `entry_singals`
             return entry_signals.iloc[0]
