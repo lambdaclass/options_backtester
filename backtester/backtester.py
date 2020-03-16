@@ -371,7 +371,7 @@ class Backtest:
         self._options_inventory = self._options_inventory.append(entries, ignore_index=True)
         self.trade_log = self.trade_log.append(entries, ignore_index=True)
 
-        self.current_cash += options_allocation - total_costs[0] * qty[0]
+        self.current_cash += options_allocation - np.sum(entries['totals']['cost'] * entries['totals']['qty'])
 
     def _execute_option_exits(self, date, options):
         """Exits option positions according to `self._options_strategy`.
@@ -395,7 +395,7 @@ class Backtest:
 
             filter_masks.append(flt(current_options_quotes[i]) | missing_contracts_mask)
             fields = self._signal_fields((~leg.direction).value)
-            current_options_quotes[i] = current_options_quotes[i].reindex(columns=fields.keys())
+            current_options_quotes[i] = current_options_quotes[i].reindex(columns=fields.values())
             current_options_quotes[i].rename(columns=fields, inplace=True)
             current_options_quotes[i].columns = pd.MultiIndex.from_product([[leg.name],
                                                                             current_options_quotes[i].columns])

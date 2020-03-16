@@ -1,4 +1,4 @@
-from backtester.datahandler import Field
+from backtester.datahandler.schema import Field
 
 
 def test_strike_eq_100():
