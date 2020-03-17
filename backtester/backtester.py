@@ -125,7 +125,7 @@ class Backtest:
             bar.update()
 
         # Update balance for the period between the last rebalancing day and the last day
-        self._update_balance(rebalancing_days[-1], self.stocks_data.end_date, self._stocks_data, self._options_data)
+        self._update_balance(rebalancing_days[-1], self.stocks_data.end_date)
 
         self.balance['options capital'] = self.balance['calls capital'] + self.balance['puts capital']
         self.balance['stocks capital'] = sum(self.balance[stock.symbol] for stock in self._stocks)
@@ -198,7 +198,7 @@ class Backtest:
 
     def _sell_some_options(self, date, to_sell, options_value):
         sold = 0
-        total_costs = np.sum([options_value[i]['cost'] for i in range(len(options_value))])
+        total_costs = sum([options_value[i]['cost'] for i in range(len(options_value))])
         for i, (contract_per_row, inventory_row) in enumerate(zip(total_costs, self._options_inventory.iterrows())):
             if to_sell - sold < -contract_per_row * inventory_row[1]['totals']['qty']:
                 qty_to_sell = to_sell // contract_per_row
@@ -256,7 +256,7 @@ class Backtest:
         else:
             qty = (allocation * stock_percentages) // stock_prices
 
-        self.current_cash -= np.sum(stock_prices * qty)
+        self.current_cash = allocation - np.sum(stock_prices * qty)
         self._stocks_inventory = pd.DataFrame({'symbol': stock_symbols, 'price': stock_prices, 'qty': qty})
 
     def _update_balance(self, start_date, end_date):
@@ -338,7 +338,8 @@ class Backtest:
             leg_entries = subset_options[flt(subset_options)]
             # Exit if no entry signals for the current leg
             if leg_entries.empty:
-                return options_allocation
+                self.current_cash += options_allocation
+                return
 
             fields = self._signal_fields(cost_field)
             leg_entries = leg_entries.reindex(columns=fields.keys())
@@ -364,15 +365,14 @@ class Backtest:
         entry_signals = pd.concat(entry_signals, axis=1)
 
         # Remove signals where qty == 0
-        entry_signals = entry_signals[entry_signals['totals']['qty'] > 0].reset_index()
+        entry_signals = entry_signals[entry_signals['totals']['qty'] > 0]
 
         entries = self._pick_entry_signals(entry_signals)
 
         # Update options inventory, trade log and current cash
         self._options_inventory = self._options_inventory.append(entries, ignore_index=True)
         self.trade_log = self.trade_log.append(entries, ignore_index=True)
-
-        return options_allocation - np.sum(entries['totals']['cost'] * entries['totals']['qty'])
+        self.current_cash += options_allocation - np.sum(entries['totals']['cost'] * entries['totals']['qty'])
 
     def _execute_option_exits(self, date, options):
         """Exits option positions according to `self._options_strategy`.
@@ -438,7 +438,6 @@ class Backtest:
             pd.DataFrame:                   DataFrame of entries to execute.
         """
 
-        entry_signals.drop(entry_signals[entry_signals['totals']['qty'] == 0].index, inplace=True)
         if not entry_signals.empty:
             # FIXME: This is a naive signal selection criterion, it simply picks the first one in `entry_singals`
             return entry_signals.iloc[0]
