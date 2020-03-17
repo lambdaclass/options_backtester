@@ -105,12 +105,11 @@ class Backtest:
         if sma_days:
             self.stocks_data.sma(sma_days)
 
-        rebalancing_days = pd.date_range(
-            self._stocks_data.start_date, self.stocks_data.end_date, freq=str(rebalance_freq) +
-            'BMS') if rebalance_freq else []
-
-        # Prepend the first day to the rebalancing days
-        rebalancing_days = pd.DatetimeIndex([self.stocks_data.start_date]).append(rebalancing_days)
+        dates = pd.DataFrame(self.options_data._data[['quotedate',
+                                                      'volume']]).drop_duplicates('quotedate').set_index('quotedate')
+        rebalancing_days = pd.to_datetime(
+            dates.groupby(pd.Grouper(freq=str(rebalance_freq) +
+                                     'BMS')).apply(lambda x: x.index.min()).values) if rebalance_freq else []
 
         data_iterator = self._data_iterator(monthly)
         bar = pyprind.ProgBar(len(stock_dates), bar_char='█')
