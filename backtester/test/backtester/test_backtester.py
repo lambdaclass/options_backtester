@@ -1,4 +1,5 @@
 import numpy as np
+import pandas as pd
 
 from backtester.strategy import Strategy, StrategyLeg
 from backtester.enums import Type, Direction
@@ -22,15 +23,15 @@ def test_backtest(sample_stock_portfolio, sample_stocks_datahandler, sample_opti
     # We test with np.isclose instead of true equality because of possible floating point inaccuracies.
     tol = 0.000001
 
-    assert (np.isclose(last_day_balance_long, [
+    assert np.allclose(last_day_balance_long, [
         1.001336e+06, 507298.034603, 201228.973492, 49853.700558, 242954.82254999998, 0.0, 0.0, 0.0, 16415.0, 0.0,
         494037.49659999995, -0.004165, 1.001336
     ],
-                       atol=tol)).all()
+                       atol=tol)
 
-    assert (np.isclose(leg_1_costs, [195010.0, -197060.0, 189250.0, -185650.0], atol=tol)).all()
-    assert (np.isclose(leg_2_costs, [5.0, 0.0, 40.0, 0.0], atol=tol)).all()
-    assert (np.isclose(total_costs, [195015.0, -197060.0, 189290.0, -185650.0], atol=tol)).all()
+    assert np.allclose(leg_1_costs, [195010.0, -197060.0, 189250.0, -185650.0], atol=tol)
+    assert np.allclose(leg_2_costs, [5.0, 0.0, 40.0, 0.0], atol=tol)
+    assert np.allclose(total_costs, [195015.0, -197060.0, 189290.0, -185650.0], atol=tol)
     assert (dates == ['2017-01-03', '2017-02-01', '2017-03-01', '2017-04-03']).all()
 
     bt = run_backtest(sample_stocks_datahandler,
@@ -46,15 +47,15 @@ def test_backtest(sample_stock_portfolio, sample_stocks_datahandler, sample_opti
     total_costs = tl_short['totals']['cost']
     dates = tl_short['totals']['date'].dt.strftime("%Y-%m-%d")
 
-    assert (np.isclose(last_day_balance_short, [
+    assert np.allclose(last_day_balance_short, [
         1010305.1222639999, 511978.532206, 202876.70306, 50312.368716, 245137.518282, 0.0, 0.0, 0.0, 16562.0, 0.0,
         498326.590058, -0.004166, 1.010305
     ],
-                       atol=tol)).all()
+                       atol=tol)
 
-    assert (np.isclose(leg_1_costs, [-188980.0, 186060.0], atol=tol)).all()
-    assert (np.isclose(leg_2_costs, [-5.0, 10.0], atol=tol)).all()
-    assert (np.isclose(total_costs, [-188985.0, 186070.0], atol=tol)).all()
+    assert np.allclose(leg_1_costs, [-188980.0, 186060.0], atol=tol)
+    assert np.allclose(leg_2_costs, [-5.0, 10.0], atol=tol)
+    assert np.allclose(total_costs, [-188985.0, 186070.0], atol=tol)
     assert (dates == ['2017-03-01', '2017-04-03']).all()
 
 
@@ -97,6 +98,48 @@ def test_only_cash(sample_stock_portfolio, sample_stocks_datahandler, sample_opt
     assert np.allclose(balance['options capital'], 0, rtol=tolerance)
     assert np.allclose(balance['% change'], 0, rtol=tolerance)
     assert np.allclose(balance['accumulated return'], 1.0, rtol=tolerance)
+
+
+def test_current_stock_capital(sample_stocks_datahandler, sample_stock_portfolio):
+    bt = Backtest({'stocks': 1, 'options': 0, 'cash': 0})
+    bt.stocks_data = sample_stocks_datahandler
+    bt.stocks = sample_stock_portfolio
+    stock_symbols = [stock.symbol for stock in sample_stock_portfolio]
+    bt._stocks_inventory = pd.DataFrame({'symbol': stock_symbols, 'price': [0, 0, 0], 'qty': [1, 5, 10]})
+    stocks = sample_stocks_datahandler.query('date == "2017-05-15"')
+
+    tolerance = 0.0000001
+    capital = bt._current_stock_capital(stocks)
+    actual_capital = 572.107697
+    assert np.isclose(capital, actual_capital, atol=tolerance)
+
+
+def test_buy_stocks(sample_stocks_datahandler, sample_stock_portfolio):
+    bt = Backtest({'stocks': 1, 'options': 0, 'cash': 0})
+    bt.stocks_data = sample_stocks_datahandler
+    bt.stocks = sample_stock_portfolio
+    sma_days = 30
+    bt.stocks_data.sma(sma_days)
+    stocks = bt.stocks_data.query('date == "2017-03-01"')
+    allocation = 100_000
+
+    tolerance = 0.0000001
+
+    bt.current_cash = allocation
+    bt._buy_stocks(stocks, allocation, 0)
+    inventory = bt._stocks_inventory
+    assert np.isclose(bt.current_cash, 157.41366399999242, atol=tolerance)
+    assert (inventory['symbol'].values == ['VOO', 'TUR', 'RSX']).all()
+    assert np.allclose(inventory['price'].values, [207.646172, 32.502688, 17.754331], atol=tolerance)
+    assert (inventory['qty'].values == [192., 307., 2816.]).all()
+
+    bt.current_cash = allocation
+    bt._buy_stocks(stocks, allocation, sma_days)
+    inventory = bt._stocks_inventory
+    assert np.isclose(bt.current_cash, 50153.60976, atol=tolerance)
+    assert (inventory['symbol'].values == ['VOO', 'TUR', 'RSX']).all()
+    assert np.allclose(inventory['price'].values, [207.646172, 32.502688, 17.754331], atol=tolerance)
+    assert (inventory['qty'].values == [192., 307., 0.]).all()
 
 
 def run_backtest(stock_data,
