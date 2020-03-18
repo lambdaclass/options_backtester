@@ -81,6 +81,6 @@ class TiingoData:
     def sma(self, periods):
         sma = self._data.groupby('symbol', as_index=False).rolling(periods)['adjClose'].mean()
         sma = sma.fillna(0)
-        sma.index = sma.index.levels[1]
+        sma.index = [index[1] for index in sma.index]
         self._data['sma'] = sma
         self.schema.update({'sma': 'sma'})
