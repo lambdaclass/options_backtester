@@ -6,8 +6,10 @@ from backtester import Backtest
 
 
 def test_backtest(sample_stock_portfolio, sample_stocks_datahandler, sample_options_datahandler):
-    bt = run_backtest(sample_stock_portfolio, sample_stocks_datahandler, sample_options_datahandler,
-                      sample_options_strategy(Direction.BUY, sample_options_datahandler.schema))
+    bt = run_backtest(sample_stocks_datahandler,
+                      sample_options_datahandler,
+                      sample_options_strategy(Direction.BUY, sample_options_datahandler.schema),
+                      stocks=sample_stock_portfolio)
     tl_long, balance_long = bt.trade_log, bt.balance
 
     last_day_balance_long = balance_long.iloc[-1].values
@@ -31,8 +33,10 @@ def test_backtest(sample_stock_portfolio, sample_stocks_datahandler, sample_opti
     assert (np.isclose(total_costs, [195015.0, -197060.0, 189290.0, -185650.0], atol=tol)).all()
     assert (dates == ['2017-01-03', '2017-02-01', '2017-03-01', '2017-04-03']).all()
 
-    bt = run_backtest(sample_stock_portfolio, sample_stocks_datahandler, sample_options_datahandler,
-                      sample_options_strategy(Direction.SELL, sample_options_datahandler.schema))
+    bt = run_backtest(sample_stocks_datahandler,
+                      sample_options_datahandler,
+                      sample_options_strategy(Direction.SELL, sample_options_datahandler.schema),
+                      stocks=sample_stock_portfolio)
     tl_short, balance_short = bt.trade_log, bt.balance
 
     last_day_balance_short = balance_short.iloc[-1].values
@@ -58,29 +62,47 @@ def test_backtest(sample_stock_portfolio, sample_stocks_datahandler, sample_opti
 # to find the actual return for the Ivy porfolio.
 
 
-def test_backtest_only_stocks(ivy_portfolio, ivy_portfolio_datahandler, sample_options_datahandler):
+def test_only_stocks(ivy_portfolio, ivy_portfolio_datahandler, sample_options_datahandler):
     allocation = {'stocks': 1.0, 'options': 0.0, 'cash': 0.0}
-    bt = run_backtest(ivy_portfolio,
-                      ivy_portfolio_datahandler,
+    bt = run_backtest(ivy_portfolio_datahandler,
                       sample_options_datahandler,
                       sample_options_strategy(Direction.BUY, sample_options_datahandler.schema),
+                      stocks=ivy_portfolio,
                       allocation=allocation)
 
-    print(bt.balance.columns)
     balance = bt.balance[1:]
     tolerance = 0.0001
     assert np.allclose(balance['total capital'], balance['cash'] + balance['stocks capital'], rtol=tolerance)
     assert np.allclose(balance['total capital'], bt.initial_capital * balance['accumulated return'], rtol=tolerance)
+    assert np.allclose(balance['options capital'], 0, rtol=tolerance)
 
     actual_return = 1.025
     return_tolerance = 0.01
     assert np.isclose(balance['accumulated return'].iloc[-1], actual_return, rtol=return_tolerance)
 
 
-def run_backtest(stocks,
-                 stock_data,
+def test_only_cash(sample_stock_portfolio, sample_stocks_datahandler, sample_options_datahandler):
+    allocation = {'stocks': 0.0, 'options': 0.0, 'cash': 1.0}
+    bt = run_backtest(sample_stocks_datahandler,
+                      sample_options_datahandler,
+                      sample_options_strategy(Direction.BUY, sample_options_datahandler.schema),
+                      stocks=sample_stock_portfolio,
+                      allocation=allocation)
+
+    balance = bt.balance[1:]
+    tolerance = 0.0001
+    assert np.allclose(balance['total capital'], balance['cash'], rtol=tolerance)
+    assert np.allclose(balance['total capital'], bt.initial_capital * balance['accumulated return'], rtol=tolerance)
+    assert np.allclose(balance['stocks capital'], 0, rtol=tolerance)
+    assert np.allclose(balance['options capital'], 0, rtol=tolerance)
+    assert np.allclose(balance['% change'], 0, rtol=tolerance)
+    assert np.allclose(balance['accumulated return'], 1.0, rtol=tolerance)
+
+
+def run_backtest(stock_data,
                  options_data,
                  strategy,
+                 stocks=None,
                  allocation={
                      'stocks': 0.50,
                      'options': 0.50,
@@ -88,7 +110,8 @@ def run_backtest(stocks,
                  },
                  **kwargs):
     bt = Backtest(allocation, **kwargs)
-    bt.stocks = stocks
+    if stocks:
+        bt.stocks = stocks
     bt.options_strategy = strategy
     bt.options_data = options_data
     bt.stocks_data = stock_data
