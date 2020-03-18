@@ -177,18 +177,20 @@ class Backtest:
 
         stock_capital = self._current_stock_capital(stocks)
         options_capital = self._current_options_capital(options)
-
         total_capital = self.current_cash + stock_capital + options_capital
-        options_allocation = self.allocation['options'] * total_capital
 
         # buy stocks
         stocks_allocation = self.allocation['stocks'] * total_capital
         self._stocks_inventory = pd.DataFrame(columns=['symbol', 'price', 'qty'])
+
+        # We simulate a sell of the stock positions and then a rebuy.
+        # This would **not** work if we added transaction fees.
+        self.current_cash += stock_capital
         self._buy_stocks(stocks, stocks_allocation, sma_days)
-        stock_capital = self._current_stock_capital(stocks)
 
         # exit/enter contracts
-        if self.allocation['options'] * total_capital >= options_capital:
+        options_allocation = self.allocation['options'] * total_capital
+        if options_allocation >= options_capital:
             self._execute_option_entries(date, options, options_allocation - options_capital)
         else:
             to_sell = options_capital - options_allocation
@@ -205,7 +207,7 @@ class Backtest:
                 self._options_inventory.at[i, ('totals', 'qty')] += qty_to_sell
                 sold -= (qty_to_sell * contract_per_row)
 
-        self.current_cash += to_sell - sold
+        self.current_cash -= sold
 
     def _current_stock_capital(self, stocks):
         """Return the current value of the stocks inventory.
@@ -255,7 +257,7 @@ class Backtest:
         else:
             qty = (allocation * stock_percentages) // stock_prices
 
-        self.current_cash = allocation - np.sum(stock_prices * qty)
+        self.current_cash -= np.sum(stock_prices * qty)
         self._stocks_inventory = pd.DataFrame({'symbol': stock_symbols, 'price': stock_prices, 'qty': qty})
 
     def _update_balance(self, start_date, end_date):
@@ -337,7 +339,6 @@ class Backtest:
             leg_entries = subset_options[flt(subset_options)]
             # Exit if no entry signals for the current leg
             if leg_entries.empty:
-                self.current_cash += options_allocation
                 return
 
             fields = self._signal_fields(cost_field)
@@ -371,7 +372,7 @@ class Backtest:
         # Update options inventory, trade log and current cash
         self._options_inventory = self._options_inventory.append(entries, ignore_index=True)
         self.trade_log = self.trade_log.append(entries, ignore_index=True)
-        self.current_cash += options_allocation - np.sum(entries['totals']['cost'] * entries['totals']['qty'])
+        self.current_cash -= np.sum(entries['totals']['cost'] * entries['totals']['qty'])
 
     def _execute_option_exits(self, date, options):
         """Exits option positions according to `self._options_strategy`.
