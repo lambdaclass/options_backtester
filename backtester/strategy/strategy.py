@@ -2,9 +2,6 @@ import math
 
 import numpy as np
 
-from ..datahandler import Schema
-from .strategy_leg import StrategyLeg
-
 
 class Strategy:
     """Options strategy class.
@@ -12,7 +9,6 @@ class Strategy:
     entry and exit conditions.
     """
     def __init__(self, schema):
-        assert isinstance(schema, Schema)
         self.schema = schema
         self.legs = []
         self.conditions = []
@@ -20,7 +16,6 @@ class Strategy:
 
     def add_leg(self, leg):
         """Adds leg to the strategy"""
-        assert isinstance(leg, StrategyLeg)
         assert self.schema == leg.schema
         leg.name = "leg_{}".format(len(self.legs) + 1)
         self.legs.append(leg)

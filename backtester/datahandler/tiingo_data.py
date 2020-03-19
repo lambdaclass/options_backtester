@@ -6,9 +6,7 @@ import pandas as pd
 class TiingoData:
     """Tiingo (stocks & indeces) Data container class."""
     def __init__(self, file, schema=None, **params):
-        if schema:
-            assert isinstance(schema, Schema)
-        else:
+        if schema is None:
             self.schema = TiingoData.default_schema()
 
         file_extension = os.path.splitext(file)[1]
