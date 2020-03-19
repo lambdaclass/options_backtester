@@ -201,6 +201,10 @@ class Backtest:
                     trade_log_append = self._options_inventory.iloc[i].copy()
                     trade_log_append['totals', 'qty'] = qty_to_sell
                     trade_log_append['totals', 'date'] = date
+                    trade_log_append['totals', 'cost'] *= -1
+                    for leg in self._options_strategy.legs:
+                        trade_log_append[leg.name, 'order'] = ~trade_log_append[leg.name, 'order']
+                        trade_log_append[leg.name, 'cost'] *= -1
                     self.trade_log = self.trade_log.append(trade_log_append, ignore_index=True)
                     self._options_inventory.at[i, ('totals', 'date')] = date
                     self._options_inventory.at[i, ('totals', 'qty')] += qty_to_sell
