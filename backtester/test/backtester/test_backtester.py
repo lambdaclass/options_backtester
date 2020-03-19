@@ -100,6 +100,25 @@ def test_only_cash(sample_stock_portfolio, sample_stocks_datahandler, sample_opt
     assert np.allclose(balance['accumulated return'], 1.0, rtol=tolerance)
 
 
+def test_only_options(sample_stock_portfolio, sample_stocks_datahandler, sample_options_datahandler):
+    allocation = {'stocks': 0.0, 'options': 1.0, 'cash': 0.0}
+    bt = run_backtest(sample_stocks_datahandler,
+                      sample_options_datahandler,
+                      sample_options_strategy(Direction.BUY, sample_options_datahandler.schema),
+                      stocks=sample_stock_portfolio,
+                      allocation=allocation)
+
+    balance = bt.balance[1:]
+    tolerance = 0.0001
+    assert np.allclose(balance['total capital'], balance['cash'] + balance['options capital'], rtol=tolerance)
+    assert np.allclose(balance['total capital'], bt.initial_capital * balance['accumulated return'], rtol=tolerance)
+    assert np.allclose(balance['stocks capital'], 0, rtol=tolerance)
+
+    actual_return = 0.992025
+    return_tolerance = 0.01
+    assert np.allclose(balance['accumulated return'].iloc[-1], actual_return, rtol=return_tolerance)
+
+
 def test_current_stock_capital(sample_stocks_datahandler, sample_stock_portfolio):
     bt = Backtest({'stocks': 1, 'options': 0, 'cash': 0})
     bt.stocks_data = sample_stocks_datahandler
