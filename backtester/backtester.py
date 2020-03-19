@@ -289,9 +289,9 @@ class Backtest:
                     current[cost_field] = -current[cost_field]
 
                 if (leg_inventory_contract['type'] == Type.CALL.value).any():
-                    calls_value += current[cost_field] * qty * self.shares_per_contract
+                    calls_value = calls_value.add(current[cost_field] * qty * self.shares_per_contract, fill_value=0)
                 else:
-                    puts_value += current[cost_field] * qty * self.shares_per_contract
+                    puts_value = puts_value.add(current[cost_field] * qty * self.shares_per_contract, fill_value=0)
 
         stocks_current = self._stocks_inventory[['symbol', 'qty']].merge(stocks_data[['date', 'symbol', 'adjClose']],
                                                                          on='symbol')
