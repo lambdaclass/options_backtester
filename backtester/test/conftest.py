@@ -27,6 +27,13 @@ def ivy_portfolio_datahandler():
 
 
 @pytest.fixture(scope='module')
+def constant_price_stocks():
+    data = TiingoData(SAMPLE_DATA_STOCKS)
+    data['adjClose'] = data['close'] = 10.0
+    return data
+
+
+@pytest.fixture(scope='module')
 def sample_options_datahandler():
     data = HistoricalOptionsData(SAMPLE_DATA_OPTIONS)
     return data
