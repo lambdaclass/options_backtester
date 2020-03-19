@@ -1,14 +1,9 @@
 from backtester.enums import Type, Direction
-from backtester.datahandler import Schema
 
 
 class StrategyLeg:
     """Strategy Leg data class"""
     def __init__(self, name, schema, option_type=Type.CALL, direction=Direction.BUY):
-        assert isinstance(schema, Schema)
-        assert isinstance(option_type, Type)
-        assert isinstance(direction, Direction)
-
         self.name = name
         self.schema = schema
         self.type = option_type

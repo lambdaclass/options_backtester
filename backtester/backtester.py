@@ -12,8 +12,6 @@ from .strategy import Strategy
 class Backtest:
     """Backtest runner class."""
     def __init__(self, allocation, initial_capital=1_000_000, shares_per_contract=100):
-        assert isinstance(allocation, dict)
-
         assets = ('stocks', 'options', 'cash')
         total_allocation = sum(allocation.get(a, 0.0) for a in assets)
 
@@ -35,7 +33,6 @@ class Backtest:
 
     @stocks.setter
     def stocks(self, stocks):
-        assert all(isinstance(stock, Stock) for stock in stocks), 'Invalid stocks'
         assert np.isclose(sum(stock.percentage for stock in stocks), 1.0,
                           atol=0.000001), 'Stock percentages must sum to 1.0'
         self._stocks = list(stocks)
@@ -47,7 +44,6 @@ class Backtest:
 
     @options_strategy.setter
     def options_strategy(self, strat):
-        assert isinstance(strat, Strategy)
         self._options_strategy = strat
 
     @property
@@ -56,7 +52,6 @@ class Backtest:
 
     @stocks_data.setter
     def stocks_data(self, data):
-        assert isinstance(data, TiingoData)
         self._stocks_schema = data.schema
         self._stocks_data = data
 
@@ -66,7 +61,6 @@ class Backtest:
 
     @options_data.setter
     def options_data(self, data):
-        assert isinstance(data, HistoricalOptionsData)
         self._options_schema = data.schema
         self._options_data = data
 

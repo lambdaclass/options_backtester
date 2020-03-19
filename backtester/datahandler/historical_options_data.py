@@ -6,9 +6,7 @@ from .schema import Schema
 class HistoricalOptionsData:
     """Historical Options Data container class."""
     def __init__(self, file, schema=None, **params):
-        if schema:
-            assert isinstance(schema, Schema)
-        else:
+        if schema is None:
             self.schema = HistoricalOptionsData.default_schema()
 
         file_extension = os.path.splitext(file)[1]
