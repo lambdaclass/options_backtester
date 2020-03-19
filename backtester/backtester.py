@@ -195,13 +195,19 @@ class Backtest:
         sold = 0
         total_costs = sum([options_value[i]['cost'] for i in range(len(options_value))])
         for i, (contract_per_row, inventory_row) in enumerate(zip(total_costs, self._options_inventory.iterrows())):
-            if to_sell - sold < -contract_per_row * inventory_row[1]['totals']['qty']:
-                qty_to_sell = to_sell // contract_per_row
-                self._options_inventory.at[i, ('totals', 'date')] = date
-                self._options_inventory.at[i, ('totals', 'qty')] += qty_to_sell
-                sold -= (qty_to_sell * contract_per_row)
+            if (to_sell - sold < -contract_per_row * inventory_row[1]['totals']['qty']) and (to_sell - sold) > 0:
+                qty_to_sell = (to_sell - sold) // contract_per_row
+                if qty_to_sell != 0:
+                    trade_log_append = self._options_inventory.iloc[i].copy()
+                    trade_log_append['totals', 'qty'] = qty_to_sell
+                    trade_log_append['totals', 'date'] = date
+                    self.trade_log = self.trade_log.append(trade_log_append, ignore_index=True)
+                    self._options_inventory.at[i, ('totals', 'date')] = date
+                    self._options_inventory.at[i, ('totals', 'qty')] += qty_to_sell
 
-        self.current_cash -= sold
+                sold += (qty_to_sell * contract_per_row)
+
+        self.current_cash += sold - to_sell
 
     def _current_stock_capital(self, stocks):
         """Return the current value of the stocks inventory.
