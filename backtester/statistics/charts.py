@@ -49,14 +49,14 @@ def returns_histogram(report):
 
 
 def monthly_returns_heatmap(report):
-    resample = report.resample('M')['capital'].last()
+    resample = report.resample('M')['total capital'].last()
     monthly_returns = resample.pct_change().reset_index()
-    monthly_returns['capital'].iat[0] = resample.iloc[0] / report.iloc[0]['capital'] - 1
-    monthly_returns.columns = ['date', 'capital']
+    monthly_returns['total capital'].iat[0] = resample.iloc[0] / report.iloc[0]['total capital'] - 1
+    monthly_returns.columns = ['date', 'total capital']
 
     chart = alt.Chart(monthly_returns).mark_rect().encode(
         alt.X('year(date):O', title='Year'), alt.Y('month(date):O', title='Month'),
-        alt.Color('mean(capital)', title='Return', scale=alt.Scale(scheme='redyellowgreen')),
-        alt.Tooltip('mean(capital)', format='.2f')).properties(title='Monthly Returns')
+        alt.Color('mean(total capital)', title='Return', scale=alt.Scale(scheme='redyellowgreen')),
+        alt.Tooltip('mean(total capital)', format='.2f')).properties(title='Monthly Returns')
 
     return chart
