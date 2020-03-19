@@ -9,7 +9,7 @@ TEST_DIR = os.path.abspath(os.path.dirname(__file__))
 
 SAMPLE_DATA_STOCKS = os.path.join(TEST_DIR, 'test_data', 'test_data_stocks.csv')
 IVY_PORTFOLIO_DATA = os.path.join(TEST_DIR, 'test_data', 'ivy_portfolio.csv')
-SAMPLE_DATA_OPTIONS = os.path.join(TEST_DIR, 'test_data', 'test_data.csv')
+SAMPLE_DATA_OPTIONS = os.path.join(TEST_DIR, 'test_data', 'test_data_options.csv')
 
 # DataHandler fixtures
 
