@@ -188,28 +188,29 @@ class Backtest:
             self._execute_option_entries(date, options, options_allocation - options_capital)
         else:
             to_sell = options_capital - options_allocation
-            options_value = self._get_current_option_quotes(options)
-            self._sell_some_options(date, to_sell, options_value)
+            current_options = self._get_current_option_quotes(options)
+            self._sell_some_options(date, to_sell, current_options)
 
-    def _sell_some_options(self, date, to_sell, options_value):
+    def _sell_some_options(self, date, to_sell, current_options):
         sold = 0
-        total_costs = sum([options_value[i]['cost'] for i in range(len(options_value))])
-        for i, (contract_per_row, inventory_row) in enumerate(zip(total_costs, self._options_inventory.iterrows())):
-            if (to_sell - sold < -contract_per_row * inventory_row[1]['totals']['qty']) and (to_sell - sold) > 0:
-                qty_to_sell = (to_sell - sold) // contract_per_row
+        total_costs = sum([current_options[i]['cost'] for i in range(len(current_options))])
+        for i, (exit_cost, inventory_row) in enumerate(zip(total_costs, self._options_inventory.iterrows())):
+            if (to_sell - sold < -exit_cost * inventory_row[1]['totals']['qty']) and (to_sell - sold) > 0:
+                qty_to_sell = (to_sell - sold) // exit_cost
                 if qty_to_sell != 0:
                     trade_log_append = self._options_inventory.iloc[i].copy()
                     trade_log_append['totals', 'qty'] = qty_to_sell
                     trade_log_append['totals', 'date'] = date
-                    trade_log_append['totals', 'cost'] = contract_per_row
+                    trade_log_append['totals', 'cost'] = exit_cost
                     for j, leg in enumerate(self._options_strategy.legs):
                         trade_log_append[leg.name, 'order'] = ~trade_log_append[leg.name, 'order']
-                        trade_log_append[leg.name, 'cost'] = options_value[j].iloc[i]['cost']
+                        trade_log_append[leg.name, 'cost'] = current_options[j].iloc[i]['cost']
+
                     self.trade_log = self.trade_log.append(trade_log_append, ignore_index=True)
                     self._options_inventory.at[i, ('totals', 'date')] = date
                     self._options_inventory.at[i, ('totals', 'qty')] += qty_to_sell
 
-                sold += (qty_to_sell * contract_per_row)
+                sold += (qty_to_sell * exit_cost)
 
         self.current_cash += sold - to_sell
 
