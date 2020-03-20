@@ -1,41 +1,23 @@
-.PHONY: image init env testdata test_backtester test_scraper scrape aggregate backup bench
+.PHONY: install env test test_notebook
+.DEFAULT_GOAL := help
 
-image:
-	docker build -t data_scraper -f ./docker/data_scraper/Dockerfile .
+install: ## Create environment and install dependencies
+	pipenv --three && pipenv install --deploy
 
-ops:
-	docker-compose -f ./docker/docker-compose.yml up -d
-
-stop:
-	docker-compose -f ./docker/docker-compose.yml down
-
-init:
-	pipenv --three && pipenv install
-
-env:
+env: ## Run pipenv shell
 	pipenv shell
 
-testdata:
-	pipenv run python backtester/test/create_test_data.py
-
-test_backtester:
+test: ## Run tests
 	pipenv run python -m pytest -v backtester
 
-test_scraper:
-	pipenv run python -m unittest discover -s data_scraper
+test_notebook: ## Run jupyter notebook test
+	pipenv run jupyter nbconvert nbconvert --to notebook --execute --ExecutePreprocessor.timeout=60 \
+	backtester/examples/backtester_example.ipynb --stdout > /dev/null
 
-scrape:
-ifdef scraper
-	pipenv run python -m data_scraper -s $(scraper) -v
-else
-	pipenv run python -m data_scraper -v
-endif
+lint: ## Run linter and format checker (flake8 & yapf)
+	pipenv run flake8 backtester
+	pipenv run yapf --diff --recursive backtester/
 
-aggregate:
-	pipenv run python -m data_scraper -a
-
-backup:
-	pipenv run python -m data_scraper -b
-	
-bench:
-	pipenv run python backtester/test/run_benchmark.py
+help:
+	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) |\
+	awk 'BEGIN {FS = ":.*?## "}; {printf "\033[36m%-30s\033[0m %s\n", $$1, $$2}'
