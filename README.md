@@ -1,3 +1,5 @@
+[![Build Status](https://travis-ci.com/lambdaclass/options_backtester.svg?branch=master)](https://travis-ci.com/lambdaclass/options_backtester)
+
 Options Backtester
 ==============================
 
