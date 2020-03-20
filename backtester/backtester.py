@@ -313,6 +313,10 @@ class Backtest:
         add['puts capital'] = puts_value
         add['stocks qty'] = self._stocks_inventory['qty'].sum()
 
+        for _index, row in self._stocks_inventory.iterrows():
+            symbol = row['symbol']
+            add[symbol + ' qty'] = row['qty']
+
         # sort=False means we're assuming the updates are done in chronological order, i.e,
         # the dates in add are the immediate successors to the ones at the end of self.balance.
         # Pass sort=True to ensure self.balance is always sorted chronologically if needed.
