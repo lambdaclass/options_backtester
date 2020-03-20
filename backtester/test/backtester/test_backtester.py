@@ -13,7 +13,14 @@ def test_backtest(sample_stock_portfolio, sample_stocks_datahandler, sample_opti
                       stocks=sample_stock_portfolio)
     tl_long, balance_long = bt.trade_log, bt.balance
 
-    last_day_balance_long = balance_long.iloc[-1].values
+    symbols = [stock.symbol for stock in sample_stock_portfolio]
+    balance_columns = ['total capital', 'cash'] + symbols + [
+        'options qty', 'calls capital', 'puts capital', 'stocks qty', 'options capital', 'stocks capital', '% change',
+        'accumulated return'
+    ]
+
+    last_day_balance_long = balance_long.iloc[-1]
+    last_day_balance_long = last_day_balance_long[balance_columns].values
 
     leg_1_costs = tl_long['leg_1']['cost']
     leg_2_costs = tl_long['leg_2']['cost']
@@ -40,7 +47,8 @@ def test_backtest(sample_stock_portfolio, sample_stocks_datahandler, sample_opti
                       stocks=sample_stock_portfolio)
     tl_short, balance_short = bt.trade_log, bt.balance
 
-    last_day_balance_short = balance_short.iloc[-1].values
+    last_day_balance_short = balance_short.iloc[-1]
+    last_day_balance_short = last_day_balance_short[balance_columns].values
 
     leg_1_costs = tl_short['leg_1']['cost']
     leg_2_costs = tl_short['leg_2']['cost']
