@@ -1,7 +1,7 @@
 import pandas as pd
 import numpy as np
 
-from ..enums import Order
+from ..enums import Order  # noqa: F401
 
 
 def summary(trade_log, balance):

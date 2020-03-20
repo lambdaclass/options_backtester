@@ -1,0 +1,14 @@
+language: python
+python:
+  - "3.6"
+
+install:
+  - pip install pipenv
+  - make install
+
+before_script:
+  - make lint
+
+script:
+  - make test
+  - make test_notebook

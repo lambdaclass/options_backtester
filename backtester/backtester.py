@@ -5,8 +5,6 @@ import pandas as pd
 import pyprind
 
 from .enums import *
-from .datahandler import HistoricalOptionsData, TiingoData
-from .strategy import Strategy
 
 
 class Backtest:
