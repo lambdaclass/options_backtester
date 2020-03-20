@@ -6,7 +6,9 @@ install:
   - pip install pipenv
   - make install
 
-script:
+before_script:
   - make lint
+
+script:
   - make test
   - make test_notebook
