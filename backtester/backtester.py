@@ -192,21 +192,21 @@ class Backtest:
     def _sell_some_options(self, date, to_sell, current_options):
         sold = 0
         total_costs = sum([current_options[i]['cost'] for i in range(len(current_options))])
-        for i, (exit_cost, inventory_row) in enumerate(zip(total_costs, self._options_inventory.iterrows())):
-            if (to_sell - sold < -exit_cost * inventory_row[1]['totals']['qty']) and (to_sell - sold) > 0:
+        for (exit_cost, (row_index, inventory_row)) in zip(total_costs, self._options_inventory.iterrows()):
+            if (to_sell - sold < -exit_cost * inventory_row['totals']['qty']) and (to_sell - sold) > 0:
                 qty_to_sell = (to_sell - sold) // exit_cost
                 if qty_to_sell != 0:
-                    trade_log_append = self._options_inventory.iloc[i].copy()
+                    trade_log_append = self._options_inventory.loc[row_index].copy()
                     trade_log_append['totals', 'qty'] = qty_to_sell
                     trade_log_append['totals', 'date'] = date
                     trade_log_append['totals', 'cost'] = exit_cost
-                    for j, leg in enumerate(self._options_strategy.legs):
+                    for i, leg in enumerate(self._options_strategy.legs):
                         trade_log_append[leg.name, 'order'] = ~trade_log_append[leg.name, 'order']
-                        trade_log_append[leg.name, 'cost'] = current_options[j].iloc[i]['cost']
+                        trade_log_append[leg.name, 'cost'] = current_options[i].loc[row_index]['cost']
 
                     self.trade_log = self.trade_log.append(trade_log_append, ignore_index=True)
-                    self._options_inventory.at[i, ('totals', 'date')] = date
-                    self._options_inventory.at[i, ('totals', 'qty')] += qty_to_sell
+                    self._options_inventory.at[row_index, ('totals', 'date')] = date
+                    self._options_inventory.at[row_index, ('totals', 'qty')] += qty_to_sell
 
                 sold += (qty_to_sell * exit_cost)
 
