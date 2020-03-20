@@ -1,3 +1,5 @@
+[![Build Status](https://travis-ci.com/lambdaclass/options_backtester.svg?branch=master)](https://travis-ci.com/lambdaclass/options_backtester)
+
 Options Backtester
 ==============================
 
@@ -13,73 +15,87 @@ Simple backtester to evaluate and analyse options strategies over historical pri
 
 ## Requirements
 
-- Python >= 3.5
+- Python >= 3.6
 - pipenv
-
 
 ## Setup
 
-For backtesting, set `$OPTIONS_DATA_PATH` to the appropriate directory where the data is located. All file paths parsed by the backtester will be relative to this directory.  
-
-To use the data scraper the following environment variables need to be set:
-- `$SAVE_DATA_PATH`: where the data will be saved to (default is `./data/scraped`)
-- `$TIINGO_API_KEY`: used to fetch data from [Tiingo](https://api.tiingo.com)
-- `$S3_BUCKET`: name of the S3 bucket to backup data
-- `$AWS_ACCESS_KEY_ID`: AWS acces key id
-- `$AWS_SECRET_ACCESS_KEY`: AWS secret key
-
-You can configure the data scraper by editing the configuration file `data_scraper.conf` (json-formated).  
-
-Sample file:
-
-```json
-{
-  "cboe": {
-    "mute_notifications": ["BFB", "CBSA"]
-  },
-  "notifications": {
-      "slack_webhook": "https://hooks.slack.com/services/MY_WORKSPACE_WEBHOOK"
-  }
-}
-```
-
-**HINT**: store environment variables in an `.env` file and pipenv will load them automatically when using `make env`.
-
-
-## Usage
-
-### Create environment and download dependencies
+Install [pipenv](https://pipenv.pypa.io/en/latest/)
 
 ```shell
-$> make init
+$> pip install pipenv
 ```
 
-### Activate environment
+Create environment and download dependencies
+
+```shell
+$> make install
+```
+
+Activate environment
 
 ```shell
 $> make env
 ```
 
-### Run tests
+Run [Jupyter](https://jupyter.org) notebook
+
+```shell
+$> make notebook
+```
+
+Run tests
 
 ```shell
 $> make test
 ```
 
-### Scrape data (supported scrapers: CBOE, Tiingo)
+## Usage
 
-```shell
-$> make scrape scraper=cboe
+### Example:
 
-$> make scrape scraper=tiingo
+We'll run a backtest of a stock portfolio holding `$AAPL` and `$GOOG`, and simultaneously buying 10% OTM calls and puts on `$SPX` ([long strangle](https://www.investopedia.com/terms/s/strangle.asp)).  
+We'll allocate 97% of our capital to stocks and the rest to options, and do a rebalance every month.
+
+```python
+from backtester import Backtest, Type, Direction, Stock
+from backtester.strategy import Strategy, StrategyLeg
+from backtester.datahandler import HistoricalOptionsData, TiingoData
+
+# Stocks data
+stocks_data = TiingoData('stocks.csv')
+stocks = [Stock(symbol='AAPL', percentage=0.5), Stock(symbol='GOOG', percentage=0.5)]
+
+# Options data
+options_data = HistoricalOptionsData('options.h5', key='/SPX')
+schema = options_data.schema
+
+# Long strangle
+leg_1 = StrategyLeg('leg_1', schema, option_type=Type.PUT, direction=Direction.BUY)
+leg_1.entry_filter = (schema.underlying == 'SPX') & (schema.dte >= 60) & (schema.underlying_last <=
+                                                                          1.1 * schema.strike)
+leg_1.exit_filter = (schema.dte <= 30)
+
+leg_2 = StrategyLeg('leg_2', schema, option_type=Type.CALL, direction=Direction.BUY)
+leg_2.entry_filter = (schema.underlying == 'SPX') & (schema.dte >= 60) & (schema.underlying_last >=
+                                                                          0.9 * schema.strike)
+leg_2.exit_filter = (schema.dte <= 30)
+
+strategy = Strategy(schema)
+strategy.add_legs([leg_1, leg_2])
+
+allocation = {'stocks': .97, 'options': .03}
+initial_capital = 1_000_000
+bt = Backtest(allocation, initial_capital)
+bt.stocks = stocks
+bt.stocks_data = stocks_data
+bt.options_data = options_data
+bt.options_strategy = strategy
+
+bt.run(rebalance_freq=1)
 ```
 
-### Run backtester with benchmark strategy
-
-```shell
-$> make bench
-```
-
+You can explore more usage examples in the Jupyter [notebooks](backtester/examples/).
 
 ## Recommended reading
 
