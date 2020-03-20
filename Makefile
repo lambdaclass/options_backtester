@@ -2,7 +2,7 @@
 .DEFAULT_GOAL := help
 
 install: ## Create environment and install dependencies
-	pipenv --three && pipenv install --deploy
+	pipenv --three && pipenv sync --dev
 
 env: ## Run pipenv shell
 	pipenv shell
