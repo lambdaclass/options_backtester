@@ -177,7 +177,7 @@ class Backtest:
 
         # We simulate a sell of the stock positions and then a rebuy.
         # This would **not** work if we added transaction fees.
-        self.current_cash += stock_capital
+        self.current_cash = stocks_allocation + total_capital * self.allocation['cash']
         self._buy_stocks(stocks, stocks_allocation, sma_days)
 
         # exit/enter contracts
@@ -197,7 +197,7 @@ class Backtest:
                 qty_to_sell = (to_sell - sold) // exit_cost
                 if qty_to_sell != 0:
                     trade_log_append = self._options_inventory.loc[row_index].copy()
-                    trade_log_append['totals', 'qty'] = qty_to_sell
+                    trade_log_append['totals', 'qty'] = -qty_to_sell
                     trade_log_append['totals', 'date'] = date
                     trade_log_append['totals', 'cost'] = exit_cost
                     for i, leg in enumerate(self._options_strategy.legs):
@@ -332,6 +332,7 @@ class Backtest:
             options (pd.DataFrame):     Options data for the current time step.
             options_allocation (float): Capital amount allocated to options.
         """
+        self.current_cash += options_allocation
 
         # Remove contracts already in inventory
         inventory_contracts = pd.concat(
