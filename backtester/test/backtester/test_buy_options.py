@@ -5,10 +5,9 @@ from backtester.enums import Type, Direction
 from backtester import Backtest
 
 
-def test_sell_some_options_1legs(sample_2puts_2calls_datahandler, ivy_portfolio_5assets_datahandler,
-                                 ivy_5assets_portfolio):
+def test_sell_some_options_1legs(options_data_2puts_buy, ivy_portfolio_5assets_datahandler, ivy_5assets_portfolio):
 
-    options_data = set_data_2puts_buy(sample_2puts_2calls_datahandler)
+    options_data = options_data_2puts_buy
     bt = run_backtest(ivy_5assets_portfolio, ivy_portfolio_5assets_datahandler, options_data,
                       options_1leg_buy_strategy(options_data))
     tolerance = 0.0001
@@ -22,9 +21,8 @@ def test_sell_some_options_1legs(sample_2puts_2calls_datahandler, ivy_portfolio_
                        rtol=tolerance)
 
 
-def test_sell_some_options_2legs_buy(sample_2puts_2calls_datahandler, ivy_portfolio_5assets_datahandler,
-                                     ivy_5assets_portfolio):
-    options_data = set_data_2legs_buy(sample_2puts_2calls_datahandler)
+def test_sell_some_options_2legs_buy(options_data_2legs_buy, ivy_portfolio_5assets_datahandler, ivy_5assets_portfolio):
+    options_data = options_data_2legs_buy
 
     bt = run_backtest(ivy_5assets_portfolio, ivy_portfolio_5assets_datahandler, options_data,
                       options_2legs_buy_strategy(options_data))
@@ -39,9 +37,9 @@ def test_sell_some_options_2legs_buy(sample_2puts_2calls_datahandler, ivy_portfo
     assert np.allclose(bt.trade_log['totals']['cost'].values, [200, 300], rtol=tolerance)
 
 
-def test_sell_some_options_1leg_buy_sell(sample_2puts_2calls_datahandler, ivy_portfolio_5assets_datahandler,
+def test_sell_some_options_1leg_buy_sell(options_data_1put_buy_sell, ivy_portfolio_5assets_datahandler,
                                          ivy_5assets_portfolio):
-    options_data = set_data_1put_buy_sell(sample_2puts_2calls_datahandler)
+    options_data = options_data_1put_buy_sell
     bt = run_backtest(ivy_5assets_portfolio, ivy_portfolio_5assets_datahandler, options_data,
                       options_1leg_buy_strategy(options_data))
     tolerance = 0.0001
@@ -51,9 +49,9 @@ def test_sell_some_options_1leg_buy_sell(sample_2puts_2calls_datahandler, ivy_po
     assert np.allclose(bt.trade_log['totals']['cost'].values, [100, -200], rtol=tolerance)
 
 
-def test_sell_some_options_2leg_buy_sell(sample_2puts_2calls_datahandler, ivy_portfolio_5assets_datahandler,
+def test_sell_some_options_2leg_buy_sell(options_data_buy_and_sell_2legs, ivy_portfolio_5assets_datahandler,
                                          ivy_5assets_portfolio):
-    options_data = set_data_buy_and_sell_2legs(sample_2puts_2calls_datahandler)
+    options_data = options_data_buy_and_sell_2legs
     bt = run_backtest(ivy_5assets_portfolio, ivy_portfolio_5assets_datahandler, options_data,
                       options_2legs_buy_strategy(options_data))
     tolerance = 0.0001
@@ -111,79 +109,3 @@ def options_2legs_buy_strategy(options_data):
     leg_2.exit_filter = (options_schema.dte <= 30)
     test_strat.add_legs([leg_1, leg_2])
     return test_strat
-
-
-def set_data_2puts_buy(data):
-    data._data.at[2, 'ask'] = 1  # SPX6500 put 2014-12-15
-    data._data.at[2, 'bid'] = 0.5  # SPX6500 put 2014-12-15
-
-    data._data.at[51, 'ask'] = 1.5  # SPX7000 put 2015-01-02
-    data._data.at[50, 'bid'] = 0.5  # SPX6500 put 2015-01-02
-
-    data._data.at[130, 'bid'] = 0.5  # SPX6500 put 2015-02-02
-    data._data.at[131, 'bid'] = 1.5  # SPX7000 put 2015-02-02
-
-    data._data.at[206, 'bid'] = 0.5  # SPX6500 put 2015-03-02
-    data._data.at[207, 'bid'] = 1.5  # SPX7000 put 2015-03-02
-    return data
-
-
-def set_data_2legs_buy(data):
-    data._data.at[0, 'ask'] = 1  # SPX6500 call 2014-12-15
-    data._data.at[0, 'bid'] = 0.5  # SPX6500 call 2014-12-15
-    data._data.at[2, 'ask'] = 1  # SPX6500 put 2014-12-15
-    data._data.at[2, 'bid'] = 0.5  # SPX6500 put 2014-12-15
-
-    data._data.at[51, 'ask'] = 1.5  # SPX7000 put 2015-01-02
-    data._data.at[50, 'bid'] = 0.5  # SPX6500 put 2015-01-02
-    data._data.at[49, 'ask'] = 1.5  # SPX7000 call 2015-01-02
-    data._data.at[48, 'bid'] = 0.5  # SPX6500 call 2015-01-02
-
-    data._data.at[130, 'bid'] = 0.5  # SPX6500 put 2015-02-02
-    data._data.at[131, 'bid'] = 1.5  # SPX7000 put 2015-02-02
-    data._data.at[128, 'bid'] = 0.5  # SPX6500 call 2015-02-02
-    data._data.at[129, 'bid'] = 1.5  # SPX7000 call 2015-02-02
-
-    data._data.at[206, 'bid'] = 0.5  # SPX6500 put 2015-03-02
-    data._data.at[207, 'bid'] = 1.5  # SPX7000 put 2015-03-02
-    data._data.at[204, 'bid'] = 0.5  # SPX6500 call 2015-03-02
-    data._data.at[205, 'bid'] = 1.5  # SPX7000 call 2015-03-02
-    return data
-
-
-def set_data_1put_buy_sell(data):
-    data._data.at[2, 'ask'] = 1  # SPX6500 put 2014-12-15
-    data._data.at[2, 'bid'] = 0.5  # SPX6500 put 2014-12-15
-
-    data._data.at[50, 'ask'] = 1.5  # SPX6500 put 2015-01-02
-    data._data.at[50, 'bid'] = 1  # SPX6500 put 2015-01-02
-
-    data._data.at[130, 'bid'] = 2  # SPX6500 put 2015-02-02
-    data._data.at[130, 'ask'] = 2.5  # SPX6500 put 2015-02-02
-
-    data._data.at[206, 'bid'] = 2  # SPX6500 put 2015-03-02
-    data._data.at[206, 'ask'] = 2.5  # SPX7000 put 2015-03-02
-    return data
-
-
-def set_data_buy_and_sell_2legs(data):
-    data._data.at[0, 'ask'] = 1  # SPX6500 call 2014-12-15
-    data._data.at[0, 'bid'] = 0.5  # SPX6500 call 2014-12-15
-    data._data.at[2, 'ask'] = 1  # SPX6500 put 2014-12-15
-    data._data.at[2, 'bid'] = 0.5  # SPX6500 put 2014-12-15
-
-    data._data.at[51, 'ask'] = 1.5  # SPX7000 put 2015-01-02
-    data._data.at[50, 'bid'] = 0.5  # SPX6500 put 2015-01-02
-    data._data.at[49, 'ask'] = 1.5  # SPX7000 call 2015-01-02
-    data._data.at[48, 'bid'] = 0.5  # SPX6500 call 2015-01-02
-
-    data._data.at[130, 'bid'] = 0.5  # SPX6500 put 2015-02-02
-    data._data.at[131, 'bid'] = 1.5  # SPX7000 put 2015-02-02
-    data._data.at[128, 'bid'] = 0.5  # SPX6500 call 2015-02-02
-    data._data.at[129, 'bid'] = 1.5  # SPX7000 call 2015-02-02
-
-    data._data.at[206, 'bid'] = 1  # SPX6500 put 2015-03-02
-    data._data.at[207, 'bid'] = 1.5  # SPX7000 put 2015-03-02
-    data._data.at[204, 'bid'] = 1.  # SPX6500 call 2015-03-02
-    data._data.at[205, 'bid'] = 1.5  # SPX7000 call 2015-03-02
-    return data

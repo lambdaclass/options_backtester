@@ -48,12 +48,6 @@ def ivy_portfolio_5assets_datahandler():
     return data
 
 
-@pytest.fixture(scope='module')
-def sample_2puts_2calls_datahandler():
-    data = HistoricalOptionsData(TWO_PUTS_TWO_CALLS_DATA)
-    return data
-
-
 # Stock Porfolio fixtures
 
 
@@ -79,3 +73,87 @@ def ivy_5assets_portfolio():
     VNQ = Stock("VNQ", 0.2)
     DBC = Stock("DBC", 0.2)
     return [VTI, VEU, BND, VNQ, DBC]
+
+
+@pytest.fixture(scope='module')
+def options_data_2puts_buy():
+    data = HistoricalOptionsData(TWO_PUTS_TWO_CALLS_DATA)
+    data._data.at[2, 'ask'] = 1  # SPX6500 put 2014-12-15
+    data._data.at[2, 'bid'] = 0.5  # SPX6500 put 2014-12-15
+
+    data._data.at[51, 'ask'] = 1.5  # SPX7000 put 2015-01-02
+    data._data.at[50, 'bid'] = 0.5  # SPX6500 put 2015-01-02
+
+    data._data.at[130, 'bid'] = 0.5  # SPX6500 put 2015-02-02
+    data._data.at[131, 'bid'] = 1.5  # SPX7000 put 2015-02-02
+
+    data._data.at[206, 'bid'] = 0.5  # SPX6500 put 2015-03-02
+    data._data.at[207, 'bid'] = 1.5  # SPX7000 put 2015-03-02
+    return data
+
+
+@pytest.fixture(scope='module')
+def options_data_2legs_buy():
+    data = HistoricalOptionsData(TWO_PUTS_TWO_CALLS_DATA)
+    data._data.at[0, 'ask'] = 1  # SPX6500 call 2014-12-15
+    data._data.at[0, 'bid'] = 0.5  # SPX6500 call 2014-12-15
+    data._data.at[2, 'ask'] = 1  # SPX6500 put 2014-12-15
+    data._data.at[2, 'bid'] = 0.5  # SPX6500 put 2014-12-15
+
+    data._data.at[51, 'ask'] = 1.5  # SPX7000 put 2015-01-02
+    data._data.at[50, 'bid'] = 0.5  # SPX6500 put 2015-01-02
+    data._data.at[49, 'ask'] = 1.5  # SPX7000 call 2015-01-02
+    data._data.at[48, 'bid'] = 0.5  # SPX6500 call 2015-01-02
+
+    data._data.at[130, 'bid'] = 0.5  # SPX6500 put 2015-02-02
+    data._data.at[131, 'bid'] = 1.5  # SPX7000 put 2015-02-02
+    data._data.at[128, 'bid'] = 0.5  # SPX6500 call 2015-02-02
+    data._data.at[129, 'bid'] = 1.5  # SPX7000 call 2015-02-02
+
+    data._data.at[206, 'bid'] = 0.5  # SPX6500 put 2015-03-02
+    data._data.at[207, 'bid'] = 1.5  # SPX7000 put 2015-03-02
+    data._data.at[204, 'bid'] = 0.5  # SPX6500 call 2015-03-02
+    data._data.at[205, 'bid'] = 1.5  # SPX7000 call 2015-03-02
+    return data
+
+
+@pytest.fixture(scope='module')
+def options_data_1put_buy_sell():
+    data = HistoricalOptionsData(TWO_PUTS_TWO_CALLS_DATA)
+    data._data.at[2, 'ask'] = 1  # SPX6500 put 2014-12-15
+    data._data.at[2, 'bid'] = 0.5  # SPX6500 put 2014-12-15
+
+    data._data.at[50, 'ask'] = 1.5  # SPX6500 put 2015-01-02
+    data._data.at[50, 'bid'] = 1  # SPX6500 put 2015-01-02
+
+    data._data.at[130, 'bid'] = 2  # SPX6500 put 2015-02-02
+    data._data.at[130, 'ask'] = 2.5  # SPX6500 put 2015-02-02
+
+    data._data.at[206, 'bid'] = 2  # SPX6500 put 2015-03-02
+    data._data.at[206, 'ask'] = 2.5  # SPX7000 put 2015-03-02
+    return data
+
+
+@pytest.fixture(scope='module')
+def options_data_buy_and_sell_2legs():
+    data = HistoricalOptionsData(TWO_PUTS_TWO_CALLS_DATA)
+    data._data.at[0, 'ask'] = 1  # SPX6500 call 2014-12-15
+    data._data.at[0, 'bid'] = 0.5  # SPX6500 call 2014-12-15
+    data._data.at[2, 'ask'] = 1  # SPX6500 put 2014-12-15
+    data._data.at[2, 'bid'] = 0.5  # SPX6500 put 2014-12-15
+
+    data._data.at[51, 'ask'] = 1.5  # SPX7000 put 2015-01-02
+    data._data.at[50, 'bid'] = 0.5  # SPX6500 put 2015-01-02
+    data._data.at[49, 'ask'] = 1.5  # SPX7000 call 2015-01-02
+    data._data.at[48, 'bid'] = 0.5  # SPX6500 call 2015-01-02
+
+    data._data.at[130, 'bid'] = 0.5  # SPX6500 put 2015-02-02
+    data._data.at[131, 'bid'] = 1.5  # SPX7000 put 2015-02-02
+    data._data.at[128, 'bid'] = 0.5  # SPX6500 call 2015-02-02
+    data._data.at[129, 'bid'] = 1.5  # SPX7000 call 2015-02-02
+
+    data._data.at[206, 'bid'] = 1  # SPX6500 put 2015-03-02
+    data._data.at[207, 'bid'] = 1.5  # SPX7000 put 2015-03-02
+    data._data.at[204, 'bid'] = 1.  # SPX6500 call 2015-03-02
+    data._data.at[205, 'bid'] = 1.5  # SPX7000 call 2015-03-02
+    return data
