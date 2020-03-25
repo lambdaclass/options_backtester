@@ -1,7 +1,5 @@
 import numpy as np
-import sys
 import math
-import pandas as pc
 from backtester.strategy import Strategy, StrategyLeg
 from backtester.enums import Type, Direction
 from backtester import Backtest
@@ -116,76 +114,76 @@ def options_2legs_buy_strategy(options_data):
 
 
 def set_data_2puts_buy(data):
-    data._data.at[2, 'ask'] = 1  #SPX6500 put 2014-12-15
-    data._data.at[2, 'bid'] = 0.5  #SPX6500 put 2014-12-15
+    data._data.at[2, 'ask'] = 1  # SPX6500 put 2014-12-15
+    data._data.at[2, 'bid'] = 0.5  # SPX6500 put 2014-12-15
 
-    data._data.at[51, 'ask'] = 1.5  #SPX7000 put 2015-01-02
-    data._data.at[50, 'bid'] = 0.5  #SPX6500 put 2015-01-02
+    data._data.at[51, 'ask'] = 1.5  # SPX7000 put 2015-01-02
+    data._data.at[50, 'bid'] = 0.5  # SPX6500 put 2015-01-02
 
-    data._data.at[130, 'bid'] = 0.5  #SPX6500 put 2015-02-02
-    data._data.at[131, 'bid'] = 1.5  #SPX7000 put 2015-02-02
+    data._data.at[130, 'bid'] = 0.5  # SPX6500 put 2015-02-02
+    data._data.at[131, 'bid'] = 1.5  # SPX7000 put 2015-02-02
 
-    data._data.at[206, 'bid'] = 0.5  #SPX6500 put 2015-03-02
-    data._data.at[207, 'bid'] = 1.5  #SPX7000 put 2015-03-02
+    data._data.at[206, 'bid'] = 0.5  # SPX6500 put 2015-03-02
+    data._data.at[207, 'bid'] = 1.5  # SPX7000 put 2015-03-02
     return data
 
 
 def set_data_2legs_buy(data):
-    data._data.at[0, 'ask'] = 1  #SPX6500 call 2014-12-15
-    data._data.at[0, 'bid'] = 0.5  #SPX6500 call 2014-12-15
-    data._data.at[2, 'ask'] = 1  #SPX6500 put 2014-12-15
-    data._data.at[2, 'bid'] = 0.5  #SPX6500 put 2014-12-15
+    data._data.at[0, 'ask'] = 1  # SPX6500 call 2014-12-15
+    data._data.at[0, 'bid'] = 0.5  # SPX6500 call 2014-12-15
+    data._data.at[2, 'ask'] = 1  # SPX6500 put 2014-12-15
+    data._data.at[2, 'bid'] = 0.5  # SPX6500 put 2014-12-15
 
-    data._data.at[51, 'ask'] = 1.5  #SPX7000 put 2015-01-02
-    data._data.at[50, 'bid'] = 0.5  #SPX6500 put 2015-01-02
-    data._data.at[49, 'ask'] = 1.5  #SPX7000 call 2015-01-02
-    data._data.at[48, 'bid'] = 0.5  #SPX6500 call 2015-01-02
+    data._data.at[51, 'ask'] = 1.5  # SPX7000 put 2015-01-02
+    data._data.at[50, 'bid'] = 0.5  # SPX6500 put 2015-01-02
+    data._data.at[49, 'ask'] = 1.5  # SPX7000 call 2015-01-02
+    data._data.at[48, 'bid'] = 0.5  # SPX6500 call 2015-01-02
 
-    data._data.at[130, 'bid'] = 0.5  #SPX6500 put 2015-02-02
-    data._data.at[131, 'bid'] = 1.5  #SPX7000 put 2015-02-02
-    data._data.at[128, 'bid'] = 0.5  #SPX6500 call 2015-02-02
-    data._data.at[129, 'bid'] = 1.5  #SPX7000 call 2015-02-02
+    data._data.at[130, 'bid'] = 0.5  # SPX6500 put 2015-02-02
+    data._data.at[131, 'bid'] = 1.5  # SPX7000 put 2015-02-02
+    data._data.at[128, 'bid'] = 0.5  # SPX6500 call 2015-02-02
+    data._data.at[129, 'bid'] = 1.5  # SPX7000 call 2015-02-02
 
-    data._data.at[206, 'bid'] = 0.5  #SPX6500 put 2015-03-02
-    data._data.at[207, 'bid'] = 1.5  #SPX7000 put 2015-03-02
-    data._data.at[204, 'bid'] = 0.5  #SPX6500 call 2015-03-02
-    data._data.at[205, 'bid'] = 1.5  #SPX7000 call 2015-03-02
+    data._data.at[206, 'bid'] = 0.5  # SPX6500 put 2015-03-02
+    data._data.at[207, 'bid'] = 1.5  # SPX7000 put 2015-03-02
+    data._data.at[204, 'bid'] = 0.5  # SPX6500 call 2015-03-02
+    data._data.at[205, 'bid'] = 1.5  # SPX7000 call 2015-03-02
     return data
 
 
 def set_data_1put_buy_sell(data):
-    data._data.at[2, 'ask'] = 1  #SPX6500 put 2014-12-15
-    data._data.at[2, 'bid'] = 0.5  #SPX6500 put 2014-12-15
+    data._data.at[2, 'ask'] = 1  # SPX6500 put 2014-12-15
+    data._data.at[2, 'bid'] = 0.5  # SPX6500 put 2014-12-15
 
-    data._data.at[50, 'ask'] = 1.5  #SPX6500 put 2015-01-02
-    data._data.at[50, 'bid'] = 1  #SPX6500 put 2015-01-02
+    data._data.at[50, 'ask'] = 1.5  # SPX6500 put 2015-01-02
+    data._data.at[50, 'bid'] = 1  # SPX6500 put 2015-01-02
 
-    data._data.at[130, 'bid'] = 2  #SPX6500 put 2015-02-02
-    data._data.at[130, 'ask'] = 2.5  #SPX6500 put 2015-02-02
+    data._data.at[130, 'bid'] = 2  # SPX6500 put 2015-02-02
+    data._data.at[130, 'ask'] = 2.5  # SPX6500 put 2015-02-02
 
-    data._data.at[206, 'bid'] = 2  #SPX6500 put 2015-03-02
-    data._data.at[206, 'ask'] = 2.5  #SPX7000 put 2015-03-02
+    data._data.at[206, 'bid'] = 2  # SPX6500 put 2015-03-02
+    data._data.at[206, 'ask'] = 2.5  # SPX7000 put 2015-03-02
     return data
 
 
 def set_data_buy_and_sell_2legs(data):
-    data._data.at[0, 'ask'] = 1  #SPX6500 call 2014-12-15
-    data._data.at[0, 'bid'] = 0.5  #SPX6500 call 2014-12-15
-    data._data.at[2, 'ask'] = 1  #SPX6500 put 2014-12-15
-    data._data.at[2, 'bid'] = 0.5  #SPX6500 put 2014-12-15
+    data._data.at[0, 'ask'] = 1  # SPX6500 call 2014-12-15
+    data._data.at[0, 'bid'] = 0.5  # SPX6500 call 2014-12-15
+    data._data.at[2, 'ask'] = 1  # SPX6500 put 2014-12-15
+    data._data.at[2, 'bid'] = 0.5  # SPX6500 put 2014-12-15
 
-    data._data.at[51, 'ask'] = 1.5  #SPX7000 put 2015-01-02
-    data._data.at[50, 'bid'] = 0.5  #SPX6500 put 2015-01-02
-    data._data.at[49, 'ask'] = 1.5  #SPX7000 call 2015-01-02
-    data._data.at[48, 'bid'] = 0.5  #SPX6500 call 2015-01-02
+    data._data.at[51, 'ask'] = 1.5  # SPX7000 put 2015-01-02
+    data._data.at[50, 'bid'] = 0.5  # SPX6500 put 2015-01-02
+    data._data.at[49, 'ask'] = 1.5  # SPX7000 call 2015-01-02
+    data._data.at[48, 'bid'] = 0.5  # SPX6500 call 2015-01-02
 
-    data._data.at[130, 'bid'] = 0.5  #SPX6500 put 2015-02-02
-    data._data.at[131, 'bid'] = 1.5  #SPX7000 put 2015-02-02
-    data._data.at[128, 'bid'] = 0.5  #SPX6500 call 2015-02-02
-    data._data.at[129, 'bid'] = 1.5  #SPX7000 call 2015-02-02
+    data._data.at[130, 'bid'] = 0.5  # SPX6500 put 2015-02-02
+    data._data.at[131, 'bid'] = 1.5  # SPX7000 put 2015-02-02
+    data._data.at[128, 'bid'] = 0.5  # SPX6500 call 2015-02-02
+    data._data.at[129, 'bid'] = 1.5  # SPX7000 call 2015-02-02
 
-    data._data.at[206, 'bid'] = 1  #SPX6500 put 2015-03-02
-    data._data.at[207, 'bid'] = 1.5  #SPX7000 put 2015-03-02
-    data._data.at[204, 'bid'] = 1.  #SPX6500 call 2015-03-02
-    data._data.at[205, 'bid'] = 1.5  #SPX7000 call 2015-03-02
+    data._data.at[206, 'bid'] = 1  # SPX6500 put 2015-03-02
+    data._data.at[207, 'bid'] = 1.5  # SPX7000 put 2015-03-02
+    data._data.at[204, 'bid'] = 1.  # SPX6500 call 2015-03-02
+    data._data.at[205, 'bid'] = 1.5  # SPX7000 call 2015-03-02
     return data
