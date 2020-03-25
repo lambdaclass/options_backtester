@@ -197,7 +197,7 @@ class Backtest:
                 qty_to_sell = (to_sell - sold) // exit_cost
                 if qty_to_sell != 0:
                     trade_log_append = self._options_inventory.loc[row_index].copy()
-                    trade_log_append['totals', 'qty'] = qty_to_sell
+                    trade_log_append['totals', 'qty'] = -qty_to_sell
                     trade_log_append['totals', 'date'] = date
                     trade_log_append['totals', 'cost'] = exit_cost
                     for i, leg in enumerate(self._options_strategy.legs):
