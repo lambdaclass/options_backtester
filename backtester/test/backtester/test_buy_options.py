@@ -63,6 +63,20 @@ def test_sell_some_options_2leg_buy_sell(options_data_buy_and_sell_2legs, ivy_po
     assert np.allclose(bt.trade_log['totals']['cost'].values, [200, 300, -200], rtol=tolerance)
 
 
+def test_sell_some_options_1leg_buy_sell_all(options_data_1put_buy_sell_all, ivy_portfolio_5assets_datahandler,
+                                             ivy_5assets_portfolio):
+    options_data = options_data_1put_buy_sell_all
+    bt = run_backtest(ivy_5assets_portfolio, ivy_portfolio_5assets_datahandler, options_data,
+                      options_1leg_buy_strategy(options_data))
+    tolerance = 0.0001
+    assert np.allclose(bt.trade_log['totals']['qty'].values, [
+        300, ((970000 + 300 * 25) * 0.03 - 300 * 25) // 100, 300,
+        math.ceil((1000 * 218 - (((970000 + 300 * 25) * 0.97 + 300 * 150 + 218 * 1000) * 0.03)) / 1000)
+    ],
+                       rtol=tolerance)
+    assert np.allclose(bt.trade_log['totals']['cost'].values, [100, 100, -150, -1000], rtol=tolerance)
+
+
 def run_backtest(stocks,
                  stock_data,
                  options_data,
