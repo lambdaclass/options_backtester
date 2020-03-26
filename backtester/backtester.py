@@ -193,8 +193,13 @@ class Backtest:
         sold = 0
         total_costs = sum([current_options[i]['cost'] for i in range(len(current_options))])
         for (exit_cost, (row_index, inventory_row)) in zip(total_costs, self._options_inventory.iterrows()):
-            if (to_sell - sold < -exit_cost * inventory_row['totals']['qty']) and (to_sell - sold) > 0:
+            if (to_sell - sold > -exit_cost) and (to_sell - sold) > 0:
                 qty_to_sell = (to_sell - sold) // exit_cost
+                if -qty_to_sell <= inventory_row['totals']['qty']:
+                    qty_to_sell = (to_sell - sold) // exit_cost
+                else:
+                    if qty_to_sell != 0:
+                        qty_to_sell = -inventory_row['totals']['qty']
                 if qty_to_sell != 0:
                     trade_log_append = self._options_inventory.loc[row_index].copy()
                     trade_log_append['totals', 'qty'] = -qty_to_sell
