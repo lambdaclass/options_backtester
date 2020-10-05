@@ -61,12 +61,10 @@ You can run this example by putting the code into a Jupyter Notebook/Lab file in
 import os
 import sys
 
-BACKTESTER_DIR = os.path.realpath(os.path.join(os.getcwd(), '.', '.'))
+BACKTESTER_DIR = os.getcwd()
 TEST_DATA_DIR = os.path.join(BACKTESTER_DIR, 'backtester', 'test', 'test_data')
 SAMPLE_STOCK_DATA = os.path.join(TEST_DATA_DIR, 'test_data_stocks.csv')
 SAMPLE_OPTIONS_DATA = os.path.join(TEST_DATA_DIR, 'test_data_options.csv')
-
-sys.path.append(BACKTESTER_DIR) # Add backtester base dir to $PYTHONPATH
 ```
 
 
