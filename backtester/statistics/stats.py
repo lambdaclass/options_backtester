@@ -16,7 +16,12 @@ def summary(trade_log, balance):
 
     first_leg = trade_log.columns.levels[0][0]
 
-    entry_mask = trade_log[first_leg].eval('(order == @Order.BTO) | (order == @Order.STO)')
+    ## Not sure of a better way to to this, just doing `Order` or `@Order` inside
+    ## the .eval(...) does not seem to work.
+    order_bto = Order.BTO
+    order_sto = Order.STO
+
+    entry_mask = trade_log[first_leg].eval('(order == @order_bto) | (order == @order_sto)')
     entries = trade_log.loc[entry_mask]
     exits = trade_log.loc[~entry_mask]
 
