@@ -16,7 +16,7 @@ jobs:
         run: pip install pipenv
       - name: Install dependencies
         run: make install
-      - name: Setup Environment
-        run: make env
+      # - name: Setup Environment
+      #   run: make env
       - name: Run tests
         run: make test
