@@ -9,9 +9,9 @@ altair = "*"
 jupyter = "*"
 pandas-datareader = "*"
 pytest = "*"
-tables = "*"
 pyprind = "*"
 pyfolio = "*"
+seaborn = "*"
 
 [dev-packages]
 yapf = "*"

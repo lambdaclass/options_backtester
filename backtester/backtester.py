@@ -209,7 +209,7 @@ class Backtest:
                         trade_log_append[leg.name, 'order'] = ~trade_log_append[leg.name, 'order']
                         trade_log_append[leg.name, 'cost'] = current_options[i].loc[row_index]['cost']
 
-                    self.trade_log = self.trade_log.append(trade_log_append, ignore_index=True)
+                    self.trade_log = pd.concat([self.trade_log, pd.DataFrame([trade_log_append])], ignore_index=True)
                     self._options_inventory.at[row_index, ('totals', 'date')] = date
                     self._options_inventory.at[row_index, ('totals', 'qty')] += qty_to_sell
 
@@ -325,7 +325,7 @@ class Backtest:
         # sort=False means we're assuming the updates are done in chronological order, i.e,
         # the dates in add are the immediate successors to the ones at the end of self.balance.
         # Pass sort=True to ensure self.balance is always sorted chronologically if needed.
-        self.balance = self.balance.append(add, sort=False)
+        self.balance = pd.concat([self.balance, pd.DataFrame(add)], sort=False)
 
     def _execute_option_entries(self, date, options, options_allocation):
         """Enters option positions according to `self._options_strategy`.
@@ -383,8 +383,9 @@ class Backtest:
         entries = self._pick_entry_signals(entry_signals)
 
         # Update options inventory, trade log and current cash
-        self._options_inventory = self._options_inventory.append(entries, ignore_index=True)
-        self.trade_log = self.trade_log.append(entries, ignore_index=True)
+        entries_df = pd.DataFrame(entries) if entries.empty else pd.DataFrame([entries])
+        self._options_inventory = pd.concat([self._options_inventory, entries_df], ignore_index=True)
+        self.trade_log = pd.concat([self.trade_log, entries_df], ignore_index=True)
         self.current_cash -= np.sum(entries['totals']['cost'] * entries['totals']['qty'])
 
     def _execute_option_exits(self, date, options):
@@ -438,7 +439,7 @@ class Backtest:
 
         # Update options inventory, trade log and current cash
         self._options_inventory.drop(self._options_inventory[exits_mask].index, inplace=True)
-        self.trade_log = self.trade_log.append(exits, ignore_index=True)
+        self.trade_log = pd.concat([self.trade_log, pd.DataFrame(exits)], ignore_index=True)
         self.current_cash -= sum(total_costs)
 
     def _pick_entry_signals(self, entry_signals):
@@ -519,8 +520,9 @@ class Backtest:
             pd.DataFrame:                   Exit candidates with imputed values.
         """
         df = self._options_inventory.copy()
-        for leg in self._options_strategy.legs:
-            df.at[:, (leg.name, 'cost')] = 0
+        if not df.empty:
+            for leg in self._options_strategy.legs:
+                df.loc[(leg.name, 'cost')] = 0
 
         return exit_candidates.fillna(df)
 
