@@ -30,6 +30,8 @@ def test_backtest(sample_stock_portfolio, sample_stocks_datahandler, sample_opti
     # We test with np.isclose instead of true equality because of possible floating point inaccuracies.
     tol = 0.000001
 
+    assert(False)
+
     assert np.allclose(last_day_balance_long, [
         1.001336e+06, 507298.034603, 201228.973492, 49853.700558, 242954.82254999998, 0.0, 0.0, 0.0, 16415.0, 0.0,
         494037.49659999995, -0.004165, 1.001336
