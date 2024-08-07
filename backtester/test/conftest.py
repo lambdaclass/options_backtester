@@ -16,7 +16,7 @@ TWO_PUTS_TWO_CALLS_DATA = os.path.join(TEST_DIR, 'test_data', 'options_data.csv'
 # DataHandler fixtures
 
 
-@pytest.fixture(scope='module')
+# @pytest.fixture(scope='module')
 def sample_stocks_datahandler():
     data = TiingoData(SAMPLE_DATA_STOCKS)
     return data
@@ -35,7 +35,7 @@ def constant_price_stocks():
     return data
 
 
-@pytest.fixture(scope='module')
+# @pytest.fixture(scope='module')
 def sample_options_datahandler():
     data = HistoricalOptionsData(SAMPLE_DATA_OPTIONS)
     return data
@@ -56,7 +56,7 @@ def ivy_portfolio():
     return [Stock('VTI', 0.2), Stock('VEU', 0.2), Stock('BND', 0.2), Stock('VNQ', 0.2), Stock('DBC', 0.2)]
 
 
-@pytest.fixture(scope='module')
+# @pytest.fixture(scope='module')
 def sample_stock_portfolio():
     VOO = Stock('VOO', 0.4)
     TUR = Stock('TUR', 0.1)
