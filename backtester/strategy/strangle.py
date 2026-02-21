@@ -15,7 +15,7 @@ class Strangle(Strategy):
                  exit_thresholds=(float('inf'), float('inf')),
                  shares_per_contract=100):
         assert (name.lower() == 'short' or name.lower() == 'long')
-        super().__init__(schema, shares_per_contract)
+        super().__init__(schema)
         direction = Direction.SELL if name.lower() == 'short' else Direction.BUY
 
         leg1 = StrategyLeg(

@@ -87,12 +87,13 @@ class Backtest:
 
         self._initialize_inventories()
         self.current_cash = self.initial_capital
-        self.trade_log = pd.DataFrame()
-        self.balance = pd.DataFrame({
+        self._trade_log_parts = []
+        initial_balance = pd.DataFrame({
             'total capital': self.current_cash,
             'cash': self.current_cash
         },
-                                    index=[self.stocks_data.start_date - pd.Timedelta(1, unit='day')])
+                                       index=[self.stocks_data.start_date - pd.Timedelta(1, unit='day')])
+        self._balance_parts = [initial_balance]
 
         if sma_days:
             self.stocks_data.sma(sma_days)
@@ -118,10 +119,15 @@ class Backtest:
         # Update balance for the period between the last rebalancing day and the last day
         self._update_balance(rebalancing_days[-1], self.stocks_data.end_date)
 
+        # Assemble trade_log and balance from accumulated parts
+        self.trade_log = pd.concat(self._trade_log_parts, ignore_index=True) if self._trade_log_parts else pd.DataFrame()
+        self.balance = pd.concat(self._balance_parts, sort=False)
+
         self.balance['options capital'] = self.balance['calls capital'] + self.balance['puts capital']
         self.balance['stocks capital'] = sum(self.balance[stock.symbol] for stock in self._stocks)
-        self.balance['stocks capital'].iloc[0] = 0
-        self.balance['options capital'].iloc[0] = 0
+        first_idx = self.balance.index[0]
+        self.balance.loc[first_idx, 'stocks capital'] = 0
+        self.balance.loc[first_idx, 'options capital'] = 0
         self.balance[
             'total capital'] = self.balance['cash'] + self.balance['stocks capital'] + self.balance['options capital']
         self.balance['% change'] = self.balance['total capital'].pct_change()
@@ -192,6 +198,7 @@ class Backtest:
     def _sell_some_options(self, date, to_sell, current_options):
         sold = 0
         total_costs = sum([current_options[i]['cost'] for i in range(len(current_options))])
+        trade_rows = []
         for (exit_cost, (row_index, inventory_row)) in zip(total_costs, self._options_inventory.iterrows()):
             if (to_sell - sold > -exit_cost) and (to_sell - sold) > 0:
                 qty_to_sell = (to_sell - sold) // exit_cost
@@ -209,12 +216,14 @@ class Backtest:
                         trade_log_append[leg.name, 'order'] = ~trade_log_append[leg.name, 'order']
                         trade_log_append[leg.name, 'cost'] = current_options[i].loc[row_index]['cost']
 
-                    self.trade_log = pd.concat([self.trade_log, pd.DataFrame([trade_log_append])], ignore_index=True)
+                    trade_rows.append(trade_log_append)
                     self._options_inventory.at[row_index, ('totals', 'date')] = date
                     self._options_inventory.at[row_index, ('totals', 'qty')] += qty_to_sell
 
                 sold += (qty_to_sell * exit_cost)
 
+        if trade_rows:
+            self._trade_log_parts.append(pd.DataFrame(trade_rows))
         self.current_cash += sold - to_sell
 
     def _current_stock_capital(self, stocks):
@@ -255,8 +264,8 @@ class Backtest:
         """
 
         stock_symbols = [stock.symbol for stock in self.stocks]
-        query = '{} in {}'.format(self._stocks_schema['symbol'], stock_symbols)
-        inventory_stocks = stocks.query(query)
+        sym_col = self._stocks_schema['symbol']
+        inventory_stocks = stocks[stocks[sym_col].isin(stock_symbols)]
         stock_percentages = np.array([stock.percentage for stock in self.stocks])
         stock_prices = inventory_stocks[self._stocks_schema['adjClose']]
 
@@ -271,46 +280,53 @@ class Backtest:
     def _update_balance(self, start_date, end_date):
         """Updates self.balance in batch in a certain period between rebalancing days"""
         stocks_date_col = self._stocks_schema['date']
-        stocks_data = self._stocks_data.query('({date_col} >= "{start_date}") & ({date_col} < "{end_date}")'.format(
-            date_col=stocks_date_col, start_date=start_date, end_date=end_date))
+        sd = self._stocks_data._data
+        stocks_data = sd[(sd[stocks_date_col] >= start_date) & (sd[stocks_date_col] < end_date)]
+
         options_date_col = self._options_schema['date']
-        options_data = self._options_data.query('({date_col} >= "{start_date}") & ({date_col} < "{end_date}")'.format(
-            date_col=options_date_col, start_date=start_date, end_date=end_date))
+        od = self._options_data._data
+        options_data = od[(od[options_date_col] >= start_date) & (od[options_date_col] < end_date)]
 
         calls_value = pd.Series(0, index=options_data[options_date_col].unique())
         puts_value = pd.Series(0, index=options_data[options_date_col].unique())
 
+        options_contract_col = self._options_schema['contract']
         for leg in self._options_strategy.legs:
             leg_inventory = self._options_inventory[leg.name]
+            if leg_inventory.empty or leg_inventory['contract'].isna().all():
+                continue
             cost_field = (~leg.direction).value
-            for contract in leg_inventory['contract']:
-                leg_inventory_contract = leg_inventory.query('contract == "{}"'.format(contract))
-                qty = self._options_inventory.loc[leg_inventory_contract.index]['totals']['qty'].values[0]
-                options_contract_col = self._options_schema['contract']
-                current = leg_inventory_contract[['contract']].merge(options_data,
-                                                                     how='left',
-                                                                     left_on='contract',
-                                                                     right_on=options_contract_col)
-                current.set_index(options_date_col, inplace=True)
 
-                if cost_field == Direction.BUY.value:
-                    current[cost_field] = -current[cost_field]
+            # Build per-contract info from inventory
+            inv_info = pd.DataFrame({
+                '_contract': leg_inventory['contract'].values,
+                '_qty': self._options_inventory['totals']['qty'].values,
+                '_type': leg_inventory['type'].values,
+            })
 
-                if (leg_inventory_contract['type'] == Type.CALL.value).any():
-                    calls_value = calls_value.add(current[cost_field] * qty * self.shares_per_contract, fill_value=0)
-                else:
-                    puts_value = puts_value.add(current[cost_field] * qty * self.shares_per_contract, fill_value=0)
+            # Single merge for ALL contracts in this leg
+            all_current = inv_info.merge(options_data, how='left',
+                                         left_on='_contract', right_on=options_contract_col)
+
+            sign = -1 if cost_field == Direction.BUY.value else 1
+            all_current['_value'] = sign * all_current[cost_field] * all_current['_qty'] * self.shares_per_contract
+
+            # Split into calls and puts, group by date
+            calls_mask = all_current['_type'] == Type.CALL.value
+            if calls_mask.any():
+                calls_data = all_current.loc[calls_mask].groupby(options_date_col)['_value'].sum()
+                calls_value = calls_value.add(calls_data, fill_value=0)
+            puts_mask = ~calls_mask
+            if puts_mask.any():
+                puts_data = all_current.loc[puts_mask].groupby(options_date_col)['_value'].sum()
+                puts_value = puts_value.add(puts_data, fill_value=0)
 
         stocks_current = self._stocks_inventory[['symbol', 'qty']].merge(stocks_data[['date', 'symbol', 'adjClose']],
                                                                          on='symbol')
         stocks_current['cost'] = stocks_current['qty'] * stocks_current['adjClose']
 
-        columns = [
-            stocks_current[stocks_current['symbol'] == stock.symbol].set_index(stocks_date_col)[[
-                'cost'
-            ]].rename(columns={'cost': stock.symbol}) for stock in self._stocks
-        ]
-        add = pd.concat(columns, axis=1)
+        add = stocks_current.pivot_table(index=stocks_date_col, columns='symbol', values='cost', aggfunc='sum')
+        add = add.reindex(columns=[stock.symbol for stock in self._stocks])
 
         add['cash'] = self.current_cash
         add['options qty'] = self._options_inventory['totals']['qty'].sum()
@@ -318,14 +334,10 @@ class Backtest:
         add['puts capital'] = puts_value
         add['stocks qty'] = self._stocks_inventory['qty'].sum()
 
-        for _index, row in self._stocks_inventory.iterrows():
-            symbol = row['symbol']
-            add[symbol + ' qty'] = row['qty']
+        for symbol, qty in zip(self._stocks_inventory['symbol'], self._stocks_inventory['qty']):
+            add[symbol + ' qty'] = qty
 
-        # sort=False means we're assuming the updates are done in chronological order, i.e,
-        # the dates in add are the immediate successors to the ones at the end of self.balance.
-        # Pass sort=True to ensure self.balance is always sorted chronologically if needed.
-        self.balance = pd.concat([self.balance, pd.DataFrame(add)], sort=False)
+        self._balance_parts.append(pd.DataFrame(add))
 
     def _execute_option_entries(self, date, options, options_allocation):
         """Enters option positions according to `self._options_strategy`.
@@ -385,7 +397,7 @@ class Backtest:
         # Update options inventory, trade log and current cash
         entries_df = pd.DataFrame(entries) if entries.empty else pd.DataFrame([entries])
         self._options_inventory = pd.concat([self._options_inventory, entries_df], ignore_index=True)
-        self.trade_log = pd.concat([self.trade_log, entries_df], ignore_index=True)
+        self._trade_log_parts.append(entries_df)
         self.current_cash -= np.sum(entries['totals']['cost'] * entries['totals']['qty'])
 
     def _execute_option_exits(self, date, options):
@@ -439,7 +451,8 @@ class Backtest:
 
         # Update options inventory, trade log and current cash
         self._options_inventory.drop(self._options_inventory[exits_mask].index, inplace=True)
-        self.trade_log = pd.concat([self.trade_log, pd.DataFrame(exits)], ignore_index=True)
+        if not exits.empty:
+            self._trade_log_parts.append(pd.DataFrame(exits))
         self.current_cash -= sum(total_costs)
 
     def _pick_entry_signals(self, entry_signals):
