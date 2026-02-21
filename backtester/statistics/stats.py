@@ -7,7 +7,7 @@ from ..enums import Order  # noqa: F401
 def summary(trade_log, balance):
     """Returns a table with summary statistics about the trade log"""
 
-    initial_capital = balance['total capital'].get(0)
+    initial_capital = balance['total capital'].iloc[0]
     trade_log.loc[:,
                   ('totals',
                    'capital')] = (-trade_log['totals']['cost'] * trade_log['totals']['qty']).cumsum() + initial_capital
@@ -38,13 +38,13 @@ def summary(trade_log, balance):
 
     wins = costs < 0
     losses = costs >= 0
-    profit_factor = np.sum(wins) / np.sum(losses)
     total_trades = len(exits)
     win_number = np.sum(wins)
     loss_number = total_trades - win_number
-    win_pct = (win_number / total_trades) * 100
-    largest_loss = max(0, np.max(costs))
-    avg_profit = np.mean(-costs)
+    win_pct = (win_number / total_trades) * 100 if total_trades > 0 else 0
+    profit_factor = np.sum(wins) / np.sum(losses) if np.sum(losses) > 0 else 0
+    largest_loss = max(0, np.max(costs)) if len(costs) > 0 else 0
+    avg_profit = np.mean(-costs) if len(costs) > 0 else 0
     avg_pl = np.mean(daily_returns)
     total_pl = (trade_log['totals']['capital'].iloc[-1] / initial_capital) * 100
 
@@ -56,26 +56,19 @@ def summary(trade_log, balance):
     strat = ['Strategy']
     summary = pd.DataFrame(data, stats, strat)
 
-    # Applies formatters to rows
-    def format_row_wise(styler, formatters):
-        for row, row_formatter in formatters.items():
-            row_num = styler.index.get_loc(row)
-
-            for col_num in range(len(styler.columns)):
-                styler._display_funcs[(row_num, col_num)] = row_formatter
-
-        return styler
-
     formatters = {
-        "Total trades": lambda x: f"{x:.0f}",
-        "Number of wins": lambda x: f"{x:.0f}",
-        "Number of losses": lambda x: f"{x:.0f}",
-        "Win %": lambda x: f"{x:.2f}%",
-        "Largest loss": lambda x: f"${x:.2f}",
-        "Profit factor": lambda x: f"{x:.2f}",
-        "Average profit": lambda x: f"${x:.2f}",
-        "Average P&L %": lambda x: f"{x:.2f}%",
-        "Total P&L %": lambda x: f"{x:.2f}%"
+        "Total trades": "{:.0f}",
+        "Number of wins": "{:.0f}",
+        "Number of losses": "{:.0f}",
+        "Win %": "{:.2f}%",
+        "Largest loss": "${:.2f}",
+        "Profit factor": "{:.2f}",
+        "Average profit": "${:.2f}",
+        "Average P&L %": "{:.2f}%",
+        "Total P&L %": "{:.2f}%"
     }
 
-    return format_row_wise(summary.style, formatters)
+    styled = summary.style
+    for row_label, fmt in formatters.items():
+        styled = styled.format(fmt, subset=pd.IndexSlice[row_label, :])
+    return styled

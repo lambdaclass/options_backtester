@@ -141,7 +141,7 @@ class Backtest:
             [[l.name for l in self._options_strategy.legs],
              ['contract', 'underlying', 'expiration', 'type', 'strike', 'cost', 'order']])
         totals = pd.MultiIndex.from_product([['totals'], ['cost', 'qty', 'date']])
-        self._options_inventory = pd.DataFrame(columns=columns.append(totals))
+        self._options_inventory = pd.DataFrame(columns=pd.Index(columns.tolist() + totals.tolist()))
 
         self._stocks_inventory = pd.DataFrame(columns=['symbol', 'price', 'qty'])
 

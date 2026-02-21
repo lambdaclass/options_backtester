@@ -4,14 +4,13 @@ verify_ssl = true
 name = "pypi"
 
 [packages]
-pandas = "*"
-altair = "*"
-jupyter = "*"
-pandas-datareader = "*"
-pytest = "*"
-pyprind = "*"
-pyfolio = "*"
-seaborn = "*"
+pandas = "~=2.2"
+numpy = "~=2.2"
+altair = "~=5.5"
+pytest = "~=8.3"
+pyprind = "~=2.11"
+seaborn = "~=0.13"
+matplotlib = "~=3.10"
 
 [dev-packages]
 yapf = "*"

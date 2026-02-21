@@ -101,7 +101,16 @@ venv.bak/
 .mypy_cache/
 
 # exclude data from source control by default
-data/
+data/*
+!data/README.md
+!data/fetch_data.py
+!data/convert_optionsdx.py
+!data/raw/
+data/raw/*
+!data/raw/.gitkeep
+!data/processed/
+data/processed/*
+!data/processed/.gitkeep
 
 # Mac OS-specific storage files
 .DS_Store

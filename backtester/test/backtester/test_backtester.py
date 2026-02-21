@@ -169,6 +169,24 @@ def test_buy_stocks(sample_stocks_datahandler, sample_stock_portfolio):
     assert (inventory['qty'].values == [192., 307., 0.]).all()
 
 
+def test_initialize_inventories_columns(sample_stock_portfolio, sample_stocks_datahandler, sample_options_datahandler):
+    """Verify _initialize_inventories creates DataFrame with correct MultiIndex columns."""
+    bt = Backtest({'stocks': 0.5, 'options': 0.5, 'cash': 0})
+    bt.stocks_data = sample_stocks_datahandler
+    bt.stocks = sample_stock_portfolio
+    bt.options_strategy = sample_options_strategy(Direction.BUY, sample_options_datahandler.schema)
+    bt._initialize_inventories()
+
+    cols = bt._options_inventory.columns
+    assert isinstance(cols, pd.MultiIndex)
+    # Should contain leg columns plus totals
+    assert ('totals', 'cost') in cols
+    assert ('totals', 'qty') in cols
+    assert ('totals', 'date') in cols
+    assert ('leg_1', 'contract') in cols
+    assert ('leg_2', 'contract') in cols
+
+
 def run_backtest(stock_data,
                  options_data,
                  strategy,
