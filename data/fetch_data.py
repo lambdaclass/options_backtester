@@ -4,20 +4,24 @@
 Downloads stock and options data, converts to backtester CSV formats,
 and aligns dates between datasets.
 
-Data source: philippdubach/options-data (MIT license)
-  https://github.com/philippdubach/options-data
-  104 US equity/ETF symbols, 2008-2025, Parquet via Cloudflare R2.
+Download priority (for each symbol):
+  1. Self-hosted GitHub Release (lambdaclass/options_backtester data-v1)
+  2. philippdubach/options-data CDN — 104 symbols
+  3. philippdubach/options-dataset-hist — SPY/IWM/QQQ underlying prices
+  4. yfinance (last resort, stocks only)
 
 Usage:
     python data/fetch_data.py all --symbols SPY --start 2020-01-01 --end 2023-01-01
     python data/fetch_data.py stocks --symbols SPY --start 2020-01-01 --end 2023-01-01
     python data/fetch_data.py options --symbols SPY --start 2020-01-01 --end 2023-01-01
+    python data/fetch_data.py all --symbols SPY --start 2020-01-01 --end 2023-01-01 --update
 """
 
 import argparse
+import shutil
 import sys
 from pathlib import Path
-from urllib.request import urlretrieve
+from urllib.request import Request, urlopen
 
 import pandas as pd
 
@@ -25,39 +29,181 @@ BASE_DIR = Path(__file__).resolve().parent
 RAW_DIR = BASE_DIR / "raw"
 PROCESSED_DIR = BASE_DIR / "processed"
 
+# Self-hosted data on GitHub Releases (primary source)
+RELEASE_URL = "https://github.com/lambdaclass/options_backtester/releases/download/data-v1"
+
+# philippdubach/options-data — 104 symbols, options + underlying (underlying empty for some ETFs)
 OPTIONS_DATA_URL = "https://static.philippdubach.com/data/options"
+
+# philippdubach/options-dataset-hist — SPY/IWM/QQQ, proper underlying_prices via GitHub LFS
+HIST_REPO_RAW = "https://github.com/philippdubach/options-dataset-hist/raw/main/data"
+HIST_SYMBOLS = {"SPY", "IWM", "QQQ"}
 
 
 # ---------------------------------------------------------------------------
 # Download helpers
 # ---------------------------------------------------------------------------
 
-def download_parquet(symbol, kind, dest_dir, force=False):
-    """Download a parquet file from options-data if not already cached.
-
-    kind: 'options' or 'underlying'
-    Returns path to the downloaded file, or None on failure.
-    """
-    dest_dir = Path(dest_dir)
-    dest_dir.mkdir(parents=True, exist_ok=True)
-    filename = f"{kind}.parquet"
-    dest = dest_dir / filename
+def _download(url, dest, force=False):
+    """Download url to dest. Returns dest on success, None on failure."""
+    dest = Path(dest)
+    dest.parent.mkdir(parents=True, exist_ok=True)
 
     if dest.exists() and not force:
         print(f"  Using cached {dest}")
         return dest
 
-    url = f"{OPTIONS_DATA_URL}/{symbol.lower()}/{filename}"
     print(f"  Downloading {url} ...")
     try:
-        urlretrieve(url, dest)
+        req = Request(url, headers={"User-Agent": "options-backtester/1.0"})
+        with urlopen(req) as resp, open(dest, "wb") as f:
+            shutil.copyfileobj(resp, f)
         print(f"  Saved to {dest}")
     except Exception as e:
-        print(f"  Error downloading {symbol} {kind}: {e}", file=sys.stderr)
+        print(f"  Error: {e}", file=sys.stderr)
         if dest.exists():
             dest.unlink()
         return None
     return dest
+
+
+def download_options_parquet(symbol, force=False):
+    """Download options parquet. Priority: GitHub Release > options-data CDN."""
+    sym = symbol.upper()
+
+    # 1. Self-hosted GitHub Release
+    dest = RAW_DIR / "release" / f"{sym}_options.parquet"
+    url = f"{RELEASE_URL}/{sym}_options.parquet"
+    result = _download(url, dest, force)
+    if result is not None:
+        return result
+
+    # 2. options-data CDN
+    dest = RAW_DIR / "options-data" / sym / "options.parquet"
+    url = f"{OPTIONS_DATA_URL}/{sym.lower()}/options.parquet"
+    return _download(url, dest, force)
+
+
+def download_underlying(symbol, force=False):
+    """Download underlying prices.
+
+    Priority: GitHub Release > options-dataset-hist > options-data > None (caller falls back to yfinance).
+    """
+    sym = symbol.upper()
+
+    # 1. Self-hosted GitHub Release
+    dest = RAW_DIR / "release" / f"{sym}_underlying.parquet"
+    url = f"{RELEASE_URL}/{sym}_underlying.parquet"
+    result = _download(url, dest, force)
+    if result is not None:
+        df = pd.read_parquet(result)
+        if not df.empty:
+            return result
+        print(f"  Warning: release underlying empty for {sym}")
+
+    # 2. options-dataset-hist has proper underlying for SPY/IWM/QQQ
+    if sym in HIST_SYMBOLS:
+        dest = RAW_DIR / "options-dataset-hist" / sym / "underlying_prices.parquet"
+        url = f"{HIST_REPO_RAW}/parquet_{sym.lower()}/underlying_prices.parquet"
+        result = _download(url, dest, force)
+        if result is not None:
+            df = pd.read_parquet(result)
+            if not df.empty:
+                return result
+            print(f"  Warning: options-dataset-hist underlying empty for {sym}")
+
+    # 3. options-data underlying
+    dest = RAW_DIR / "options-data" / sym / "underlying.parquet"
+    url = f"{OPTIONS_DATA_URL}/{sym.lower()}/underlying.parquet"
+    result = _download(url, dest, force)
+    if result is not None:
+        df = pd.read_parquet(result)
+        if not df.empty:
+            return result
+        print(f"  Warning: options-data underlying empty for {sym}")
+
+    return None
+
+
+# ---------------------------------------------------------------------------
+# Underlying price reading
+# ---------------------------------------------------------------------------
+
+def read_underlying_prices(symbol, und_path, start, end):
+    """Read underlying parquet and return (date, close) DataFrame for joining."""
+    und = pd.read_parquet(und_path)
+    und["date"] = pd.to_datetime(und["date"])
+    und = und[(und["date"] >= start) & (und["date"] <= end)]
+    if und.empty:
+        return None
+    return und[["date", "close"]].rename(columns={"close": "underlying_last"})
+
+
+def underlying_to_tiingo(symbol, und_path, start, end):
+    """Convert an underlying.parquet to Tiingo-format DataFrame."""
+    und = pd.read_parquet(und_path)
+    und["date"] = pd.to_datetime(und["date"])
+    und = und[(und["date"] >= start) & (und["date"] <= end)]
+
+    if und.empty:
+        return pd.DataFrame()
+
+    ratio = und["adjusted_close"] / und["close"]
+
+    return pd.DataFrame({
+        "symbol": symbol,
+        "date": und["date"].values,
+        "close": und["close"].values,
+        "high": und["high"].values,
+        "low": und["low"].values,
+        "open": und["open"].values,
+        "volume": und["volume"].values,
+        "adjClose": und["adjusted_close"].values,
+        "adjHigh": (und["high"] * ratio).values,
+        "adjLow": (und["low"] * ratio).values,
+        "adjOpen": (und["open"] * ratio).values,
+        "adjVolume": und["volume"].values,
+        "divCash": und["dividend_amount"].values,
+        "splitFactor": und["split_coefficient"].values,
+    })
+
+
+def fetch_yfinance(symbol, start, end):
+    """Fetch one symbol via yfinance (last resort)."""
+    try:
+        import yfinance as yf
+    except ImportError:
+        print(f"  yfinance not installed, cannot fetch {symbol}", file=sys.stderr)
+        return pd.DataFrame()
+
+    print(f"  Last resort: fetching {symbol} from yfinance...")
+    ticker = yf.Ticker(symbol)
+    df = ticker.history(start=str(start.date()), end=str(end.date()), auto_adjust=False)
+
+    if df.empty:
+        return pd.DataFrame()
+
+    if df.index.tz is not None:
+        df.index = df.index.tz_localize(None)
+
+    ratio = df["Adj Close"] / df["Close"]
+
+    return pd.DataFrame({
+        "symbol": symbol,
+        "date": df.index,
+        "close": df["Close"].values,
+        "high": df["High"].values,
+        "low": df["Low"].values,
+        "open": df["Open"].values,
+        "volume": df["Volume"].values,
+        "adjClose": df["Adj Close"].values,
+        "adjHigh": (df["High"] * ratio).values,
+        "adjLow": (df["Low"] * ratio).values,
+        "adjOpen": (df["Open"] * ratio).values,
+        "adjVolume": df["Volume"].values,
+        "divCash": 0.0,
+        "splitFactor": 1.0,
+    })
 
 
 # ---------------------------------------------------------------------------
@@ -70,12 +216,9 @@ def fetch_options(symbols, start, end, output, force=False):
 
     for symbol in symbols:
         sym = symbol.upper()
-        sym_dir = RAW_DIR / "options-data" / sym
-
         print(f"Fetching options for {sym}...")
-        opt_path = download_parquet(sym, "options", sym_dir, force)
-        und_path = download_parquet(sym, "underlying", sym_dir, force)
 
+        opt_path = download_options_parquet(sym, force)
         if opt_path is None:
             print(f"  Skipping {sym} options (download failed)", file=sys.stderr)
             continue
@@ -88,11 +231,21 @@ def fetch_options(symbols, start, end, output, force=False):
             print(f"  No options data for {sym} in [{start}, {end}]")
             continue
 
-        # Join underlying close price
+        # Get underlying close prices for underlying_last
+        und_path = download_underlying(sym, force)
+        und_prices = None
         if und_path is not None:
-            und = pd.read_parquet(und_path)
-            und["date"] = pd.to_datetime(und["date"])
-            und_prices = und[["date", "close"]].rename(columns={"close": "underlying_last"})
+            und_prices = read_underlying_prices(sym, und_path, start, end)
+
+        if und_prices is None:
+            yf_df = fetch_yfinance(sym, start, end)
+            if not yf_df.empty:
+                und_prices = pd.DataFrame({
+                    "date": pd.to_datetime(yf_df["date"]),
+                    "underlying_last": yf_df["close"].values,
+                })
+
+        if und_prices is not None:
             opts = opts.merge(und_prices, on="date", how="left")
         else:
             opts["underlying_last"] = float("nan")
@@ -142,99 +295,23 @@ def fetch_options(symbols, start, end, output, force=False):
 # Stocks
 # ---------------------------------------------------------------------------
 
-def underlying_to_tiingo(symbol, und_path, start, end):
-    """Convert an underlying.parquet to Tiingo-format DataFrame."""
-    und = pd.read_parquet(und_path)
-    und["date"] = pd.to_datetime(und["date"])
-    und = und[(und["date"] >= start) & (und["date"] <= end)]
-
-    if und.empty:
-        return pd.DataFrame()
-
-    ratio = und["adjusted_close"] / und["close"]
-
-    return pd.DataFrame({
-        "symbol": symbol,
-        "date": und["date"].values,
-        "close": und["close"].values,
-        "high": und["high"].values,
-        "low": und["low"].values,
-        "open": und["open"].values,
-        "volume": und["volume"].values,
-        "adjClose": und["adjusted_close"].values,
-        "adjHigh": (und["high"] * ratio).values,
-        "adjLow": (und["low"] * ratio).values,
-        "adjOpen": (und["open"] * ratio).values,
-        "adjVolume": und["volume"].values,
-        "divCash": und["dividend_amount"].values,
-        "splitFactor": und["split_coefficient"].values,
-    })
-
-
-def fetch_yfinance(symbol, start, end):
-    """Fetch one symbol via yfinance (fallback for symbols not in options-data)."""
-    try:
-        import yfinance as yf
-    except ImportError:
-        print(f"  yfinance not installed, cannot fetch {symbol}", file=sys.stderr)
-        return pd.DataFrame()
-
-    ticker = yf.Ticker(symbol)
-    df = ticker.history(start=str(start.date()), end=str(end.date()), auto_adjust=False)
-
-    if df.empty:
-        return pd.DataFrame()
-
-    # Strip timezone for naive dates
-    if df.index.tz is not None:
-        df.index = df.index.tz_localize(None)
-
-    ratio = df["Adj Close"] / df["Close"]
-
-    return pd.DataFrame({
-        "symbol": symbol,
-        "date": df.index,
-        "close": df["Close"].values,
-        "high": df["High"].values,
-        "low": df["Low"].values,
-        "open": df["Open"].values,
-        "volume": df["Volume"].values,
-        "adjClose": df["Adj Close"].values,
-        "adjHigh": (df["High"] * ratio).values,
-        "adjLow": (df["Low"] * ratio).values,
-        "adjOpen": (df["Open"] * ratio).values,
-        "adjVolume": df["Volume"].values,
-        "divCash": 0.0,
-        "splitFactor": 1.0,
-    })
-
-
 def fetch_stocks(symbols, start, end, output, force=False):
-    """Download stock data.  Uses options-data underlying if available, else yfinance."""
+    """Download stock data. Priority: options-dataset-hist > options-data > yfinance."""
     frames = []
 
     for symbol in symbols:
         sym = symbol.upper()
         print(f"Fetching stocks for {sym}...")
 
-        # Try options-data underlying first
-        sym_dir = RAW_DIR / "options-data" / sym
-        und_path = sym_dir / "underlying.parquet"
-
-        if not und_path.exists() or force:
-            downloaded = download_parquet(sym, "underlying", sym_dir, force)
-            if downloaded is not None:
-                und_path = downloaded
-
-        if und_path.exists():
+        und_path = download_underlying(sym, force)
+        if und_path is not None:
             df = underlying_to_tiingo(sym, und_path, start, end)
             if not df.empty:
+                source = "options-dataset-hist" if "options-dataset-hist" in str(und_path) else "options-data"
                 frames.append(df)
-                print(f"  {len(df)} stock rows for {sym} (from options-data)")
+                print(f"  {len(df)} stock rows for {sym} (from {source})")
                 continue
 
-        # Fallback to yfinance
-        print(f"  Trying yfinance for {sym}...")
         df = fetch_yfinance(sym, start, end)
         if not df.empty:
             frames.append(df)
@@ -258,11 +335,7 @@ def fetch_stocks(symbols, start, end, output, force=False):
 # ---------------------------------------------------------------------------
 
 def align_dates(stocks_path, options_path):
-    """Align stock and option dates to their intersection.
-
-    The backtester asserts np.array_equal on dates, so both CSVs must
-    cover exactly the same set of trading days.
-    """
+    """Align stock and option dates to their intersection."""
     stocks = pd.read_csv(stocks_path, parse_dates=["date"])
     options = pd.read_csv(options_path, parse_dates=["quotedate", "expiration"])
 
@@ -298,42 +371,39 @@ def main():
         description="Fetch stock and options data for the backtester"
     )
     parser.add_argument(
-        "command",
-        nargs="?",
-        default="all",
+        "command", nargs="?", default="all",
         choices=["all", "stocks", "options"],
         help="What to fetch (default: all)",
     )
     parser.add_argument(
         "--symbols", nargs="+", required=True,
-        help="Ticker symbols (e.g. SPY IWM QQQ)",
+        help="Ticker symbols (e.g. SPY IWM QQQ AAPL)",
     )
     parser.add_argument("--start", required=True, help="Start date (YYYY-MM-DD)")
     parser.add_argument("--end", required=True, help="End date (YYYY-MM-DD)")
     parser.add_argument(
-        "--stocks-output",
-        default="data/processed/stocks.csv",
-        help="Stock CSV output path (default: data/processed/stocks.csv)",
+        "--stocks-output", default="data/processed/stocks.csv",
+        help="Stock CSV output path",
     )
     parser.add_argument(
-        "--options-output",
-        default="data/processed/options.csv",
-        help="Options CSV output path (default: data/processed/options.csv)",
+        "--options-output", default="data/processed/options.csv",
+        help="Options CSV output path",
     )
     parser.add_argument(
-        "--force", action="store_true",
-        help="Re-download even if parquets are cached locally",
+        "--update", action="store_true",
+        help="Re-download parquets to get latest data",
     )
     args = parser.parse_args()
 
     start = pd.Timestamp(args.start)
     end = pd.Timestamp(args.end)
+    force = args.update
 
     if args.command in ("all", "options"):
-        fetch_options(args.symbols, start, end, args.options_output, args.force)
+        fetch_options(args.symbols, start, end, args.options_output, force)
 
     if args.command in ("all", "stocks"):
-        fetch_stocks(args.symbols, start, end, args.stocks_output, args.force)
+        fetch_stocks(args.symbols, start, end, args.stocks_output, force)
 
     if args.command == "all":
         if Path(args.stocks_output).exists() and Path(args.options_output).exists():

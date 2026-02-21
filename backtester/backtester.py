@@ -122,6 +122,9 @@ class Backtest:
         # Assemble trade_log and balance from accumulated parts
         self.trade_log = pd.concat(self._trade_log_parts, ignore_index=True) if self._trade_log_parts else pd.DataFrame()
         self.balance = pd.concat(self._balance_parts, sort=False)
+        # Ensure numeric dtypes after concat (mixed int/float parts can produce object dtype)
+        for col in self.balance.columns:
+            self.balance[col] = pd.to_numeric(self.balance[col], errors='coerce')
 
         self.balance['options capital'] = self.balance['calls capital'] + self.balance['puts capital']
         self.balance['stocks capital'] = sum(self.balance[stock.symbol] for stock in self._stocks)
@@ -267,10 +270,11 @@ class Backtest:
         sym_col = self._stocks_schema['symbol']
         inventory_stocks = stocks[stocks[sym_col].isin(stock_symbols)]
         stock_percentages = np.array([stock.percentage for stock in self.stocks])
-        stock_prices = inventory_stocks[self._stocks_schema['adjClose']]
+        stock_prices = inventory_stocks[self._stocks_schema['adjClose']].values
 
         if sma_days:
-            qty = np.where(inventory_stocks['sma'] < stock_prices, (allocation * stock_percentages) // stock_prices, 0)
+            sma_values = inventory_stocks['sma'].values
+            qty = np.where(sma_values < stock_prices, (allocation * stock_percentages) // stock_prices, 0)
         else:
             qty = (allocation * stock_percentages) // stock_prices
 
@@ -287,8 +291,8 @@ class Backtest:
         od = self._options_data._data
         options_data = od[(od[options_date_col] >= start_date) & (od[options_date_col] < end_date)]
 
-        calls_value = pd.Series(0, index=options_data[options_date_col].unique())
-        puts_value = pd.Series(0, index=options_data[options_date_col].unique())
+        calls_value = pd.Series(0.0, index=options_data[options_date_col].unique())
+        puts_value = pd.Series(0.0, index=options_data[options_date_col].unique())
 
         options_contract_col = self._options_schema['contract']
         for leg in self._options_strategy.legs:

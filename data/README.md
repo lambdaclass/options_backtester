@@ -10,14 +10,14 @@ Fetch both stock and options data for SPY, aligned by date:
 python data/fetch_data.py all --symbols SPY --start 2020-01-01 --end 2023-01-01
 ```
 
-This downloads from [philippdubach/options-data](https://github.com/philippdubach/options-data) (MIT license, 104 US equity/ETF symbols, 2008–2025) and outputs:
+Data is first fetched from the [self-hosted GitHub Release](https://github.com/lambdaclass/options_backtester/releases/tag/data-v1), falling back to [philippdubach/options-data](https://github.com/philippdubach/options-data) CDN and yfinance. Outputs:
 - `data/processed/stocks.csv` — Tiingo-format stock data
 - `data/processed/options.csv` — options data with Greeks
 
 ## Subcommands
 
 ```bash
-# Stocks only (uses options-data underlying prices, yfinance fallback)
+# Stocks only (GitHub Release > options-data > yfinance)
 python data/fetch_data.py stocks --symbols SPY --start 2020-01-01 --end 2023-01-01
 
 # Options only

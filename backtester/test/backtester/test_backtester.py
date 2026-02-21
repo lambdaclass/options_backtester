@@ -133,7 +133,7 @@ def test_current_stock_capital(sample_stocks_datahandler, sample_stock_portfolio
     bt.stocks = sample_stock_portfolio
     stock_symbols = [stock.symbol for stock in sample_stock_portfolio]
     bt._stocks_inventory = pd.DataFrame({'symbol': stock_symbols, 'price': [0, 0, 0], 'qty': [1, 5, 10]})
-    stocks = sample_stocks_datahandler.query('date == "2017-05-15"')
+    stocks = sample_stocks_datahandler._data[sample_stocks_datahandler._data['date'] == pd.Timestamp('2017-05-15')]
 
     tolerance = 0.0000001
     capital = bt._current_stock_capital(stocks)
@@ -147,7 +147,7 @@ def test_buy_stocks(sample_stocks_datahandler, sample_stock_portfolio):
     bt.stocks = sample_stock_portfolio
     sma_days = 30
     bt.stocks_data.sma(sma_days)
-    stocks = bt.stocks_data.query('date == "2017-03-01"')
+    stocks = bt.stocks_data._data[bt.stocks_data._data['date'] == pd.Timestamp('2017-03-01')]
     allocation = 100_000
 
     tolerance = 0.0000001
