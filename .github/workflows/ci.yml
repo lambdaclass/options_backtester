@@ -1,20 +1,13 @@
 name: Test
 
-on: [push]
+on: [push, pull_request]
 
 jobs:
-  build:
+  test:
     runs-on: ubuntu-latest
 
     steps:
       - uses: actions/checkout@v4
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.12'
-      - name: Install pipenv
-        run: pip install pipenv
-      - name: Install dependencies
-        run: make install
+      - uses: cachix/install-nix-action@v30
       - name: Run tests
-        run: make test
+        run: nix develop --command python -m pytest -v backtester

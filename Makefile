@@ -1,25 +1,12 @@
-.PHONY: install env test test_notebook lint notebook help
+.PHONY: test lint help
 .DEFAULT_GOAL := help
 
-install: ## Create environment and install dependencies
-	pipenv install && pipenv sync --dev
-
-env: ## Run pipenv shell
-	pipenv shell
-
-notebook: ## Run Jupyter notebook
-	pipenv run jupyter notebook
+test: ## Run tests
+	python -m pytest -v backtester
 
 lint: ## Run linter and format checker (flake8 & yapf)
-	pipenv run flake8 backtester
-	pipenv run yapf --diff --recursive backtester/
-
-test: ## Run tests
-	pipenv run python -m pytest -v backtester
-
-test_notebook: ## Run jupyter notebook test
-	pipenv run jupyter nbconvert --to notebook --execute --ExecutePreprocessor.timeout=60 \
-	backtester/examples/backtester_example.ipynb --stdout > /dev/null
+	flake8 backtester
+	yapf --diff --recursive backtester/
 
 help:
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) |\
