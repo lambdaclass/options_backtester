@@ -104,6 +104,7 @@ venv.bak/
 data/*
 !data/README.md
 !data/fetch_data.py
+!data/fetch_signals.py
 !data/convert_optionsdx.py
 !data/raw/
 data/raw/*
@@ -111,6 +112,7 @@ data/raw/*
 !data/processed/
 data/processed/*
 !data/processed/.gitkeep
+!data/processed/signals.csv
 
 # Mac OS-specific storage files
 .DS_Store
