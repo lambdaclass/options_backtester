@@ -11,3 +11,5 @@ jobs:
       - uses: cachix/install-nix-action@v30
       - name: Run tests
         run: nix develop --command python -m pytest -v backtester
+      - name: Type check
+        run: nix develop --command python -m mypy backtester --ignore-missing-imports
