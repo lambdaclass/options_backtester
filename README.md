@@ -113,6 +113,7 @@ strangle = Strangle(schema, 'short', 'SPY',
 | [iron_condor](notebooks/iron_condor.ipynb) | 4-leg iron condor income strategy with options capital breakdown |
 | [ivy_portfolio](notebooks/ivy_portfolio.ipynb) | Endowment-style portfolio (Ivy Portfolio) with long straddle hedge overlay |
 | [gold_sp500](notebooks/gold_sp500.ipynb) | Multi-asset portfolio with cash/gold proxy + options overlay (7 configs) |
+| [spitznagel_case](notebooks/spitznagel_case.ipynb) | Deep analysis of Universa's tail hedge thesis: variance drain, Kelly criterion, crash reinvestment, bootstrap simulation, extended SPY history |
 
 See also [REFERENCES.md](REFERENCES.md) for 25+ academic papers on options overlay strategies.
 
