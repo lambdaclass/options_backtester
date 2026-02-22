@@ -99,7 +99,22 @@ strangle = Strangle(schema, 'short', 'SPY',
                     exit_thresholds=(0.2, 0.2))
 ```
 
-More examples in the Jupyter [notebooks](backtester/examples/).
+### Notebooks
+
+| Notebook | Description |
+|----------|-------------|
+| [quickstart](notebooks/quickstart.ipynb) | Getting started — load data, define strategy, run backtest, plot results |
+| [paper_comparison](notebooks/paper_comparison.ipynb) | **Master comparison**: 10 strategies vs academic paper claims with VRP math, crash heatmap, risk/return scatter |
+| [findings](notebooks/findings.ipynb) | Full research: allocation sweep, puts vs calls, macro signals, crash-period analysis |
+| [volatility_premium](notebooks/volatility_premium.ipynb) | Sell vol vs buy vol deep dive — tests the Variance Risk Premium (Carr & Wu 2009, Berman 2014) |
+| [tail_hedge_debate](notebooks/tail_hedge_debate.ipynb) | AQR vs Universa: 7 put configs from standard OTM to deep OTM (Spitznagel 3.3% allocation) |
+| [strategies](notebooks/strategies.ipynb) | 4-strategy showcase: OTM puts, OTM calls, long straddle, short strangle |
+| [trade_analysis](notebooks/trade_analysis.ipynb) | Per-trade P&L deep dive: bar charts, cumulative P&L, crash breakdowns, winner/loser analysis |
+| [iron_condor](notebooks/iron_condor.ipynb) | 4-leg iron condor income strategy with options capital breakdown |
+| [ivy_portfolio](notebooks/ivy_portfolio.ipynb) | Endowment-style portfolio (Ivy Portfolio) with long straddle hedge overlay |
+| [gold_sp500](notebooks/gold_sp500.ipynb) | Multi-asset portfolio with cash/gold proxy + options overlay (7 configs) |
+
+See also [REFERENCES.md](REFERENCES.md) for 25+ academic papers on options overlay strategies.
 
 ## Tail-Risk Hedge Research
 
