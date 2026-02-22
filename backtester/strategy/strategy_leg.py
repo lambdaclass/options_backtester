@@ -9,6 +9,8 @@ class StrategyLeg:
         self.type = option_type
         self.direction = direction
 
+        self.entry_sort = None
+
         self._entry_filter = self._base_entry_filter()
         self._exit_filter = self._base_exit_filter()
 

@@ -208,6 +208,106 @@ def run_backtest(stock_data,
     return bt
 
 
+def test_entry_sort(options_data_2puts_buy, ivy_portfolio_5assets_datahandler, ivy_5assets_portfolio):
+    """Verify entry_sort=('strike', True) picks the contract with the lowest strike."""
+    options_data = options_data_2puts_buy
+    schema = options_data.schema
+
+    # Strategy with entry_sort picking lowest strike
+    strat = Strategy(schema)
+    leg = StrategyLeg("leg_1", schema, option_type=Type.PUT, direction=Direction.BUY)
+    leg.entry_filter = (schema.underlying == "SPX") & (schema.dte >= 60)
+    leg.exit_filter = (schema.dte <= 30)
+    leg.entry_sort = ('strike', True)  # ascending → lowest strike first
+    strat.add_legs([leg])
+
+    bt = Backtest({'stocks': 0.97, 'options': 0.03, 'cash': 0})
+    bt.stocks = ivy_5assets_portfolio
+    bt.options_strategy = strat
+    bt.options_data = options_data
+    bt.stocks_data = ivy_portfolio_5assets_datahandler
+    bt.run(rebalance_freq=1)
+
+    # First entry should have the lowest strike (650)
+    assert bt.trade_log['leg_1']['strike'].iloc[0] == 650.0
+
+    # Now test with descending sort → highest strike first (700)
+    strat2 = Strategy(schema)
+    leg2 = StrategyLeg("leg_1", schema, option_type=Type.PUT, direction=Direction.BUY)
+    leg2.entry_filter = (schema.underlying == "SPX") & (schema.dte >= 60)
+    leg2.exit_filter = (schema.dte <= 30)
+    leg2.entry_sort = ('strike', False)  # descending → highest strike first
+    strat2.add_legs([leg2])
+
+    bt2 = Backtest({'stocks': 0.97, 'options': 0.03, 'cash': 0})
+    bt2.stocks = ivy_5assets_portfolio
+    bt2.options_strategy = strat2
+    bt2.options_data = options_data
+    bt2.stocks_data = ivy_portfolio_5assets_datahandler
+    bt2.run(rebalance_freq=1)
+
+    assert bt2.trade_log['leg_1']['strike'].iloc[0] == 700.0
+
+
+def test_options_budget_fixed(options_data_2puts_buy, ivy_portfolio_5assets_datahandler, ivy_5assets_portfolio):
+    """Verify options_budget as a fixed float overrides percentage allocation."""
+    options_data = options_data_2puts_buy
+    schema = options_data.schema
+
+    strat = Strategy(schema)
+    leg = StrategyLeg("leg_1", schema, option_type=Type.PUT, direction=Direction.BUY)
+    leg.entry_filter = (schema.underlying == "SPX") & (schema.dte >= 60)
+    leg.exit_filter = (schema.dte <= 30)
+    strat.add_legs([leg])
+
+    budget = 5000.0
+    bt = Backtest({'stocks': 0.97, 'options': 0.03, 'cash': 0})
+    bt.options_budget = budget
+    bt.stocks = ivy_5assets_portfolio
+    bt.options_strategy = strat
+    bt.options_data = options_data
+    bt.stocks_data = ivy_portfolio_5assets_datahandler
+    bt.run(rebalance_freq=1)
+
+    # First entry: qty should be budget // cost_per_contract
+    first_cost = bt.trade_log['totals']['cost'].iloc[0]
+    first_qty = bt.trade_log['totals']['qty'].iloc[0]
+    assert first_qty == budget // first_cost
+
+
+def test_options_budget_callable(options_data_2puts_buy, ivy_portfolio_5assets_datahandler, ivy_5assets_portfolio):
+    """Verify options_budget as a callable is invoked with (date, total_capital)."""
+    options_data = options_data_2puts_buy
+    schema = options_data.schema
+
+    strat = Strategy(schema)
+    leg = StrategyLeg("leg_1", schema, option_type=Type.PUT, direction=Direction.BUY)
+    leg.entry_filter = (schema.underlying == "SPX") & (schema.dte >= 60)
+    leg.exit_filter = (schema.dte <= 30)
+    strat.add_legs([leg])
+
+    calls = []
+
+    def budget_fn(date, total_capital):
+        calls.append((date, total_capital))
+        return 5000.0
+
+    bt = Backtest({'stocks': 0.97, 'options': 0.03, 'cash': 0})
+    bt.options_budget = budget_fn
+    bt.stocks = ivy_5assets_portfolio
+    bt.options_strategy = strat
+    bt.options_data = options_data
+    bt.stocks_data = ivy_portfolio_5assets_datahandler
+    bt.run(rebalance_freq=1)
+
+    # The callable should have been invoked at each rebalance
+    assert len(calls) > 0
+    # Each call should have received (pd.Timestamp, number)
+    for date, capital in calls:
+        assert isinstance(date, pd.Timestamp)
+        assert isinstance(capital, (int, float, np.floating))
+
+
 def sample_options_strategy(direction, schema):
     test_strat = Strategy(schema)
     leg1 = StrategyLeg("leg_1", schema, option_type=Type.CALL, direction=direction)

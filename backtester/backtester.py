@@ -20,6 +20,7 @@ class Backtest:
         self.initial_capital = initial_capital
         self.stop_if_broke = True
         self.shares_per_contract = shares_per_contract
+        self.options_budget = None
         self._stocks = []
         self._options_strategy = None
         self._stocks_data = None
@@ -190,7 +191,11 @@ class Backtest:
         self._buy_stocks(stocks, stocks_allocation, sma_days)
 
         # exit/enter contracts
-        options_allocation = self.allocation['options'] * total_capital
+        if self.options_budget is not None:
+            budget = self.options_budget
+            options_allocation = budget(date, total_capital) if callable(budget) else budget
+        else:
+            options_allocation = self.allocation['options'] * total_capital
         if options_allocation >= options_capital:
             self._execute_option_entries(date, options, options_allocation - options_capital)
         else:
@@ -203,6 +208,8 @@ class Backtest:
         total_costs = sum([current_options[i]['cost'] for i in range(len(current_options))])
         trade_rows = []
         for (exit_cost, (row_index, inventory_row)) in zip(total_costs, self._options_inventory.iterrows()):
+            if exit_cost == 0:
+                continue
             if (to_sell - sold > -exit_cost) and (to_sell - sold) > 0:
                 qty_to_sell = (to_sell - sold) // exit_cost
                 if -qty_to_sell <= inventory_row['totals']['qty']:
@@ -369,6 +376,10 @@ class Backtest:
             # Exit if no entry signals for the current leg
             if leg_entries.empty:
                 return
+
+            if leg.entry_sort:
+                col, asc = leg.entry_sort
+                leg_entries = leg_entries.sort_values(col, ascending=asc)
 
             fields = self._signal_fields(cost_field)
             leg_entries = leg_entries.reindex(columns=fields.keys())

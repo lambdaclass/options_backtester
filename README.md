@@ -1,10 +1,11 @@
 Options Backtester
 ==================
 
-Simple backtester to evaluate and analyse options strategies over historical price data.
+Backtester for evaluating options strategies over historical data. Includes tools for strategy sweeps, tail-risk hedge analysis, and signal-based timing research.
 
 - [Setup](#setup)
 - [Usage](#usage)
+- [Tail-Risk Hedge Research](#tail-risk-hedge-research)
 - [Data](#data)
 - [Recommended Reading](#recommended-reading)
 
@@ -28,10 +29,10 @@ pip install pandas numpy altair pyprind seaborn matplotlib pyarrow pytest yapf f
 
 ### Fetch data
 
-Download SPY options and stock data for 2020-2023:
+Download SPY options and stock data (2008-2025):
 
 ```shell
-python data/fetch_data.py all --symbols SPY --start 2020-01-01 --end 2023-01-01
+python data/fetch_data.py all --symbols SPY --start 2008-01-01 --end 2025-12-31
 ```
 
 This fetches from the [self-hosted GitHub Release](https://github.com/lambdaclass/options_backtester/releases/tag/data-v1), falling back to external sources. See [data/README.md](data/README.md) for details.
@@ -56,30 +57,28 @@ options_data = HistoricalOptionsData("data/processed/options.csv")
 stocks_data = TiingoData("data/processed/stocks.csv")
 schema = options_data.schema
 
-# Create a strategy: buy a call and a put with 52 < DTE < 80, exit at DTE <= 52
+# Create a strategy: buy puts with 60-120 DTE, exit at DTE <= 30
 strategy = Strategy(schema)
 
-leg1 = StrategyLeg('leg_1', schema, option_type=Type.CALL, direction=Direction.BUY)
-leg1.entry_filter = (schema.dte < 80) & (schema.dte > 52)
-leg1.exit_filter = (schema.dte <= 52)
+leg = StrategyLeg('leg_1', schema, option_type=Type.PUT, direction=Direction.BUY)
+leg.entry_filter = (
+    (schema.underlying == 'SPY') &
+    (schema.dte >= 60) & (schema.dte <= 120) &
+    (schema.delta >= -0.25) & (schema.delta <= -0.10)
+)
+leg.entry_sort = ('delta', False)  # deepest OTM within range
+leg.exit_filter = (schema.dte <= 30)
 
-leg2 = StrategyLeg('leg_2', schema, option_type=Type.PUT, direction=Direction.BUY)
-leg2.entry_filter = (schema.dte < 80) & (schema.dte > 52)
-leg2.exit_filter = (schema.dte <= 52)
+strategy.add_leg(leg)
 
-strategy.add_legs([leg1, leg2])
-
-# Define portfolio
-stocks = [Stock('SPY', 1.0)]
-allocation = {'stocks': 0.5, 'options': 0.5, 'cash': 0.0}
-
-# Run backtest with monthly rebalancing
-bt = Backtest(allocation, initial_capital=1_000_000)
-bt.stocks = stocks
+# Define portfolio — 100% stocks, puts funded by % of capital
+bt = Backtest({'stocks': 1.0, 'options': 0.0, 'cash': 0.0}, initial_capital=1_000_000)
+bt.options_budget = lambda date, total_capital: total_capital * 0.001  # 0.1% of capital
+bt.stocks = [Stock('SPY', 1.0)]
 bt.stocks_data = stocks_data
 bt.options_strategy = strategy
 bt.options_data = options_data
-bt.run(rebalance_freq=1)
+bt.run(rebalance_freq=1)  # monthly rebalancing
 
 # Results
 bt.trade_log   # DataFrame of executed trades
@@ -100,28 +99,58 @@ strangle = Strangle(schema, 'short', 'SPY',
                     exit_thresholds=(0.2, 0.2))
 ```
 
-### Custom strategies
+More examples in the Jupyter [notebooks](backtester/examples/).
 
-The `Strategy` and `StrategyLeg` classes support arbitrary multi-leg strategies:
+## Tail-Risk Hedge Research
+
+The main research question: **can a small allocation to SPY puts improve risk-adjusted returns over buy-and-hold?** Inspired by Universa Investments' approach to tail-risk hedging.
+
+### Scripts
+
+| Script | Purpose |
+|--------|---------|
+| `run_spy_otm_puts.py` | Strategy sweep: tests 6 hedge variants (delta, DTE, budget, profit caps) vs SPY buy-and-hold |
+| `sweep_otm.py` | Delta band sweep: tests different OTM levels from near-ATM to deep OTM |
+| `sweep_beat_spy3.py` | Diagnoses backtester rebalancing drag, then tries hedge configs that beat pure-stock baseline |
+| `analyze_entries_exits.py` | **Per-trade analysis** with signal overlay — the main research tool |
+
+### Key findings
+
+**Entry/exit analysis** (`python analyze_entries_exits.py`):
+
+- 173 trades over 2008-2025, 15% win rate, but winners are large (+$2,498 avg) vs small losses (-$1,575 avg)
+- **COVID crash (Feb 2020)**: single put bought 2020-02-03 returned +$18,655 on $890 premium (2,096% return)
+- **2008 GFC**: modest +$1,754 total from crash-period puts
+- **2022 bear market**: roughly break-even (-$40)
+- Puts are a consistent drag in bull markets — total premium spent: $321K over 18 years
+
+**Signal analysis** — which market conditions favor buying protection:
+
+| Signal | Buy puts when... | Efficiency |
+|--------|-------------------|-----------|
+| Avg Put IV | IV is **low** (cheap insurance) | -36% vs -63% when high |
+| Realized Vol | Vol is **low** (calm markets) | -42% vs -62% when high |
+| 12-Month Return | SPY up **more** (extended market) | -45% vs -61% when low |
+
+The clearest signal: **buy puts when implied volatility is low**. This is economically motivated (cheap convexity) rather than data-mined.
+
+### Configuration
+
+All strategy parameters in `analyze_entries_exits.py` are configurable via the `CONFIG` dict:
 
 ```python
-# Long strangle
-leg_1 = StrategyLeg('leg_1', schema, option_type=Type.PUT, direction=Direction.BUY)
-leg_1.entry_filter = (schema.underlying == 'SPY') & (schema.dte >= 60) \
-                   & (schema.underlying_last <= 1.1 * schema.strike)
-leg_1.exit_filter = (schema.dte <= 30)
-
-leg_2 = StrategyLeg('leg_2', schema, option_type=Type.CALL, direction=Direction.BUY)
-leg_2.entry_filter = (schema.underlying == 'SPY') & (schema.dte >= 60) \
-                   & (schema.underlying_last >= 0.9 * schema.strike)
-leg_2.exit_filter = (schema.dte <= 30)
-
-strategy = Strategy(schema)
-strategy.add_legs([leg_1, leg_2])
-strategy.add_exit_thresholds(profit_pct=0.2, loss_pct=0.2)
+CONFIG = {
+    'budget_pct': 0.1,      # % of capital per rebalance
+    'rebalance_months': 1,  # monthly exit checks
+    'delta_min': -0.25,     # delta range
+    'delta_max': -0.10,
+    'dte_min': 60,          # max 4 months DTE
+    'dte_max': 120,
+    'exit_dte': 30,         # sell with ~1 month left
+    'profit_pct': math.inf, # no profit cap
+    'loss_pct': math.inf,   # no loss cap
+}
 ```
-
-More examples in the Jupyter [notebooks](backtester/examples/).
 
 ## Data
 
