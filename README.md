@@ -107,13 +107,13 @@ strangle = Strangle(schema, 'short', 'SPY',
 | [paper_comparison](notebooks/paper_comparison.ipynb) | **Master comparison**: 10 strategies vs academic paper claims with VRP math, crash heatmap, risk/return scatter |
 | [findings](notebooks/findings.ipynb) | Full research: allocation sweep, puts vs calls, macro signals, crash-period analysis |
 | [volatility_premium](notebooks/volatility_premium.ipynb) | Sell vol vs buy vol deep dive — tests the Variance Risk Premium (Carr & Wu 2009, Berman 2014) |
-| [tail_hedge_debate](notebooks/tail_hedge_debate.ipynb) | AQR vs Universa: 7 put configs from standard OTM to deep OTM (Spitznagel 3.3% allocation) |
+| [tail_hedge_debate](notebooks/tail_hedge_debate.ipynb) | AQR vs Universa: no-leverage (AQR framing) vs leveraged (Spitznagel framing) deep OTM puts |
 | [strategies](notebooks/strategies.ipynb) | 4-strategy showcase: OTM puts, OTM calls, long straddle, short strangle |
 | [trade_analysis](notebooks/trade_analysis.ipynb) | Per-trade P&L deep dive: bar charts, cumulative P&L, crash breakdowns, winner/loser analysis |
 | [iron_condor](notebooks/iron_condor.ipynb) | 4-leg iron condor income strategy with options capital breakdown |
 | [ivy_portfolio](notebooks/ivy_portfolio.ipynb) | Endowment-style portfolio (Ivy Portfolio) with long straddle hedge overlay |
 | [gold_sp500](notebooks/gold_sp500.ipynb) | Multi-asset portfolio with cash/gold proxy + options overlay (7 configs) |
-| [spitznagel_case](notebooks/spitznagel_case.ipynb) | Deep analysis of Universa's tail hedge thesis: variance drain, Kelly criterion, crash reinvestment, bootstrap simulation, extended SPY history |
+| [spitznagel_case](notebooks/spitznagel_case.ipynb) | **Spitznagel's tail hedge thesis confirmed**: 100% SPY + deep OTM puts via leverage outperforms (13.8–28.8%/yr) with lower drawdowns |
 
 See also [REFERENCES.md](REFERENCES.md) for 25+ academic papers on options overlay strategies.
 
@@ -132,23 +132,25 @@ The main research question: **can a small allocation to SPY puts improve risk-ad
 
 ### Key findings
 
-**Entry/exit analysis** (`python analyze_entries_exits.py`):
+**The framing matters more than the strategy.** The same deep OTM puts produce opposite conclusions depending on how you structure the portfolio:
 
-- 173 trades over 2008-2025, 15% win rate, but winners are large (+$2,498 avg) vs small losses (-$1,575 avg)
-- **COVID crash (Feb 2020)**: single put bought 2020-02-03 returned +$18,655 on $890 premium (2,096% return)
-- **2008 GFC**: modest +$1,754 total from crash-period puts
-- **2022 bear market**: roughly break-even (-$40)
-- Puts are a consistent drag in bull markets — total premium spent: $321K over 18 years
+| Framing | 1% deep OTM puts | Annual Return | Max DD | Verdict |
+|---------|-------------------|---------------|--------|---------|
+| AQR (reduce equity) | 99% SPY + 1% puts | +3.15% | -50.8% | Puts are a drag |
+| Spitznagel (leverage) | 100% SPY + 1% puts on top | +16.46% | -45.0% | **Puts + leverage outperforms** |
+| SPY B&H | 100% SPY | +11.11% | -51.9% | Baseline |
 
-**Signal analysis** — which market conditions favor buying protection:
+**Spitznagel's leveraged tail hedge** (100% SPY + deep OTM puts via budget callable) works:
+- +0.5% budget: **13.79%/yr** (+2.75% excess), DD -48.1%
+- +1.0% budget: **16.46%/yr** (+5.41% excess), DD -45.0%
+- +3.3% budget: **28.78%/yr** (+17.74% excess), DD -31.9%
 
-| Signal | Buy puts when... | Efficiency |
-|--------|-------------------|-----------|
-| Avg Put IV | IV is **low** (cheap insurance) | -36% vs -63% when high |
-| Realized Vol | Vol is **low** (calm markets) | -42% vs -62% when high |
-| 12-Month Return | SPY up **more** (extended market) | -45% vs -61% when low |
+The outperformance comes from leverage, but the **drawdown reduction is real** — crash protection allows you to stay fully invested and even add exposure during drawdowns.
 
-The clearest signal: **buy puts when implied volatility is low**. This is economically motivated (cheap convexity) rather than data-mined.
+**Other findings:**
+- Selling options (covered calls, put-writing, short strangles) harvests the Variance Risk Premium and outperforms on a risk-adjusted basis
+- Buying OTM calls adds modest alpha (~0.8-1.4%/yr) in the no-leverage framing
+- Macro signals (VIX, Buffett Indicator, Tobin's Q) don't improve put timing
 
 ### Configuration
 
