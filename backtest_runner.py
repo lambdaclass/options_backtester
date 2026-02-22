@@ -207,6 +207,100 @@ def make_strangle_strategy(schema: Any, direction: Direction = Direction.SELL) -
     return s
 
 
+def make_covered_call_strategy(schema: Any) -> Strategy:
+    """Covered call (BXM replica): sell ATM calls monthly.
+
+    Sell call with delta 0.40-0.60 (near ATM), DTE 30-60, exit at DTE <= 7.
+    Paper ref: Whaley (2002), Feldman & Roy (2005) — comparable returns, 2/3 vol.
+    """
+    leg = StrategyLeg('leg_1', schema, option_type=Type.CALL, direction=Direction.SELL)
+    leg.entry_filter = (
+        (schema.underlying == 'SPY')
+        & (schema.dte >= 30) & (schema.dte <= 60)
+        & (schema.delta >= 0.40) & (schema.delta <= 0.60)
+    )
+    leg.entry_sort = ('delta', False)  # closest to 0.50
+    leg.exit_filter = (schema.dte <= 7)
+    s = Strategy(schema)
+    s.add_leg(leg)
+    s.add_exit_thresholds(profit_pct=math.inf, loss_pct=math.inf)
+    return s
+
+
+def make_cash_secured_put_strategy(schema: Any) -> Strategy:
+    """Cash-secured put writing (PUT index replica): sell OTM puts.
+
+    Sell puts with delta -0.30 to -0.15, DTE 30-60, exit at DTE <= 7.
+    Paper ref: Neuberger Berman — PUT index beats BXM by ~1%/yr.
+    """
+    leg = StrategyLeg('leg_1', schema, option_type=Type.PUT, direction=Direction.SELL)
+    leg.entry_filter = (
+        (schema.underlying == 'SPY')
+        & (schema.dte >= 30) & (schema.dte <= 60)
+        & (schema.delta >= -0.30) & (schema.delta <= -0.15)
+    )
+    leg.entry_sort = ('delta', True)  # closest to ATM first
+    leg.exit_filter = (schema.dte <= 7)
+    s = Strategy(schema)
+    s.add_leg(leg)
+    s.add_exit_thresholds(profit_pct=math.inf, loss_pct=math.inf)
+    return s
+
+
+def make_collar_strategy(schema: Any) -> Strategy:
+    """Collar: buy OTM put + sell OTM call (zero-cost hedge).
+
+    Paper ref: Israelov & Klein (2015) — collars reduce equity premium capture.
+    Braun et al. (2023) — hidden rebalance timing luck costs ~400bps.
+    """
+    # Sell OTM call
+    call_leg = StrategyLeg('leg_1', schema, option_type=Type.CALL, direction=Direction.SELL)
+    call_leg.entry_filter = (
+        (schema.underlying == 'SPY')
+        & (schema.dte >= DTE_MIN) & (schema.dte <= DTE_MAX)
+        & (schema.delta >= 0.20) & (schema.delta <= 0.35)
+    )
+    call_leg.entry_sort = ('delta', False)
+    call_leg.exit_filter = (schema.dte <= EXIT_DTE)
+
+    # Buy OTM put
+    put_leg = StrategyLeg('leg_2', schema, option_type=Type.PUT, direction=Direction.BUY)
+    put_leg.entry_filter = (
+        (schema.underlying == 'SPY')
+        & (schema.dte >= DTE_MIN) & (schema.dte <= DTE_MAX)
+        & (schema.delta >= -0.35) & (schema.delta <= -0.20)
+    )
+    put_leg.entry_sort = ('delta', True)
+    put_leg.exit_filter = (schema.dte <= EXIT_DTE)
+
+    s = Strategy(schema)
+    s.add_leg(call_leg)
+    s.add_leg(put_leg)
+    s.add_exit_thresholds(profit_pct=math.inf, loss_pct=math.inf)
+    return s
+
+
+def make_deep_otm_put_strategy(schema: Any) -> Strategy:
+    """Deep OTM tail hedge (Universa-style): buy far-OTM puts.
+
+    Delta -0.10 to -0.02, DTE 90-180, hold to expiry or DTE <= 14.
+    Paper ref: Spitznagel (2021) — 3.3% allocation claims 12.3% CAGR.
+    AQR (Ilmanen & Israelov 2018) — argues cost exceeds benefit.
+    """
+    leg = StrategyLeg('leg_1', schema, option_type=Type.PUT, direction=Direction.BUY)
+    leg.entry_filter = (
+        (schema.underlying == 'SPY')
+        & (schema.dte >= 90) & (schema.dte <= 180)
+        & (schema.delta >= -0.10) & (schema.delta <= -0.02)
+    )
+    leg.entry_sort = ('delta', False)  # deepest OTM first
+    leg.exit_filter = (schema.dte <= 14)
+    s = Strategy(schema)
+    s.add_leg(leg)
+    s.add_exit_thresholds(profit_pct=math.inf, loss_pct=math.inf)
+    return s
+
+
 # ---------------------------------------------------------------------------
 # Run backtest
 # ---------------------------------------------------------------------------
