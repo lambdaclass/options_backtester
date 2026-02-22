@@ -1,31 +1,33 @@
-import pandas as pd
+from __future__ import annotations
+
 import numpy as np
+import pandas as pd
 
 from ..enums import Order  # noqa: F401
 
 
-def summary(trade_log, balance):
+def summary(trade_log: pd.DataFrame, balance: pd.DataFrame) -> pd.io.formats.style.Styler:
     """Returns a table with summary statistics about the trade log"""
 
-    initial_capital = balance['total capital'].iloc[0]
+    initial_capital: float = balance['total capital'].iloc[0]
     trade_log.loc[:,
                   ('totals',
                    'capital')] = (-trade_log['totals']['cost'] * trade_log['totals']['qty']).cumsum() + initial_capital
 
-    daily_returns = balance['% change'] * 100
+    daily_returns: pd.Series = balance['% change'] * 100
 
-    first_leg = trade_log.columns.levels[0][0]
+    first_leg: str = trade_log.columns.levels[0][0]
 
     ## Not sure of a better way to to this, just doing `Order` or `@Order` inside
     ## the .eval(...) does not seem to work.
     order_bto = Order.BTO
     order_sto = Order.STO
 
-    entry_mask = trade_log[first_leg].eval('(order == @order_bto) | (order == @order_sto)')
-    entries = trade_log.loc[entry_mask]
-    exits = trade_log.loc[~entry_mask]
+    entry_mask: pd.Series = trade_log[first_leg].eval('(order == @order_bto) | (order == @order_sto)')
+    entries: pd.DataFrame = trade_log.loc[entry_mask]
+    exits: pd.DataFrame = trade_log.loc[~entry_mask]
 
-    costs = np.array([])
+    costs: np.ndarray = np.array([])
     for contract in entries[first_leg]['contract']:
         entry = entries.loc[entries[first_leg]['contract'] == contract]
         exit_ = exits.loc[exits[first_leg]['contract'] == contract]
@@ -36,17 +38,17 @@ def summary(trade_log, balance):
         except IndexError:
             continue
 
-    wins = costs < 0
-    losses = costs >= 0
-    total_trades = len(exits)
-    win_number = np.sum(wins)
-    loss_number = total_trades - win_number
-    win_pct = (win_number / total_trades) * 100 if total_trades > 0 else 0
-    profit_factor = np.sum(wins) / np.sum(losses) if np.sum(losses) > 0 else 0
-    largest_loss = max(0, np.max(costs)) if len(costs) > 0 else 0
-    avg_profit = np.mean(-costs) if len(costs) > 0 else 0
-    avg_pl = np.mean(daily_returns)
-    total_pl = (trade_log['totals']['capital'].iloc[-1] / initial_capital) * 100
+    wins: np.ndarray = costs < 0
+    losses: np.ndarray = costs >= 0
+    total_trades: int = len(exits)
+    win_number: int = int(np.sum(wins))
+    loss_number: int = total_trades - win_number
+    win_pct: float = (win_number / total_trades) * 100 if total_trades > 0 else 0
+    profit_factor: float = np.sum(wins) / np.sum(losses) if np.sum(losses) > 0 else 0
+    largest_loss: float = max(0, np.max(costs)) if len(costs) > 0 else 0
+    avg_profit: float = np.mean(-costs) if len(costs) > 0 else 0
+    avg_pl: float = np.mean(daily_returns)
+    total_pl: float = (trade_log['totals']['capital'].iloc[-1] / initial_capital) * 100
 
     data = [total_trades, win_number, loss_number, win_pct, largest_loss, profit_factor, avg_profit, avg_pl, total_pl]
     stats = [
@@ -54,9 +56,9 @@ def summary(trade_log, balance):
         'Average profit', 'Average P&L %', 'Total P&L %'
     ]
     strat = ['Strategy']
-    summary = pd.DataFrame(data, stats, strat)
+    summary_df = pd.DataFrame(data, stats, strat)
 
-    formatters = {
+    formatters: dict[str, str] = {
         "Total trades": "{:.0f}",
         "Number of wins": "{:.0f}",
         "Number of losses": "{:.0f}",
@@ -68,7 +70,7 @@ def summary(trade_log, balance):
         "Total P&L %": "{:.2f}%"
     }
 
-    styled = summary.style
+    styled = summary_df.style
     for row_label, fmt in formatters.items():
         styled = styled.format(fmt, subset=pd.IndexSlice[row_label, :])
     return styled

@@ -1,19 +1,26 @@
+from __future__ import annotations
+
+from typing import TYPE_CHECKING
+
 from .strategy_leg import StrategyLeg
 from .strategy import Strategy
 from backtester.enums import Direction, Type
 
+if TYPE_CHECKING:
+    from backtester.datahandler.schema import Schema
+
 
 class Strangle(Strategy):
     def __init__(self,
-                 schema,
-                 name,
-                 underlying,
-                 dte_entry_range,
-                 dte_exit,
-                 otm_pct=0,
-                 pct_tolerance=1,
-                 exit_thresholds=(float('inf'), float('inf')),
-                 shares_per_contract=100):
+                 schema: Schema,
+                 name: str,
+                 underlying: str,
+                 dte_entry_range: tuple[int, int],
+                 dte_exit: int,
+                 otm_pct: float = 0,
+                 pct_tolerance: float = 1,
+                 exit_thresholds: tuple[float, float] = (float('inf'), float('inf')),
+                 shares_per_contract: int = 100) -> None:
         assert (name.lower() == 'short' or name.lower() == 'long')
         super().__init__(schema)
         direction = Direction.SELL if name.lower() == 'short' else Direction.BUY

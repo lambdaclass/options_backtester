@@ -1,9 +1,11 @@
 """Generates charts from a portfolio report"""
+from __future__ import annotations
 
 import altair as alt
+import pandas as pd
 
 
-def returns_chart(report):
+def returns_chart(report: pd.DataFrame) -> alt.VConcatChart:
     # Time interval selector
     time_interval = alt.selection_interval(encodings=['x'])
 
@@ -40,7 +42,7 @@ def returns_chart(report):
     return alt.vconcat(layered, lower, data=report.reset_index())
 
 
-def returns_histogram(report):
+def returns_histogram(report: pd.DataFrame) -> alt.Chart:
     bar = alt.Chart(report).mark_bar().encode(x=alt.X('% change:Q',
                                                       bin=alt.BinParams(maxbins=100),
                                                       axis=alt.Axis(format='%')),
@@ -48,7 +50,7 @@ def returns_histogram(report):
     return bar
 
 
-def monthly_returns_heatmap(report):
+def monthly_returns_heatmap(report: pd.DataFrame) -> alt.Chart:
     resample = report.resample('ME')['total capital'].last()
     monthly_returns = resample.pct_change().reset_index()
     monthly_returns.loc[monthly_returns.index[0], 'total capital'] = resample.iloc[0] / report.iloc[0]['total capital'] - 1

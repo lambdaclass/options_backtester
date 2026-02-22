@@ -1,4 +1,5 @@
-# Enums
+from __future__ import annotations
+
 from collections import namedtuple
 from enum import Enum
 
@@ -11,7 +12,7 @@ class Type(Enum):
     CALL = 'call'
     PUT = 'put'
 
-    def __invert__(self):
+    def __invert__(self) -> Type:
         flip = Type.PUT if self == Type.CALL else Type.CALL
         return flip
 
@@ -20,7 +21,7 @@ class Direction(Enum):
     BUY = 'ask'  # Schema field for BUY price
     SELL = 'bid'  # Schema field for SELL price
 
-    def __invert__(self):
+    def __invert__(self) -> Direction:
         flip = Direction.SELL if self == Direction.BUY else Direction.BUY
         return flip
 
@@ -35,7 +36,7 @@ class Order(Enum):
     STO = 'STO'  # Sell to Open
     STC = 'STC'  # Sell to Close
 
-    def __invert__(self):
+    def __invert__(self) -> Order:
         if self == Order.BTO:
             return Order.STC
         elif self == Order.BTC:
@@ -46,7 +47,7 @@ class Order(Enum):
             return Order.BTO
 
 
-def get_order(direction, signal):
+def get_order(direction: Direction, signal: Signal) -> Order:
     """Returns Order type given direction (BUY | SELL) and
     signal (ENTRY | EXIT).
     """
