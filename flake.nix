@@ -28,8 +28,14 @@
                 ps.matplotlib
                 ps.pyarrow
 
+                # Notebooks
+                ps.jupyter
+                ps.nbconvert
+                ps.ipykernel
+
                 # Testing
                 ps.pytest
+                ps.mypy
 
                 # Dev tools
                 ps.yapf
