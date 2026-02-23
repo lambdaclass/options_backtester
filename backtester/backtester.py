@@ -65,12 +65,17 @@ class Backtest:
         self._options_schema = data.schema
         self._options_data = data
 
-    def run(self, rebalance_freq: int = 0, monthly: bool = False, sma_days: int | None = None) -> pd.DataFrame:
+    def run(self, rebalance_freq: int = 0, monthly: bool = False, sma_days: int | None = None,
+            rebalance_unit: str = 'BMS') -> pd.DataFrame:
         """Runs the backtest and returns a `pd.DataFrame` of the orders executed (`self.trade_log`)
 
         Args:
             rebalance_freq (int, optional): Determines the frequency of portfolio rebalances. Defaults to 0.
             monthly (bool, optional):       Iterates through data monthly rather than daily. Defaults to False.
+            rebalance_unit (str, optional): Pandas frequency unit. 'BMS' = business month start (default),
+                                            'B' = every business day, 'W-MON' = weekly on Monday,
+                                            '2W-MON' = biweekly. Combined with rebalance_freq as
+                                            f'{rebalance_freq}{rebalance_unit}'.
 
         Returns:
             pd.DataFrame:                   Log of the trades executed.
@@ -103,9 +108,12 @@ class Backtest:
 
         dates = pd.DataFrame(self.options_data._data[['quotedate',
                                                       'volume']]).drop_duplicates('quotedate').set_index('quotedate')
-        rebalancing_days: pd.DatetimeIndex = pd.to_datetime(
-            dates.groupby(pd.Grouper(freq=str(rebalance_freq) +
-                                     'BMS')).apply(lambda x: x.index.min()).values) if rebalance_freq else []
+        if rebalance_freq:
+            freq_str = str(rebalance_freq) + rebalance_unit
+            rebalancing_days: pd.DatetimeIndex = pd.to_datetime(
+                dates.groupby(pd.Grouper(freq=freq_str)).apply(lambda x: x.index.min()).values)
+        else:
+            rebalancing_days = []
 
         data_iterator = self._data_iterator(monthly)
         bar = pyprind.ProgBar(len(stock_dates), bar_char='█')

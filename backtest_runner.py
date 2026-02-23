@@ -319,8 +319,13 @@ def run_backtest(
     budget_fn: Callable[[pd.Timestamp, float], float] | None = None,
     initial_capital: int = INITIAL_CAPITAL,
     rebal_months: int = REBAL_MONTHS,
+    rebal_unit: str = 'BMS',
 ) -> dict[str, Any]:
-    """Run a single backtest configuration and return results dict."""
+    """Run a single backtest configuration and return results dict.
+
+    rebal_unit: pandas frequency unit. 'BMS' = business month start (default),
+                'B' = every business day, 'W-MON' = weekly Monday.
+    """
     bt = Backtest(
         {'stocks': stock_pct, 'options': opt_pct, 'cash': 0.0},
         initial_capital=initial_capital,
@@ -331,7 +336,7 @@ def run_backtest(
     bt.stocks_data = data['stocks_data']
     bt.options_strategy = strategy_fn()
     bt.options_data = data['options_data']
-    bt.run(rebalance_freq=rebal_months)
+    bt.run(rebalance_freq=rebal_months, rebalance_unit=rebal_unit)
 
     balance = bt.balance
     total_cap = balance['total capital']
