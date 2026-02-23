@@ -38,7 +38,6 @@ struct Position {
     leg_contracts: Vec<String>,
     leg_types: Vec<String>,
     leg_directions: Vec<Direction>,
-    leg_costs: Vec<f64>,
     quantity: f64,
     entry_cost: f64,
 }
@@ -52,14 +51,12 @@ struct StockHolding {
 /// Per-leg per-position entry in trade log (flat, converted to MultiIndex in Python).
 struct TradeRow {
     date: String,
-    // Per-leg data: leg_name -> (contract, underlying, expiration, type, strike, cost, order)
     leg_data: Vec<LegTradeData>,
     total_cost: f64,
     qty: f64,
 }
 
 struct LegTradeData {
-    leg_name: String,
     contract: String,
     underlying: String,
     expiration: String,
@@ -85,11 +82,6 @@ pub fn run_backtest(
     config: &BacktestConfig,
     options_data: &DataFrame,
     stocks_data: &DataFrame,
-    contract_col: &str,
-    date_col: &str,
-    stocks_date_col: &str,
-    stocks_sym_col: &str,
-    stocks_price_col: &str,
     schema: &SchemaMapping,
 ) -> PolarsResult<BacktestResult> {
     let entry_filters: Vec<Option<CompiledFilter>> = config.legs.iter()
@@ -119,8 +111,7 @@ pub fn run_backtest(
         // _update_balance(prev_rb_date, rb_date)
         compute_balance_period(
             &positions, &stock_holdings,
-            options_data, stocks_data,
-            contract_col, date_col, stocks_date_col, stocks_sym_col, stocks_price_col,
+            options_data, stocks_data, schema,
             prev_rb_date, rb_date,
             config.shares_per_contract, cash,
             &config.legs,
@@ -128,8 +119,8 @@ pub fn run_backtest(
         )?;
 
         // _rebalance_portfolio(rb_date, ...)
-        let day_opts = filter_by_date(options_data, date_col, rb_date)?;
-        let day_stocks = filter_by_date(stocks_data, stocks_date_col, rb_date)?;
+        let day_opts = filter_by_date(options_data, &schema.date, rb_date)?;
+        let day_stocks = filter_by_date(stocks_data, &schema.stocks_date, rb_date)?;
         if day_opts.height() == 0 {
             continue;
         }
@@ -137,15 +128,15 @@ pub fn run_backtest(
         // Execute exits
         execute_exits(
             &mut positions, &mut cash, &day_opts,
-            contract_col, config.shares_per_contract,
+            config.shares_per_contract,
             &config.legs, &exit_filters,
             config.profit_pct, config.loss_pct,
             schema, rb_date, &mut trade_rows,
         )?;
 
         // Compute total capital
-        let stock_cap = compute_stock_capital(&stock_holdings, &day_stocks, stocks_sym_col, stocks_price_col);
-        let options_cap = compute_options_capital(&positions, &day_opts, contract_col, config.shares_per_contract);
+        let stock_cap = compute_stock_capital(&stock_holdings, &day_stocks, schema);
+        let options_cap = compute_options_capital(&positions, &day_opts, schema, config.shares_per_contract);
         let total_capital = cash + stock_cap + options_cap;
 
         // Rebalance stocks
@@ -154,7 +145,7 @@ pub fn run_backtest(
         cash = stocks_alloc + total_capital * config.allocation_cash;
         buy_stocks(
             &config.stock_symbols, &config.stock_percentages,
-            &day_stocks, stocks_sym_col, stocks_price_col,
+            &day_stocks, schema,
             stocks_alloc, &mut stock_holdings,
         );
         let stock_cost: f64 = stock_holdings.iter().map(|h| h.qty * h.price).sum();
@@ -172,7 +163,7 @@ pub fn run_backtest(
 
             if let Some(pos) = execute_entries(
                 &config.legs, &entry_filters, &day_opts, &held,
-                contract_col, config.shares_per_contract, budget,
+                config.shares_per_contract, budget,
                 schema, rb_date, &mut trade_rows,
             )? {
                 let cost = pos.entry_cost * pos.quantity;
@@ -184,7 +175,7 @@ pub fn run_backtest(
             let to_sell = options_cap - options_alloc;
             sell_some_options(
                 &mut positions, &mut cash,
-                &day_opts, contract_col, config.shares_per_contract,
+                &day_opts, config.shares_per_contract,
                 &config.legs, to_sell,
                 schema, rb_date, &mut trade_rows,
             )?;
@@ -193,15 +184,14 @@ pub fn run_backtest(
 
     // Final balance update: last rebalance date to end of data
     let last_rb = rb_dates.last().unwrap();
-    let all_dates_col = options_data.column(date_col)?.unique()?.sort(Default::default())?;
+    let all_dates_col = options_data.column(&schema.date)?.unique()?.sort(Default::default())?;
     let all_dates = all_dates_col.as_materialized_series();
     let last_date = series_to_strings(all_dates)?.last().cloned().unwrap_or_default();
 
     if !last_date.is_empty() {
         compute_balance_period(
             &positions, &stock_holdings,
-            options_data, stocks_data,
-            contract_col, date_col, stocks_date_col, stocks_sym_col, stocks_price_col,
+            options_data, stocks_data, schema,
             last_rb, &last_date,
             config.shares_per_contract, cash,
             &config.legs,
@@ -215,6 +205,11 @@ pub fn run_backtest(
 /// Schema column name mappings passed from Python.
 #[derive(Clone)]
 pub struct SchemaMapping {
+    pub contract: String,
+    pub date: String,
+    pub stocks_date: String,
+    pub stocks_sym: String,
+    pub stocks_price: String,
     pub underlying: String,
     pub expiration: String,
     pub option_type: String,
@@ -225,7 +220,6 @@ fn execute_exits(
     positions: &mut Vec<Position>,
     cash: &mut f64,
     day_opts: &DataFrame,
-    contract_col: &str,
     spc: i64,
     legs: &[LegConfig],
     exit_filters: &[Option<CompiledFilter>],
@@ -235,6 +229,7 @@ fn execute_exits(
     date: &str,
     trade_rows: &mut Vec<TradeRow>,
 ) -> PolarsResult<()> {
+    let contract_col = &schema.contract;
     let mut to_remove = Vec::new();
 
     for (i, pos) in positions.iter().enumerate() {
@@ -289,7 +284,6 @@ fn execute_exits(
                     Direction::Sell => "BTC",
                 };
                 leg_data.push(LegTradeData {
-                    leg_name: leg.name.clone(),
                     contract: pos.leg_contracts[j].clone(),
                     underlying: get_contract_field_str(day_opts, contract_col, &pos.leg_contracts[j], &schema.underlying)
                         .unwrap_or_default(),
@@ -322,7 +316,6 @@ fn sell_some_options(
     positions: &mut Vec<Position>,
     cash: &mut f64,
     day_opts: &DataFrame,
-    contract_col: &str,
     spc: i64,
     legs: &[LegConfig],
     to_sell: f64,
@@ -330,6 +323,7 @@ fn sell_some_options(
     date: &str,
     trade_rows: &mut Vec<TradeRow>,
 ) -> PolarsResult<()> {
+    let contract_col = &schema.contract;
     let mut sold = 0.0;
 
     // Iterate positions (mirrors Python iterating inventory rows)
@@ -366,7 +360,6 @@ fn sell_some_options(
                         Direction::Sell => "BTC",
                     };
                     leg_data.push(LegTradeData {
-                        leg_name: leg.name.clone(),
                         contract: pos.leg_contracts[j].clone(),
                         underlying: get_contract_field_str(day_opts, contract_col, &pos.leg_contracts[j], &schema.underlying)
                             .unwrap_or_default(),
@@ -410,13 +403,13 @@ fn execute_entries(
     entry_filters: &[Option<CompiledFilter>],
     day_opts: &DataFrame,
     held_contracts: &[String],
-    contract_col: &str,
     spc: i64,
     budget: f64,
     schema: &SchemaMapping,
     date: &str,
     trade_rows: &mut Vec<TradeRow>,
 ) -> PolarsResult<Option<Position>> {
+    let contract_col = &schema.contract;
     if legs.is_empty() || budget <= 0.0 {
         return Ok(None);
     }
@@ -443,7 +436,6 @@ fn execute_entries(
     let mut leg_contracts = Vec::new();
     let mut leg_types = Vec::new();
     let mut leg_directions = Vec::new();
-    let mut leg_costs = Vec::new();
     let mut total_cost = 0.0;
     let mut leg_data = Vec::new();
 
@@ -461,7 +453,6 @@ fn execute_entries(
         };
 
         leg_data.push(LegTradeData {
-            leg_name: legs[i].name.clone(),
             contract: contract.clone(),
             underlying,
             expiration,
@@ -474,7 +465,6 @@ fn execute_entries(
         leg_contracts.push(contract);
         leg_types.push(opt_type);
         leg_directions.push(legs[i].direction);
-        leg_costs.push(cost);
         total_cost += cost;
     }
 
@@ -498,7 +488,6 @@ fn execute_entries(
         leg_contracts,
         leg_types,
         leg_directions,
-        leg_costs,
         quantity: qty,
         entry_cost: total_cost,
     }))
@@ -510,11 +499,7 @@ fn compute_balance_period(
     stock_holdings: &[StockHolding],
     options_data: &DataFrame,
     stocks_data: &DataFrame,
-    contract_col: &str,
-    date_col: &str,
-    stocks_date_col: &str,
-    stocks_sym_col: &str,
-    stocks_price_col: &str,
+    schema: &SchemaMapping,
     start_date: &str,
     end_date: &str,
     spc: i64,
@@ -522,6 +507,10 @@ fn compute_balance_period(
     legs: &[LegConfig],
     balance_days: &mut Vec<BalanceDay>,
 ) -> PolarsResult<()> {
+    let contract_col = &schema.contract;
+    let date_col = &schema.date;
+    let stocks_date_col = &schema.stocks_date;
+
     // Get all dates in [start_date, end_date)
     let period_opts = options_data.clone().lazy()
         .filter(col(date_col).gt_eq(lit(start_date)).and(col(date_col).lt(lit(end_date))))
@@ -530,7 +519,7 @@ fn compute_balance_period(
         .filter(col(stocks_date_col).gt_eq(lit(start_date)).and(col(stocks_date_col).lt(lit(end_date))))
         .collect()?;
 
-    let unique_dates = period_opts.column(date_col)?.unique()?.sort(Default::default())?;
+    let unique_dates = period_opts.column(date_col.as_str())?.unique()?.sort(Default::default())?;
     let dates = column_to_strings(&unique_dates)?;
 
     for d in &dates {
@@ -566,7 +555,7 @@ fn compute_balance_period(
         let mut stock_qtys = Vec::new();
         let mut stocks_qty = 0.0;
         for holding in stock_holdings {
-            let price = get_symbol_price(&day_stocks, stocks_sym_col, stocks_price_col, &holding.symbol)
+            let price = get_symbol_price(&day_stocks, &schema.stocks_sym, &schema.stocks_price, &holding.symbol)
                 .unwrap_or(holding.price);
             stock_values.push((holding.symbol.clone(), holding.qty * price));
             stock_qtys.push((holding.symbol.clone(), holding.qty));
@@ -775,28 +764,28 @@ fn compute_position_exit_cost(
 }
 
 fn compute_stock_capital(
-    holdings: &[StockHolding], day_stocks: &DataFrame, sym_col: &str, price_col: &str,
+    holdings: &[StockHolding], day_stocks: &DataFrame, schema: &SchemaMapping,
 ) -> f64 {
     holdings.iter().map(|h| {
-        get_symbol_price(day_stocks, sym_col, price_col, &h.symbol).unwrap_or(0.0) * h.qty
+        get_symbol_price(day_stocks, &schema.stocks_sym, &schema.stocks_price, &h.symbol).unwrap_or(0.0) * h.qty
     }).sum()
 }
 
 fn compute_options_capital(
-    positions: &[Position], day_opts: &DataFrame, contract_col: &str, spc: i64,
+    positions: &[Position], day_opts: &DataFrame, schema: &SchemaMapping, spc: i64,
 ) -> f64 {
     positions.iter().map(|pos| {
-        -compute_position_exit_cost(pos, day_opts, contract_col, spc).unwrap_or(0.0) * pos.quantity
+        -compute_position_exit_cost(pos, day_opts, &schema.contract, spc).unwrap_or(0.0) * pos.quantity
     }).sum()
 }
 
 fn buy_stocks(
     symbols: &[String], percentages: &[f64],
-    day_stocks: &DataFrame, sym_col: &str, price_col: &str,
+    day_stocks: &DataFrame, schema: &SchemaMapping,
     allocation: f64, holdings: &mut Vec<StockHolding>,
 ) {
     for (symbol, pct) in symbols.iter().zip(percentages) {
-        if let Some(price) = get_symbol_price(day_stocks, sym_col, price_col, symbol) {
+        if let Some(price) = get_symbol_price(day_stocks, &schema.stocks_sym, &schema.stocks_price, symbol) {
             if price > 0.0 {
                 let qty = (allocation * pct / price).floor();
                 holdings.push(StockHolding { symbol: symbol.clone(), qty, price });

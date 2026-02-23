@@ -9,41 +9,19 @@ use ob_core::types::{Direction, LegConfig, OptionType};
 
 use crate::arrow_bridge::{polars_to_py, py_to_polars};
 
-/// Column name mappings parsed from the Python schema dict.
-pub struct ColumnNames {
-    pub contract: String,
-    pub date: String,
-    pub stocks_date: String,
-    pub stocks_sym: String,
-    pub stocks_price: String,
-}
-
-/// Parse schema dict → (SchemaMapping, ColumnNames).
-pub fn parse_schema_and_columns(schema: &Bound<'_, PyDict>) -> PyResult<(SchemaMapping, ColumnNames)> {
-    let contract_col = get_str(schema, "contract", "optionroot")?;
-    let date_col = get_str(schema, "date", "quotedate")?;
-    let stocks_date_col = get_str(schema, "stocks_date", "date")?;
-    let stocks_sym_col = get_str(schema, "stocks_symbol", "symbol")?;
-    let stocks_price_col = get_str(schema, "stocks_price", "adjClose")?;
-    let underlying_col = get_str(schema, "underlying", "underlying")?;
-    let expiration_col = get_str(schema, "expiration", "expiration")?;
-    let type_col = get_str(schema, "type", "type")?;
-    let strike_col = get_str(schema, "strike", "strike")?;
-
-    let mapping = SchemaMapping {
-        underlying: underlying_col,
-        expiration: expiration_col,
-        option_type: type_col,
-        strike: strike_col,
-    };
-    let cols = ColumnNames {
-        contract: contract_col,
-        date: date_col,
-        stocks_date: stocks_date_col,
-        stocks_sym: stocks_sym_col,
-        stocks_price: stocks_price_col,
-    };
-    Ok((mapping, cols))
+/// Parse schema dict → SchemaMapping.
+pub fn parse_schema(schema: &Bound<'_, PyDict>) -> PyResult<SchemaMapping> {
+    Ok(SchemaMapping {
+        contract: get_str(schema, "contract", "optionroot")?,
+        date: get_str(schema, "date", "quotedate")?,
+        stocks_date: get_str(schema, "stocks_date", "date")?,
+        stocks_sym: get_str(schema, "stocks_symbol", "symbol")?,
+        stocks_price: get_str(schema, "stocks_price", "adjClose")?,
+        underlying: get_str(schema, "underlying", "underlying")?,
+        expiration: get_str(schema, "expiration", "expiration")?,
+        option_type: get_str(schema, "type", "type")?,
+        strike: get_str(schema, "strike", "strike")?,
+    })
 }
 
 /// Parse config dict → BacktestConfig.
@@ -55,9 +33,9 @@ pub fn parse_config_from_dict(config: &Bound<'_, PyDict>) -> PyResult<BacktestCo
         .downcast::<PyDict>()
         .map_err(|e| pyo3::exceptions::PyTypeError::new_err(e.to_string()))?;
 
-    let alloc_stocks = get_f64_from(alloc, "stocks", 0.0)?;
-    let alloc_options = get_f64_from(alloc, "options", 0.0)?;
-    let alloc_cash = get_f64_from(alloc, "cash", 0.0)?;
+    let alloc_stocks = get_f64(alloc, "stocks", 0.0)?;
+    let alloc_options = get_f64(alloc, "options", 0.0)?;
+    let alloc_cash = get_f64(alloc, "cash", 0.0)?;
 
     let initial_capital = get_f64(config, "initial_capital", 1_000_000.0)?;
     let spc = get_i64(config, "shares_per_contract", 100)?;
@@ -122,16 +100,11 @@ pub fn run_backtest_py(
     let opts = py_to_polars(options_data);
     let stocks = py_to_polars(stocks_data);
 
-    let (schema, cols) = parse_schema_and_columns(schema_mapping)?;
+    let schema = parse_schema(schema_mapping)?;
     let bt_config = parse_config_from_dict(config)?;
 
-    let result = run_backtest(
-        &bt_config, &opts, &stocks,
-        &cols.contract, &cols.date,
-        &cols.stocks_date, &cols.stocks_sym, &cols.stocks_price,
-        &schema,
-    )
-    .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))?;
+    let result = run_backtest(&bt_config, &opts, &stocks, &schema)
+        .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))?;
 
     // Build result tuple
     let balance_py = polars_to_py(result.balance);
@@ -160,9 +133,9 @@ pub fn run_backtest_py(
 }
 
 pub fn parse_leg_config(d: &Bound<'_, PyDict>) -> PyResult<LegConfig> {
-    let name = get_str_from(d, "name", "")?;
-    let direction_str = get_str_from(d, "direction", "ask")?;
-    let type_str = get_str_from(d, "type", "call")?;
+    let name = get_str(d, "name", "")?;
+    let direction_str = get_str(d, "direction", "ask")?;
+    let type_str = get_str(d, "type", "call")?;
     let entry_filter: Option<String> = d.get_item("entry_filter")?.and_then(|v| v.extract().ok());
     let exit_filter: Option<String> = d.get_item("exit_filter")?.and_then(|v| v.extract().ok());
     let entry_sort_col: Option<String> = d.get_item("entry_sort_col")?.and_then(|v| v.extract().ok());
@@ -184,11 +157,9 @@ pub fn parse_leg_config(d: &Bound<'_, PyDict>) -> PyResult<LegConfig> {
 pub fn get_str(d: &Bound<'_, PyDict>, key: &str, default: &str) -> PyResult<String> {
     Ok(d.get_item(key)?.map(|v| v.extract::<String>()).transpose()?.unwrap_or_else(|| default.into()))
 }
-pub fn get_str_from(d: &Bound<'_, PyDict>, key: &str, default: &str) -> PyResult<String> { get_str(d, key, default) }
 pub fn get_f64(d: &Bound<'_, PyDict>, key: &str, default: f64) -> PyResult<f64> {
     Ok(d.get_item(key)?.map(|v| v.extract::<f64>()).transpose()?.unwrap_or(default))
 }
-pub fn get_f64_from(d: &Bound<'_, PyDict>, key: &str, default: f64) -> PyResult<f64> { get_f64(d, key, default) }
 pub fn get_i64(d: &Bound<'_, PyDict>, key: &str, default: i64) -> PyResult<i64> {
     Ok(d.get_item(key)?.map(|v| v.extract::<i64>()).transpose()?.unwrap_or(default))
 }

@@ -10,6 +10,7 @@ Backtester for evaluating options strategies over historical data. Includes tool
 - [Usage](#usage)
 - [Pluggable Components](#pluggable-components)
 - [Rust Performance Core](#rust-performance-core)
+- [Notebooks](#notebooks)
 - [Tail-Risk Hedge Research](#tail-risk-hedge-research)
 - [Data](#data)
 - [Recommended Reading](#recommended-reading)
@@ -29,12 +30,13 @@ This gives you Python 3.12 with all dependencies (pandas, numpy, altair, pytest,
 Requires Python >= 3.12.
 
 ```shell
-pip install pandas numpy altair pyprind seaborn matplotlib pyarrow pytest yapf flake8
+python -m venv .venv
+source .venv/bin/activate
+make install-dev
 ```
 
 For the optional Rust extension:
 ```shell
-pip install maturin
 maturin develop --manifest-path rust/ob_python/Cargo.toml --release
 ```
 
@@ -53,10 +55,16 @@ This fetches from the [self-hosted GitHub Release](https://github.com/lambdaclas
 ```shell
 make test          # all tests (Python + legacy)
 make test-new      # new framework tests only
+make test-bench    # benchmark/property tests
+make lint          # ruff linter
+make typecheck     # mypy type checking
 make rust-test     # Rust unit tests
 make rust-build    # build Rust extension
 make rust-bench    # Rust criterion benchmarks
+make bench         # Python benchmark suite
 ```
+
+`make` uses `nix develop` automatically when Nix is available; otherwise it uses `.venv/bin/python` (or `python3`) directly.
 
 ## Architecture
 
@@ -72,8 +80,8 @@ options_backtester/
 
 rust/
 ├── ob_core/         # Pure Rust lib: types, inventory join, balance, filter parser,
-│                    #   entry/exit computation, stats (Sharpe/Sortino/Calmar/drawdown)
-└── ob_python/       # PyO3 cdylib bindings with zero-copy Arrow bridge
+│                    #   entry/exit computation, full backtest loop, stats
+└── ob_python/       # PyO3 cdylib bindings, parallel sweep, zero-copy Arrow bridge
 ```
 
 The engine composes all components:
@@ -246,7 +254,7 @@ The optional Rust extension provides 10-50x speedup on hot paths via PyO3/Polars
 | Entry signal generation | sort + reindex + MultiIndex | Polars lazy plan: anti-join → filter → sort | 5-15x |
 | Exit mask + thresholds | concat + fillna + reduce(OR) | Arrow SIMD boolean ops | 2-3x |
 | Stats (Sharpe/Sortino) | numpy loops | Vectorized Rust | 2-5x |
-| Grid sweep | ProcessPoolExecutor (pickle) | Rayon par_iter (shared memory) | N_cores |
+| Grid sweep | ProcessPoolExecutor (pickle) | Rayon scoped pool (shared memory, per-config `elapsed_ms` timing) | N_cores |
 
 ### Building
 
@@ -300,7 +308,7 @@ The engine automatically dispatches to Rust when available — zero API change f
 | [gold_sp500](notebooks/gold_sp500.ipynb) | Multi-asset portfolio with cash/gold proxy + options overlay (7 configs) |
 | [spitznagel_case](notebooks/spitznagel_case.ipynb) | **The main analysis.** AQR vs Spitznagel tested with real data. Multi-dimensional parameter sweep (DTE, delta, exit, budget). Spitznagel's leveraged framing: 13.8–28.8%/yr with lower drawdowns. Implementation guide. |
 
-See also [REFERENCES.md](REFERENCES.md) for 25+ academic papers on options overlay strategies.
+See also [REFERENCES.md](REFERENCES.md) for 20 academic papers on options overlay strategies.
 
 ## Tail-Risk Hedge Research
 
@@ -308,12 +316,22 @@ The main research question: **can a small allocation to SPY puts improve risk-ad
 
 ### Scripts
 
+`scripts/backtest_runner.py` provides shared helpers (data loading, backtest execution, result formatting, charting) used by all sweep scripts.
+
 | Script | Purpose |
 |--------|---------|
-| `run_spy_otm_puts.py` | Strategy sweep: tests 6 hedge variants (delta, DTE, budget, profit caps) vs SPY buy-and-hold |
-| `sweep_otm.py` | Delta band sweep: tests different OTM levels from near-ATM to deep OTM |
-| `sweep_beat_spy3.py` | Diagnoses backtester rebalancing drag, then tries hedge configs that beat pure-stock baseline |
-| `analyze_entries_exits.py` | **Per-trade analysis** with signal overlay — the main research tool |
+| `scripts/analyze_entries_exits.py` | **Per-trade analysis** with signal overlay — the main research tool |
+| `scripts/run_spy_otm_puts.py` | Strategy sweep: 6 hedge variants (delta, DTE, budget, profit caps) vs SPY buy-and-hold |
+| `scripts/parallel_sweep.py` | Parallel grid sweep using multiprocessing across all CPU cores |
+| `scripts/sweep_otm.py` | Delta band sweep: near-ATM to deep OTM levels |
+| `scripts/sweep_allocation.py` | Allocation sweep: different stock/options splits (0-100%) |
+| `scripts/sweep_leverage.py` | Leverage sweep: options budgets on top of 100% stock allocation |
+| `scripts/sweep_comprehensive.py` | Puts, calls, strangles with macro signal filters (VIX, Buffett, Tobin Q) |
+| `scripts/sweep_iv_signal.py` | IV-signal-filtered budget: buy puts based on IV percentile vs rolling median |
+| `scripts/sweep_volatility.py` | Long vol (straddles) vs short vol (strangles) across allocations |
+| `scripts/sweep_beat_spy.py` | Tail-risk configs with tiny budgets and low-frequency rebalancing |
+| `scripts/sweep_beat_spy2.py` | Second iteration: extreme premium reduction with semi-annual/annual rebalancing |
+| `scripts/sweep_beat_spy3.py` | Diagnoses rebalancing drag, tries hedge configs that beat pure-stock baseline |
 
 ### Key findings
 
@@ -339,7 +357,7 @@ The outperformance comes from leverage, but the **drawdown reduction is real** �
 
 ### Configuration
 
-All strategy parameters in `analyze_entries_exits.py` are configurable via the `CONFIG` dict:
+All strategy parameters in `scripts/analyze_entries_exits.py` are configurable via the `CONFIG` dict:
 
 ```python
 CONFIG = {

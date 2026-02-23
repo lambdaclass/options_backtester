@@ -4,8 +4,6 @@
 /// runs a full backtest per param override set in parallel.
 /// No pickle overhead — data stays in shared memory.
 
-use std::sync::Arc;
-
 use pyo3::prelude::*;
 use pyo3::types::{PyDict, PyList};
 use pyo3_polars::PyDataFrame;
@@ -14,7 +12,7 @@ use rayon::prelude::*;
 use ob_core::backtest::{run_backtest, BacktestConfig, SchemaMapping};
 
 use crate::arrow_bridge::py_to_polars;
-use crate::py_backtest::{parse_config_from_dict, parse_schema_and_columns, ColumnNames};
+use crate::py_backtest::{parse_config_from_dict, parse_schema};
 
 /// Overrides parsed from each param dict (on GIL thread).
 struct SweepOverrides {
@@ -30,6 +28,7 @@ struct SweepResult {
     label: String,
     stats: ob_core::types::Stats,
     final_cash: f64,
+    elapsed_ms: u128,
     error: Option<String>,
 }
 
@@ -69,30 +68,37 @@ fn run_single_sweep(
     stocks: &polars::prelude::DataFrame,
     base: &BacktestConfig,
     schema: &SchemaMapping,
-    cols: &ColumnNames,
     overrides: &SweepOverrides,
 ) -> SweepResult {
     let label = overrides.label.clone();
     let cfg = merge_config(base, overrides);
+    let start = std::time::Instant::now();
 
-    match run_backtest(
-        &cfg, opts, stocks,
-        &cols.contract, &cols.date,
-        &cols.stocks_date, &cols.stocks_sym, &cols.stocks_price,
-        schema,
-    ) {
+    match run_backtest(&cfg, opts, stocks, schema) {
         Ok(result) => SweepResult {
             label,
             final_cash: result.final_cash,
             stats: result.stats,
+            elapsed_ms: start.elapsed().as_millis(),
             error: None,
         },
         Err(e) => SweepResult {
             label,
             stats: Default::default(),
             final_cash: 0.0,
+            elapsed_ms: start.elapsed().as_millis(),
             error: Some(format!("backtest error: {e}")),
         },
+    }
+}
+
+/// Parse an optional f64 that may be absent, null, or a float.
+/// None  → key missing (use base), Some(None) → explicit null (clear), Some(Some(v)) → override.
+fn parse_opt_f64(dict: &Bound<'_, PyDict>, key: &str) -> PyResult<Option<Option<f64>>> {
+    match dict.get_item(key)? {
+        None => Ok(None),
+        Some(v) if v.is_none() => Ok(Some(None)),
+        Some(v) => Ok(Some(Some(v.extract::<f64>()?))),
     }
 }
 
@@ -104,28 +110,9 @@ fn parse_overrides(dict: &Bound<'_, PyDict>) -> PyResult<SweepOverrides> {
         .transpose()?
         .unwrap_or_default();
 
-    // profit_pct: missing key → None (use base), None value → Some(None) (clear), float → Some(Some(v))
-    let profit_pct = match dict.get_item("profit_pct")? {
-        None => None,
-        Some(v) => {
-            if v.is_none() {
-                Some(None)
-            } else {
-                Some(Some(v.extract::<f64>()?))
-            }
-        }
-    };
-
-    let loss_pct = match dict.get_item("loss_pct")? {
-        None => None,
-        Some(v) => {
-            if v.is_none() {
-                Some(None)
-            } else {
-                Some(Some(v.extract::<f64>()?))
-            }
-        }
-    };
+    // profit_pct/loss_pct: missing key → None (use base), None value → Some(None) (clear), float → Some(Some(v))
+    let profit_pct = parse_opt_f64(dict, "profit_pct")?;
+    let loss_pct = parse_opt_f64(dict, "loss_pct")?;
 
     let rebalance_dates: Option<Vec<String>> = dict
         .get_item("rebalance_dates")?
@@ -185,21 +172,12 @@ pub fn parallel_sweep(
     param_grid: &Bound<'_, PyList>,
     n_workers: Option<usize>,
 ) -> PyResult<PyObject> {
-    // Configure Rayon thread pool
-    if let Some(n) = n_workers {
-        rayon::ThreadPoolBuilder::new()
-            .num_threads(n)
-            .build_global()
-            .ok(); // ignore if already set
-    }
-
-    // Convert data once, share via Arc
-    let opts = Arc::new(py_to_polars(options_data));
-    let stocks = Arc::new(py_to_polars(stocks_data));
+    let opts = py_to_polars(options_data);
+    let stocks = py_to_polars(stocks_data);
 
     // Parse base config and schema on GIL thread
     let base = parse_config_from_dict(base_config)?;
-    let (schema, cols) = parse_schema_and_columns(schema_mapping)?;
+    let schema = parse_schema(schema_mapping)?;
 
     // Parse all override dicts on main thread (needs GIL)
     let overrides: Vec<SweepOverrides> = param_grid
@@ -212,12 +190,18 @@ pub fn parallel_sweep(
         })
         .collect::<PyResult<Vec<_>>>()?;
 
-    // Release GIL and run parallel computation
+    // Release GIL and run parallel computation with scoped Rayon pool
     let results: Vec<SweepResult> = py.allow_threads(|| {
-        overrides
-            .par_iter()
-            .map(|ov| run_single_sweep(&opts, &stocks, &base, &schema, &cols, ov))
-            .collect()
+        let pool = rayon::ThreadPoolBuilder::new()
+            .num_threads(n_workers.unwrap_or(0))
+            .build()
+            .expect("failed to build rayon thread pool");
+        pool.install(|| {
+            overrides
+                .par_iter()
+                .map(|ov| run_single_sweep(&opts, &stocks, &base, &schema, ov))
+                .collect()
+        })
     });
 
     // Convert results back to Python (needs GIL)
@@ -236,6 +220,7 @@ pub fn parallel_sweep(
         dict.set_item("win_rate", r.stats.win_rate)?;
         dict.set_item("total_trades", r.stats.total_trades)?;
         dict.set_item("final_cash", r.final_cash)?;
+        dict.set_item("elapsed_ms", r.elapsed_ms)?;
         dict.set_item("error", &r.error)?;
         py_results.append(dict)?;
     }

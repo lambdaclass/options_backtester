@@ -22,6 +22,7 @@ rust = ["polars>=1.0,<1.6"]
 charts = ["seaborn>=0.13", "matplotlib>=3.8"]
 dev = [
     "pytest>=8.0",
+    "hypothesis>=6.0",
     "pytest-benchmark",
     "mypy>=1.8",
     "ruff>=0.3",

@@ -48,11 +48,14 @@
 
                 # Testing
                 ps.pytest
+                ps.hypothesis
+                ps.pytest-benchmark
                 ps.mypy
+                ps.pandas-stubs
+                ps.ruff
 
                 # Dev tools
                 ps.yapf
-                ps.flake8
 
                 # Data fetching (optional, for data/ scripts)
                 ps.yfinance
