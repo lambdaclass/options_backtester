@@ -1,17 +1,22 @@
 NIX_CMD := nix --extra-experimental-features 'nix-command flakes' develop --command
 
-.PHONY: test lint typecheck notebooks help
+.PHONY: test test-old test-new lint typecheck notebooks help
 .DEFAULT_GOAL := help
 
-test: ## Run tests
-	$(NIX_CMD) python -m pytest -v backtester
+test: ## Run all tests (old + new)
+	$(NIX_CMD) python -m pytest -v backtester/test tests
 
-lint: ## Run linter and format checker (flake8 & yapf)
-	$(NIX_CMD) flake8 backtester
-	$(NIX_CMD) yapf --diff --recursive backtester/
+test-old: ## Run legacy tests only
+	$(NIX_CMD) python -m pytest -v backtester/test
+
+test-new: ## Run new framework tests only
+	$(NIX_CMD) python -m pytest -v tests
+
+lint: ## Run ruff linter
+	$(NIX_CMD) python -m ruff check backtester options_backtester
 
 typecheck: ## Run mypy type checker
-	$(NIX_CMD) python -m mypy backtester --ignore-missing-imports
+	$(NIX_CMD) python -m mypy backtester options_backtester --ignore-missing-imports
 
 notebooks: ## Execute all notebooks
 	@for nb in notebooks/*.ipynb; do \

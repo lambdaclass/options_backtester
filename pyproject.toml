@@ -1,0 +1,50 @@
+[build-system]
+requires = ["setuptools>=68.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "options_backtester"
+version = "0.2.0"
+description = "The open-source options backtesting framework"
+readme = "README.md"
+license = {text = "MIT"}
+requires-python = ">=3.11"
+dependencies = [
+    "pandas>=2.1",
+    "numpy>=1.26",
+    "altair>=5.0",
+    "pyprind>=2.11",
+    "pyarrow>=14.0",
+]
+
+[project.optional-dependencies]
+charts = ["seaborn>=0.13", "matplotlib>=3.8"]
+dev = [
+    "pytest>=8.0",
+    "mypy>=1.8",
+    "ruff>=0.3",
+    "pandas-stubs",
+]
+notebooks = ["jupyter", "nbconvert"]
+
+[tool.setuptools.packages.find]
+include = ["options_backtester*", "backtester*"]
+
+[tool.pytest.ini_options]
+testpaths = ["backtester/test", "tests"]
+filterwarnings = ["ignore::DeprecationWarning"]
+
+[tool.mypy]
+python_version = "3.12"
+warn_unused_configs = true
+disallow_untyped_defs = false
+ignore_missing_imports = true
+check_untyped_defs = false
+
+[tool.ruff]
+line-length = 119
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I"]
+ignore = ["E126", "F403", "F405", "W504"]
