@@ -62,6 +62,20 @@
             shellHook = ''
               export PYO3_PYTHON=${python}/bin/python
               export PYO3_USE_ABI3_FORWARD_COMPATIBILITY=1
+
+              # Build Rust extension and symlink for Python import
+              if [ -f rust/ob_python/Cargo.toml ]; then
+                if [ ! -f rust/target/release/lib_ob_rust.dylib ] && [ ! -f rust/target/release/lib_ob_rust.so ]; then
+                  echo "Building Rust extension (first time only)..."
+                  cargo build --manifest-path rust/ob_python/Cargo.toml --release 2>&1 | tail -1
+                fi
+                # Python needs _ob_rust.so, Rust produces lib_ob_rust.dylib/.so
+                if [ -f rust/target/release/lib_ob_rust.dylib ] && [ ! -f _ob_rust.so ]; then
+                  ln -sf rust/target/release/lib_ob_rust.dylib _ob_rust.so
+                elif [ -f rust/target/release/lib_ob_rust.so ] && [ ! -f _ob_rust.so ]; then
+                  ln -sf rust/target/release/lib_ob_rust.so _ob_rust.so
+                fi
+              fi
             '';
           };
         });

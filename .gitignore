@@ -119,3 +119,4 @@ data/processed/*
 
 # VS Code
 .vscode/
+_ob_rust.so
