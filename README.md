@@ -3,8 +3,13 @@ Options Backtester
 
 Backtester for evaluating options strategies over historical data. Includes tools for strategy sweeps, tail-risk hedge analysis, and signal-based timing research.
 
+**v0.3** — Modular pluggable framework with optional Rust performance core (10-50x speedup on hot paths).
+
 - [Setup](#setup)
+- [Architecture](#architecture)
 - [Usage](#usage)
+- [Pluggable Components](#pluggable-components)
+- [Rust Performance Core](#rust-performance-core)
 - [Tail-Risk Hedge Research](#tail-risk-hedge-research)
 - [Data](#data)
 - [Recommended Reading](#recommended-reading)
@@ -17,7 +22,7 @@ Backtester for evaluating options strategies over historical data. Includes tool
 nix develop
 ```
 
-This gives you Python 3.12 with all dependencies (pandas, numpy, altair, pytest, etc.).
+This gives you Python 3.12 with all dependencies (pandas, numpy, altair, pytest, etc.) plus Rust toolchain (stable) and maturin.
 
 ### Without Nix
 
@@ -25,6 +30,12 @@ Requires Python >= 3.12.
 
 ```shell
 pip install pandas numpy altair pyprind seaborn matplotlib pyarrow pytest yapf flake8
+```
+
+For the optional Rust extension:
+```shell
+pip install maturin
+maturin develop --manifest-path rust/ob_python/Cargo.toml --release
 ```
 
 ### Fetch data
@@ -40,66 +51,241 @@ This fetches from the [self-hosted GitHub Release](https://github.com/lambdaclas
 ### Run tests
 
 ```shell
-python -m pytest -v backtester
+make test          # all tests (Python + legacy)
+make test-new      # new framework tests only
+make rust-test     # Rust unit tests
+make rust-build    # build Rust extension
+make rust-bench    # Rust criterion benchmarks
+```
+
+## Architecture
+
+```
+options_backtester/
+├── core/            # Types: Direction, OptionType, Greeks, Fill, Order
+├── data/            # Schema DSL, CSV providers
+├── strategy/        # Strategy, StrategyLeg, presets (strangle, iron condor, etc.)
+├── execution/       # Pluggable: CostModel, FillModel, Sizer, SignalSelector
+├── portfolio/       # Portfolio, OptionPosition, RiskManager, Greeks aggregation
+├── engine/          # BacktestEngine orchestrator, dispatch layer
+└── analytics/       # BacktestStats, TradeLog
+
+rust/
+├── ob_core/         # Pure Rust lib: types, inventory join, balance, filter parser,
+│                    #   entry/exit computation, stats (Sharpe/Sortino/Calmar/drawdown)
+└── ob_python/       # PyO3 cdylib bindings with zero-copy Arrow bridge
+```
+
+The engine composes all components:
+
+```
+Data → Strategy (legs + filters) → Engine → Execution (cost, fill, sizer, selector)
+                                      ↓
+                                  Risk Manager → Portfolio → Analytics
 ```
 
 ## Usage
 
-### Sample backtest
+### New framework (recommended)
 
 ```python
-from backtester import Backtest, Stock, Type, Direction
+from options_backtester import (
+    BacktestEngine, Stock,
+    NearestDelta, PerContractCommission,
+    RiskManager, MaxDelta, MaxDrawdown,
+)
 from backtester.datahandler import HistoricalOptionsData, TiingoData
 from backtester.strategy import Strategy, StrategyLeg
+from backtester.enums import Type, Direction
 
 # Load data
 options_data = HistoricalOptionsData("data/processed/options.csv")
 stocks_data = TiingoData("data/processed/stocks.csv")
 schema = options_data.schema
 
-# Create a strategy: buy puts with 60-120 DTE, exit at DTE <= 30
+# Create strategy
 strategy = Strategy(schema)
-
-leg = StrategyLeg('leg_1', schema, option_type=Type.PUT, direction=Direction.BUY)
+leg = StrategyLeg("leg_1", schema, option_type=Type.PUT, direction=Direction.BUY)
 leg.entry_filter = (
-    (schema.underlying == 'SPY') &
-    (schema.dte >= 60) & (schema.dte <= 120) &
-    (schema.delta >= -0.25) & (schema.delta <= -0.10)
+    (schema.underlying == "SPY")
+    & (schema.dte >= 60) & (schema.dte <= 120)
+    & (schema.delta >= -0.25) & (schema.delta <= -0.10)
 )
-leg.entry_sort = ('delta', False)  # deepest OTM within range
-leg.exit_filter = (schema.dte <= 30)
-
+leg.entry_sort = ("delta", False)
+leg.exit_filter = schema.dte <= 30
 strategy.add_leg(leg)
 
-# Define portfolio — 100% stocks, puts funded by % of capital
-bt = Backtest({'stocks': 1.0, 'options': 0.0, 'cash': 0.0}, initial_capital=1_000_000)
-bt.options_budget = lambda date, total_capital: total_capital * 0.001  # 0.1% of capital
-bt.stocks = [Stock('SPY', 1.0)]
-bt.stocks_data = stocks_data
-bt.options_strategy = strategy
-bt.options_data = options_data
-bt.run(rebalance_freq=1)  # monthly rebalancing
+# Create engine with pluggable components
+engine = BacktestEngine(
+    allocation={"stocks": 0.97, "options": 0.03, "cash": 0.0},
+    initial_capital=1_000_000,
+    cost_model=PerContractCommission(rate=0.65),
+    signal_selector=NearestDelta(target_delta=-0.20),
+    risk_manager=RiskManager([
+        MaxDelta(limit=100.0),
+        MaxDrawdown(max_dd_pct=0.20),
+    ]),
+)
+engine.stocks = [Stock("SPY", 1.0)]
+engine.stocks_data = stocks_data
+engine.options_data = options_data
+engine.options_strategy = strategy
+engine.run(rebalance_freq=1)
 
 # Results
-bt.trade_log   # DataFrame of executed trades
-bt.balance     # Daily portfolio balance
+engine.trade_log   # DataFrame of executed trades
+engine.balance     # Daily portfolio balance with returns
 ```
 
-### Strangle preset
+### Legacy API
 
-For common strategies there are presets:
+The original `Backtest` class is still fully supported:
+
+```python
+from backtester import Backtest, Stock, Type, Direction
+from backtester.datahandler import HistoricalOptionsData, TiingoData
+from backtester.strategy import Strategy, StrategyLeg
+
+bt = Backtest({"stocks": 1.0, "options": 0.0, "cash": 0.0}, initial_capital=1_000_000)
+bt.options_budget = lambda date, total_capital: total_capital * 0.001
+bt.stocks = [Stock("SPY", 1.0)]
+bt.stocks_data = TiingoData("data/processed/stocks.csv")
+bt.options_data = HistoricalOptionsData("data/processed/options.csv")
+bt.options_strategy = strategy
+bt.run(rebalance_freq=1)
+```
+
+### Strategy presets
 
 ```python
 from backtester.strategy import Strangle
 
-# Short strangle: sell OTM call + put, 30-60 DTE entry, exit at 7 DTE
-strangle = Strangle(schema, 'short', 'SPY',
+# Short strangle: sell OTM call + put
+strangle = Strangle(schema, "short", "SPY",
                     dte_entry_range=(30, 60), dte_exit=7,
                     otm_pct=5, pct_tolerance=1,
                     exit_thresholds=(0.2, 0.2))
 ```
 
-### Notebooks
+Presets: `strangle`, `iron_condor`, `covered_call`, `cash_secured_put`, `collar`, `butterfly`.
+
+## Pluggable Components
+
+All components are set at engine construction time. Defaults are used when not specified.
+
+### Signal Selectors
+
+Choose which contract to trade from filtered candidates:
+
+| Selector | Description | Default |
+|----------|-------------|---------|
+| `FirstMatch()` | Picks first row (original behavior) | Yes |
+| `NearestDelta(target=-0.30)` | Closest delta to target | |
+| `MaxOpenInterest()` | Highest open interest (liquidity) | |
+
+The selector is wired into the engine — it receives enriched candidate data including any extra columns it needs (delta, openinterest) from the raw options data.
+
+### Risk Manager
+
+Pre-trade risk checks that can block entries:
+
+| Constraint | Description | Default |
+|------------|-------------|---------|
+| `MaxDelta(limit=100)` | Blocks if portfolio delta would exceed limit | |
+| `MaxVega(limit=50)` | Blocks if portfolio vega would exceed limit | |
+| `MaxDrawdown(max_dd_pct=0.20)` | Blocks new entries during drawdowns | |
+
+The risk manager computes portfolio Greeks from current inventory positions and proposed entry Greeks, then checks all constraints before allowing a trade.
+
+```python
+from options_backtester import RiskManager, MaxDelta, MaxDrawdown
+
+rm = RiskManager([
+    MaxDelta(limit=50.0),
+    MaxDrawdown(max_dd_pct=0.15),
+])
+```
+
+### Cost Models
+
+| Model | Description |
+|-------|-------------|
+| `NoCosts()` | Zero transaction costs (default) |
+| `PerContractCommission(rate=0.65)` | Fixed per-contract fee |
+| `TieredCommission(tiers)` | Volume-based tiered pricing |
+| `SpreadSlippage(pct=0.5)` | Fraction of bid-ask spread |
+
+### Fill Models
+
+| Model | Description |
+|-------|-------------|
+| `MarketAtBidAsk()` | Bid for sells, ask for buys (default) |
+| `MidPrice()` | Midpoint of bid-ask |
+| `VolumeAwareFill(threshold=100)` | Interpolates based on volume |
+
+### Position Sizers
+
+| Sizer | Description |
+|-------|-------------|
+| `CapitalBased()` | qty = allocation // cost (default) |
+| `FixedQuantity(qty=1)` | Always trade fixed number |
+| `FixedDollar(amount=10000)` | Target fixed dollar amount |
+| `PercentOfPortfolio(pct=0.01)` | Percent of total portfolio |
+
+## Rust Performance Core
+
+The optional Rust extension provides 10-50x speedup on hot paths via PyO3/Polars/Rayon. Falls back transparently to Python when not installed.
+
+### What's accelerated
+
+| Hot Path | Python | Rust | Expected Speedup |
+|----------|--------|------|-----------------|
+| Inventory→options join | `pd.merge` | Polars hash-join | 10-50x |
+| Balance groupby+pivot | `groupby().sum()` | Polars groupby + Arrow | 3-8x |
+| Filter evaluation | `data.eval(query)` per leg per day | Compiled AST → Polars predicates | 3-8x |
+| Entry signal generation | sort + reindex + MultiIndex | Polars lazy plan: anti-join → filter → sort | 5-15x |
+| Exit mask + thresholds | concat + fillna + reduce(OR) | Arrow SIMD boolean ops | 2-3x |
+| Stats (Sharpe/Sortino) | numpy loops | Vectorized Rust | 2-5x |
+| Grid sweep | ProcessPoolExecutor (pickle) | Rayon par_iter (shared memory) | N_cores |
+
+### Building
+
+```shell
+# With nix:
+make rust-build
+
+# Without nix:
+maturin develop --manifest-path rust/ob_python/Cargo.toml --release
+```
+
+### Zero-copy data bridge
+
+Data flows: `pandas.DataFrame` → `pyarrow.Table` → Arrow C Data Interface → Rust `Polars DataFrame`. Return path is the reverse. Numeric columns (float64/int64) are zero-copy. String columns require one copy to Arrow UTF-8 format.
+
+### Filter compilation
+
+The Rust filter parser compiles pandas-eval query strings (generated by the Schema DSL) into an AST, then evaluates against Polars DataFrames:
+
+```
+"(type == 'put') & (ask > 0)"           → And(Eq("type", "put"), Gt("ask", 0))
+"(underlying == 'SPX') & (dte >= 60)"   → And(Eq("underlying", "SPX"), Ge("dte", 60))
+"strike >= underlying_last * 1.02"      → ColArith("underlying_last", Mul, 1.02, Le, Col("strike"))
+```
+
+Compiled once per strategy setup, reused across all dates.
+
+### Dispatch layer
+
+```python
+from options_backtester.engine._dispatch import use_rust, rust
+
+if use_rust():
+    result = rust.compute_stats(daily_returns, trade_pnls, risk_free_rate)
+```
+
+The engine automatically dispatches to Rust when available — zero API change for users.
+
+## Notebooks
 
 | Notebook | Description |
 |----------|-------------|
