@@ -107,13 +107,12 @@ strangle = Strangle(schema, 'short', 'SPY',
 | [paper_comparison](notebooks/paper_comparison.ipynb) | **Master comparison**: 10 strategies vs academic paper claims with VRP math, crash heatmap, risk/return scatter |
 | [findings](notebooks/findings.ipynb) | Full research: allocation sweep, puts vs calls, macro signals, crash-period analysis |
 | [volatility_premium](notebooks/volatility_premium.ipynb) | Sell vol vs buy vol deep dive — tests the Variance Risk Premium (Carr & Wu 2009, Berman 2014) |
-| [tail_hedge_debate](notebooks/tail_hedge_debate.ipynb) | AQR vs Universa: no-leverage (AQR framing) vs leveraged (Spitznagel framing) deep OTM puts |
 | [strategies](notebooks/strategies.ipynb) | 4-strategy showcase: OTM puts, OTM calls, long straddle, short strangle |
 | [trade_analysis](notebooks/trade_analysis.ipynb) | Per-trade P&L deep dive: bar charts, cumulative P&L, crash breakdowns, winner/loser analysis |
 | [iron_condor](notebooks/iron_condor.ipynb) | 4-leg iron condor income strategy with options capital breakdown |
 | [ivy_portfolio](notebooks/ivy_portfolio.ipynb) | Endowment-style portfolio (Ivy Portfolio) with long straddle hedge overlay |
 | [gold_sp500](notebooks/gold_sp500.ipynb) | Multi-asset portfolio with cash/gold proxy + options overlay (7 configs) |
-| [spitznagel_case](notebooks/spitznagel_case.ipynb) | **Spitznagel's tail hedge thesis confirmed**: 100% SPY + deep OTM puts via leverage outperforms (13.8–28.8%/yr) with lower drawdowns |
+| [spitznagel_case](notebooks/spitznagel_case.ipynb) | **The main analysis.** AQR vs Spitznagel tested with real data. Multi-dimensional parameter sweep (DTE, delta, exit, budget). Spitznagel's leveraged framing: 13.8–28.8%/yr with lower drawdowns. Implementation guide. |
 
 See also [REFERENCES.md](REFERENCES.md) for 25+ academic papers on options overlay strategies.
 

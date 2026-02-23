@@ -10,6 +10,11 @@ import pandas as pd
 class SignalSelector(ABC):
     """Picks one entry signal from a DataFrame of candidates."""
 
+    @property
+    def column_requirements(self) -> list[str]:
+        """Extra columns needed from raw options data beyond standard signal fields."""
+        return []
+
     @abstractmethod
     def select(self, candidates: pd.DataFrame) -> pd.Series:
         """Return the single row (as Series) to execute from candidates.
@@ -40,6 +45,10 @@ class NearestDelta(SignalSelector):
         self.target_delta = target_delta
         self.delta_column = delta_column
 
+    @property
+    def column_requirements(self) -> list[str]:
+        return [self.delta_column]
+
     def select(self, candidates: pd.DataFrame) -> pd.Series:
         if self.delta_column not in candidates.columns:
             return candidates.iloc[0]
@@ -55,6 +64,10 @@ class MaxOpenInterest(SignalSelector):
 
     def __init__(self, oi_column: str = "openinterest") -> None:
         self.oi_column = oi_column
+
+    @property
+    def column_requirements(self) -> list[str]:
+        return [self.oi_column]
 
     def select(self, candidates: pd.DataFrame) -> pd.Series:
         if self.oi_column not in candidates.columns:

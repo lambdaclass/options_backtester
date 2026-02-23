@@ -279,7 +279,7 @@ class BacktestEngine:
         else:
             options_allocation = self.allocation["options"] * total_capital
         if options_allocation >= options_capital:
-            self._execute_option_entries(date, options, options_allocation - options_capital)
+            self._execute_option_entries(date, options, options_allocation - options_capital, stocks)
         else:
             to_sell = options_capital - options_allocation
             current_options = self._get_current_option_quotes(options)
@@ -428,7 +428,73 @@ class BacktestEngine:
 
         self._balance_parts.append(pd.DataFrame(add))
 
-    def _execute_option_entries(self, date, options, options_allocation):
+    def _compute_portfolio_greeks(self, options) -> Greeks:
+        """Compute aggregate Greeks for current portfolio positions."""
+        total = Greeks()
+        contract_col = self._options_schema["contract"]
+
+        for leg in self._options_strategy.legs:
+            leg_inventory = self._options_inventory[leg.name]
+            if leg_inventory.empty or leg_inventory["contract"].isna().all():
+                continue
+
+            inv = pd.DataFrame({
+                "_contract": leg_inventory["contract"].values,
+                "_qty": self._options_inventory["totals"]["qty"].values,
+            })
+
+            merged = inv.merge(
+                options, how="left",
+                left_on="_contract", right_on=contract_col,
+            )
+
+            sign = 1 if leg.direction == LegacyDirection.BUY else -1
+
+            for col in ("delta", "gamma", "theta", "vega"):
+                if col not in merged.columns:
+                    merged[col] = 0.0
+
+            valid = merged.dropna(subset=["_qty"])
+            if valid.empty:
+                continue
+
+            d = (valid["delta"].fillna(0) * valid["_qty"] * sign).sum()
+            g = (valid["gamma"].fillna(0) * valid["_qty"] * sign).sum()
+            t = (valid["theta"].fillna(0) * valid["_qty"] * sign).sum()
+            v = (valid["vega"].fillna(0) * valid["_qty"] * sign).sum()
+
+            total = total + Greeks(delta=d, gamma=g, theta=t, vega=v)
+
+        return total
+
+    def _compute_entry_greeks(self, entries, options) -> Greeks:
+        """Compute Greeks for a proposed entry."""
+        total = Greeks()
+        contract_col = self._options_schema["contract"]
+        qty = entries["totals"]["qty"]
+
+        for leg in self._options_strategy.legs:
+            contract_id = entries[leg.name]["contract"]
+            match = options[options[contract_col] == contract_id]
+            if match.empty:
+                continue
+
+            row = match.iloc[0]
+            sign = 1 if leg.direction == LegacyDirection.BUY else -1
+
+            d = float(row.get("delta", 0) or 0)
+            g = float(row.get("gamma", 0) or 0)
+            t = float(row.get("theta", 0) or 0)
+            v = float(row.get("vega", 0) or 0)
+
+            total = total + Greeks(
+                delta=d * sign * qty, gamma=g * sign * qty,
+                theta=t * sign * qty, vega=v * sign * qty,
+            )
+
+        return total
+
+    def _execute_option_entries(self, date, options, options_allocation, stocks=None):
         self.current_cash += options_allocation
 
         inventory_contracts = pd.concat(
@@ -478,7 +544,21 @@ class BacktestEngine:
 
         entry_signals_df = entry_signals_df[entry_signals_df["totals"]["qty"] > 0]
 
-        entries = self._pick_entry_signals(entry_signals_df)
+        entries = self._pick_entry_signals(entry_signals_df, subset_options)
+
+        # Risk check: reject entry if any constraint is violated
+        if not entries.empty and self.risk_manager.constraints:
+            portfolio_value = (
+                self._total_capital_estimate(stocks, options)
+                if stocks is not None else self.current_cash
+            )
+            current_greeks = self._compute_portfolio_greeks(options)
+            proposed_greeks = self._compute_entry_greeks(entries, options)
+            allowed, _reason = self.risk_manager.is_allowed(
+                current_greeks, proposed_greeks, portfolio_value, self._peak_value,
+            )
+            if not allowed:
+                return
 
         entries_df = pd.DataFrame(entries) if entries.empty else pd.DataFrame([entries])
         self._options_inventory = pd.concat(
@@ -547,10 +627,29 @@ class BacktestEngine:
 
         self.current_cash -= sum(total_costs)
 
-    def _pick_entry_signals(self, entry_signals):
-        if not entry_signals.empty:
-            return entry_signals.iloc[0]
-        return entry_signals
+    def _pick_entry_signals(self, entry_signals, subset_options=None):
+        if entry_signals.empty:
+            return entry_signals
+
+        # Build flat candidates from the first leg for the signal selector
+        first_leg = self._options_strategy.legs[0]
+        candidates = entry_signals[first_leg.name].copy()
+
+        # Enrich with extra columns the selector needs (e.g. delta, openinterest)
+        extra_cols = self.signal_selector.column_requirements
+        if extra_cols and subset_options is not None:
+            contract_col = self._options_schema["contract"]
+            for col in extra_cols:
+                if col in subset_options.columns:
+                    lookup = (
+                        subset_options
+                        .drop_duplicates(contract_col)
+                        .set_index(contract_col)[col]
+                    )
+                    candidates[col] = candidates["contract"].map(lookup)
+
+        selected = self.signal_selector.select(candidates)
+        return entry_signals.loc[selected.name]
 
     def _signal_fields(self, cost_field):
         return {
