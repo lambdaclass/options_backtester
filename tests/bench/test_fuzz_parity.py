@@ -220,7 +220,7 @@ class TestFilterFuzz:
 
     @given(
         n=st.integers(min_value=1, max_value=200),
-        threshold=st.integers(min_value=0, max_value=100),
+        threshold=st.floats(min_value=0.0, max_value=100.0, allow_nan=False, allow_infinity=False),
         data=st.data(),
     )
     @settings(max_examples=100, suppress_health_check=[HealthCheck.too_slow])
@@ -247,10 +247,23 @@ class TestFilterFuzz:
 class TestFilterKnownEdgeCases:
     """Edge cases discovered by fuzzing."""
 
-    @pytest.mark.xfail(reason="Rust tokenizer doesn't handle scientific notation (e.g. 1e-5)")
     def test_scientific_notation_in_query(self):
         df = pd.DataFrame({"ask": [0.0, 1.0]})
         query = "ask > 1e-5"
+        py_count = len(df[df.eval(query)])
+        rust_result = rust_apply_filter(query, pl.from_pandas(df))
+        assert rust_result.height == py_count
+
+    def test_scientific_notation_negative_exp(self):
+        df = pd.DataFrame({"val": [0.0, 1e-10, 1e-3, 1.0, 1e5]})
+        query = "val > 1e-4"
+        py_count = len(df[df.eval(query)])
+        rust_result = rust_apply_filter(query, pl.from_pandas(df))
+        assert rust_result.height == py_count
+
+    def test_scientific_notation_large(self):
+        df = pd.DataFrame({"strike": [100.0, 1500.0, 5000.0]})
+        query = "strike >= 1.5E3"
         py_count = len(df[df.eval(query)])
         rust_result = rust_apply_filter(query, pl.from_pandas(df))
         assert rust_result.height == py_count

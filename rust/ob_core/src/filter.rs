@@ -150,13 +150,25 @@ fn tokenize(input: &str) -> Result<Vec<Token>, FilterError> {
             c if c.is_ascii_digit() || c == '.' => {
                 let start = i;
                 let mut has_dot = c == '.';
+                let mut has_exp = false;
                 i += 1;
                 while i < chars.len() && (chars[i].is_ascii_digit() || chars[i] == '.') {
                     if chars[i] == '.' { has_dot = true; }
                     i += 1;
                 }
+                // Scientific notation: e/E followed by optional +/- and digits
+                if i < chars.len() && (chars[i] == 'e' || chars[i] == 'E') {
+                    has_exp = true;
+                    i += 1;
+                    if i < chars.len() && (chars[i] == '+' || chars[i] == '-') {
+                        i += 1;
+                    }
+                    while i < chars.len() && chars[i].is_ascii_digit() {
+                        i += 1;
+                    }
+                }
                 let num_str: String = chars[start..i].iter().collect();
-                if has_dot {
+                if has_dot || has_exp {
                     tokens.push(Token::FloatLit(
                         num_str.parse().map_err(|e| FilterError::Parse(format!("{e}")))?,
                     ));
@@ -550,5 +562,51 @@ mod tests {
         let f = CompiledFilter::new("(underlying == 'SPX') & (dte >= 60) & (dte <= 120)").unwrap();
         let result = f.apply(&df).unwrap();
         assert_eq!(result.height(), 1); // Only SPX with dte=90
+    }
+
+    #[test]
+    fn parse_scientific_notation() {
+        let expr = parse("ask > 1e-5").unwrap();
+        match expr {
+            FilterExpr::Cmp(col, CmpOp::Gt, Value::Float(f)) => {
+                assert_eq!(col, "ask");
+                assert!((f - 1e-5).abs() < 1e-15);
+            }
+            _ => panic!("expected Cmp with float, got {expr:?}"),
+        }
+    }
+
+    #[test]
+    fn parse_scientific_notation_positive_exp() {
+        let expr = parse("strike >= 1.5E3").unwrap();
+        match expr {
+            FilterExpr::Cmp(col, CmpOp::Ge, Value::Float(f)) => {
+                assert_eq!(col, "strike");
+                assert!((f - 1500.0).abs() < 1e-10);
+            }
+            _ => panic!("expected Cmp with float, got {expr:?}"),
+        }
+    }
+
+    #[test]
+    fn parse_scientific_notation_no_sign() {
+        let expr = parse("delta >= 1e2").unwrap();
+        match expr {
+            FilterExpr::Cmp(_, CmpOp::Ge, Value::Float(f)) => {
+                assert!((f - 100.0).abs() < 1e-10);
+            }
+            _ => panic!("expected float, got {expr:?}"),
+        }
+    }
+
+    #[test]
+    fn compiled_filter_scientific_notation() {
+        let df = DataFrame::new(vec![
+            Column::new("ask".into(), &[0.0f64, 0.00001, 0.1, 5.0]),
+        ]).unwrap();
+
+        let f = CompiledFilter::new("ask > 1e-3").unwrap();
+        let result = f.apply(&df).unwrap();
+        assert_eq!(result.height(), 2); // 0.1 and 5.0
     }
 }
