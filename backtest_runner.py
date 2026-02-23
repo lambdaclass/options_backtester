@@ -280,21 +280,27 @@ def make_collar_strategy(schema: Any) -> Strategy:
     return s
 
 
-def make_deep_otm_put_strategy(schema: Any) -> Strategy:
+def make_deep_otm_put_strategy(
+    schema: Any,
+    delta_min: float = -0.10,
+    delta_max: float = -0.02,
+    dte_min: int = 90,
+    dte_max: int = 180,
+    exit_dte: int = 14,
+) -> Strategy:
     """Deep OTM tail hedge (Universa-style): buy far-OTM puts.
 
-    Delta -0.10 to -0.02, DTE 90-180, hold to expiry or DTE <= 14.
     Paper ref: Spitznagel (2021) — 3.3% allocation claims 12.3% CAGR.
     AQR (Ilmanen & Israelov 2018) — argues cost exceeds benefit.
     """
     leg = StrategyLeg('leg_1', schema, option_type=Type.PUT, direction=Direction.BUY)
     leg.entry_filter = (
         (schema.underlying == 'SPY')
-        & (schema.dte >= 90) & (schema.dte <= 180)
-        & (schema.delta >= -0.10) & (schema.delta <= -0.02)
+        & (schema.dte >= dte_min) & (schema.dte <= dte_max)
+        & (schema.delta >= delta_min) & (schema.delta <= delta_max)
     )
     leg.entry_sort = ('delta', False)  # deepest OTM first
-    leg.exit_filter = (schema.dte <= 14)
+    leg.exit_filter = (schema.dte <= exit_dte)
     s = Strategy(schema)
     s.add_leg(leg)
     s.add_exit_thresholds(profit_pct=math.inf, loss_pct=math.inf)

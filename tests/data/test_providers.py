@@ -10,24 +10,19 @@ from options_backtester.data.providers import (
 )
 from options_backtester.data.schema import Schema
 
-# Locate test data relative to the old test fixtures
-TEST_DATA = os.path.join(os.path.dirname(__file__), "..", "..", "backtester", "test", "test_data")
+TEST_DIR = os.path.join(os.path.dirname(__file__), "..", "..", "backtester", "test")
+STOCKS_FILE = os.path.join(TEST_DIR, "test_data", "test_data_stocks.csv")
+OPTIONS_FILE = os.path.join(TEST_DIR, "test_data", "test_data_options.csv")
 
 
 @pytest.fixture
 def options_provider():
-    path = os.path.join(TEST_DATA, "test_options_data.csv")
-    if not os.path.exists(path):
-        pytest.skip("Test data not available")
-    return CsvOptionsProvider(path)
+    return CsvOptionsProvider(OPTIONS_FILE)
 
 
 @pytest.fixture
 def stocks_provider():
-    path = os.path.join(TEST_DATA, "test_stocks_data.csv")
-    if not os.path.exists(path):
-        pytest.skip("Test data not available")
-    return CsvStocksProvider(path)
+    return CsvStocksProvider(STOCKS_FILE)
 
 
 class TestCsvOptionsProvider:
