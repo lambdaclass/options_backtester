@@ -57,6 +57,8 @@ def test_tiny_backtest(sample_stocks_datahandler, sample_options_datahandler):
 
 def test_backtest_runner_imports():
     """backtest_runner module should import and expose expected functions."""
+    import sys, os
+    sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..', 'scripts'))
     from backtest_runner import (
         load_data,
         make_puts_strategy,

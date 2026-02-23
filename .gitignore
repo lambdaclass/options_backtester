@@ -114,6 +114,9 @@ data/processed/*
 !data/processed/.gitkeep
 !data/processed/signals.csv
 
+# Generated charts/plots
+*.png
+
 # Mac OS-specific storage files
 .DS_Store
 

@@ -11,6 +11,7 @@ use crate::filter::CompiledFilter;
 use crate::stats;
 use crate::types::{Direction, LegConfig, Stats};
 
+#[derive(Clone)]
 pub struct BacktestConfig {
     pub allocation_stocks: f64,
     pub allocation_options: f64,
@@ -212,6 +213,7 @@ pub fn run_backtest(
 }
 
 /// Schema column name mappings passed from Python.
+#[derive(Clone)]
 pub struct SchemaMapping {
     pub underlying: String,
     pub expiration: String,

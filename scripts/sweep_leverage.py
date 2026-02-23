@@ -16,6 +16,7 @@ Outputs:
   - Chart saved to sweep_leverage.png
 """
 
+import sys, os; sys.path.insert(0, os.path.dirname(__file__))  # noqa: E702
 from backtest_runner import (
     load_data, make_puts_strategy, make_calls_strategy,
     run_backtest, print_results_table, plot_results,

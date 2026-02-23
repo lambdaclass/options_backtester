@@ -9,38 +9,45 @@ use ob_core::types::{Direction, LegConfig, OptionType};
 
 use crate::arrow_bridge::{polars_to_py, py_to_polars};
 
-/// Run a full backtest and return (balance_df, trade_log_df, stats_dict).
-#[pyfunction]
-#[pyo3(signature = (options_data, stocks_data, config, schema_mapping))]
-pub fn run_backtest_py(
-    py: Python<'_>,
-    options_data: PyDataFrame,
-    stocks_data: PyDataFrame,
-    config: &Bound<'_, PyDict>,
-    schema_mapping: &Bound<'_, PyDict>,
-) -> PyResult<PyObject> {
-    let opts = py_to_polars(options_data);
-    let stocks = py_to_polars(stocks_data);
+/// Column name mappings parsed from the Python schema dict.
+pub struct ColumnNames {
+    pub contract: String,
+    pub date: String,
+    pub stocks_date: String,
+    pub stocks_sym: String,
+    pub stocks_price: String,
+}
 
-    // Parse schema mapping
-    let contract_col = get_str(schema_mapping, "contract", "optionroot")?;
-    let date_col = get_str(schema_mapping, "date", "quotedate")?;
-    let stocks_date_col = get_str(schema_mapping, "stocks_date", "date")?;
-    let stocks_sym_col = get_str(schema_mapping, "stocks_symbol", "symbol")?;
-    let stocks_price_col = get_str(schema_mapping, "stocks_price", "adjClose")?;
-    let underlying_col = get_str(schema_mapping, "underlying", "underlying")?;
-    let expiration_col = get_str(schema_mapping, "expiration", "expiration")?;
-    let type_col = get_str(schema_mapping, "type", "type")?;
-    let strike_col = get_str(schema_mapping, "strike", "strike")?;
+/// Parse schema dict → (SchemaMapping, ColumnNames).
+pub fn parse_schema_and_columns(schema: &Bound<'_, PyDict>) -> PyResult<(SchemaMapping, ColumnNames)> {
+    let contract_col = get_str(schema, "contract", "optionroot")?;
+    let date_col = get_str(schema, "date", "quotedate")?;
+    let stocks_date_col = get_str(schema, "stocks_date", "date")?;
+    let stocks_sym_col = get_str(schema, "stocks_symbol", "symbol")?;
+    let stocks_price_col = get_str(schema, "stocks_price", "adjClose")?;
+    let underlying_col = get_str(schema, "underlying", "underlying")?;
+    let expiration_col = get_str(schema, "expiration", "expiration")?;
+    let type_col = get_str(schema, "type", "type")?;
+    let strike_col = get_str(schema, "strike", "strike")?;
 
-    let schema = SchemaMapping {
+    let mapping = SchemaMapping {
         underlying: underlying_col,
         expiration: expiration_col,
         option_type: type_col,
         strike: strike_col,
     };
+    let cols = ColumnNames {
+        contract: contract_col,
+        date: date_col,
+        stocks_date: stocks_date_col,
+        stocks_sym: stocks_sym_col,
+        stocks_price: stocks_price_col,
+    };
+    Ok((mapping, cols))
+}
 
-    // Parse allocation
+/// Parse config dict → BacktestConfig.
+pub fn parse_config_from_dict(config: &Bound<'_, PyDict>) -> PyResult<BacktestConfig> {
     let alloc_obj = config
         .get_item("allocation")?
         .ok_or_else(|| pyo3::exceptions::PyKeyError::new_err("allocation"))?;
@@ -62,14 +69,12 @@ pub fn run_backtest_py(
         .get_item("loss_pct")?
         .and_then(|v| v.extract::<f64>().ok());
 
-    // Parse rebalance dates (pre-computed in Python)
     let rebalance_dates: Vec<String> = config
         .get_item("rebalance_dates")?
         .map(|v| v.extract::<Vec<String>>())
         .transpose()?
         .unwrap_or_default();
 
-    // Parse legs
     let legs_list: Vec<Bound<'_, PyDict>> = config
         .get_item("legs")?
         .ok_or_else(|| pyo3::exceptions::PyKeyError::new_err("legs"))?
@@ -80,7 +85,6 @@ pub fn run_backtest_py(
         .map(|d| parse_leg_config(d))
         .collect::<PyResult<Vec<_>>>()?;
 
-    // Parse stocks
     let stocks_list: Vec<(String, f64)> = config
         .get_item("stocks")?
         .map(|v| v.extract::<Vec<(String, f64)>>())
@@ -90,7 +94,7 @@ pub fn run_backtest_py(
     let stock_symbols: Vec<String> = stocks_list.iter().map(|(s, _)| s.clone()).collect();
     let stock_percentages: Vec<f64> = stocks_list.iter().map(|(_, p)| *p).collect();
 
-    let bt_config = BacktestConfig {
+    Ok(BacktestConfig {
         allocation_stocks: alloc_stocks,
         allocation_options: alloc_options,
         allocation_cash: alloc_cash,
@@ -102,12 +106,29 @@ pub fn run_backtest_py(
         stock_symbols,
         stock_percentages,
         rebalance_dates,
-    };
+    })
+}
+
+/// Run a full backtest and return (balance_df, trade_log_df, stats_dict).
+#[pyfunction]
+#[pyo3(signature = (options_data, stocks_data, config, schema_mapping))]
+pub fn run_backtest_py(
+    py: Python<'_>,
+    options_data: PyDataFrame,
+    stocks_data: PyDataFrame,
+    config: &Bound<'_, PyDict>,
+    schema_mapping: &Bound<'_, PyDict>,
+) -> PyResult<PyObject> {
+    let opts = py_to_polars(options_data);
+    let stocks = py_to_polars(stocks_data);
+
+    let (schema, cols) = parse_schema_and_columns(schema_mapping)?;
+    let bt_config = parse_config_from_dict(config)?;
 
     let result = run_backtest(
         &bt_config, &opts, &stocks,
-        &contract_col, &date_col,
-        &stocks_date_col, &stocks_sym_col, &stocks_price_col,
+        &cols.contract, &cols.date,
+        &cols.stocks_date, &cols.stocks_sym, &cols.stocks_price,
         &schema,
     )
     .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))?;
@@ -138,7 +159,7 @@ pub fn run_backtest_py(
     Ok(result_tuple.into())
 }
 
-fn parse_leg_config(d: &Bound<'_, PyDict>) -> PyResult<LegConfig> {
+pub fn parse_leg_config(d: &Bound<'_, PyDict>) -> PyResult<LegConfig> {
     let name = get_str_from(d, "name", "")?;
     let direction_str = get_str_from(d, "direction", "ask")?;
     let type_str = get_str_from(d, "type", "call")?;
@@ -160,14 +181,14 @@ fn parse_leg_config(d: &Bound<'_, PyDict>) -> PyResult<LegConfig> {
 }
 
 // Helper extractors
-fn get_str(d: &Bound<'_, PyDict>, key: &str, default: &str) -> PyResult<String> {
+pub fn get_str(d: &Bound<'_, PyDict>, key: &str, default: &str) -> PyResult<String> {
     Ok(d.get_item(key)?.map(|v| v.extract::<String>()).transpose()?.unwrap_or_else(|| default.into()))
 }
-fn get_str_from(d: &Bound<'_, PyDict>, key: &str, default: &str) -> PyResult<String> { get_str(d, key, default) }
-fn get_f64(d: &Bound<'_, PyDict>, key: &str, default: f64) -> PyResult<f64> {
+pub fn get_str_from(d: &Bound<'_, PyDict>, key: &str, default: &str) -> PyResult<String> { get_str(d, key, default) }
+pub fn get_f64(d: &Bound<'_, PyDict>, key: &str, default: f64) -> PyResult<f64> {
     Ok(d.get_item(key)?.map(|v| v.extract::<f64>()).transpose()?.unwrap_or(default))
 }
-fn get_f64_from(d: &Bound<'_, PyDict>, key: &str, default: f64) -> PyResult<f64> { get_f64(d, key, default) }
-fn get_i64(d: &Bound<'_, PyDict>, key: &str, default: i64) -> PyResult<i64> {
+pub fn get_f64_from(d: &Bound<'_, PyDict>, key: &str, default: f64) -> PyResult<f64> { get_f64(d, key, default) }
+pub fn get_i64(d: &Bound<'_, PyDict>, key: &str, default: i64) -> PyResult<i64> {
     Ok(d.get_item(key)?.map(|v| v.extract::<i64>()).transpose()?.unwrap_or(default))
 }

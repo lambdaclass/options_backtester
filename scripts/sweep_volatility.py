@@ -13,6 +13,7 @@ Outputs:
   - Chart saved to sweep_volatility.png
 """
 
+import sys, os; sys.path.insert(0, os.path.dirname(__file__))  # noqa: E702
 from backtest_runner import (
     load_data, make_straddle_strategy, make_strangle_strategy,
     run_backtest, print_results_table, plot_results,

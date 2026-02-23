@@ -105,3 +105,34 @@ def walk_forward(
             continue
 
     return results
+
+
+def rust_grid_sweep(
+    options_data,
+    stocks_data,
+    base_config: dict,
+    schema_mapping: dict,
+    param_overrides: list[dict],
+    n_workers: int | None = None,
+) -> list[dict]:
+    """Run a parallel grid sweep using the Rust backtest engine.
+
+    Each dict in param_overrides can contain:
+        - "label": str
+        - "profit_pct": Optional[float]
+        - "loss_pct": Optional[float]
+        - "rebalance_dates": Optional[list[str]]
+        - "leg_entry_filters": Optional[list[Optional[str]]]
+        - "leg_exit_filters": Optional[list[Optional[str]]]
+
+    Returns list of result dicts sorted by sharpe_ratio descending.
+    """
+    from options_backtester._ob_rust import parallel_sweep
+
+    results = parallel_sweep(
+        options_data, stocks_data,
+        base_config, schema_mapping,
+        param_overrides, n_workers,
+    )
+    results.sort(key=lambda r: r.get("sharpe_ratio", 0.0), reverse=True)
+    return results
