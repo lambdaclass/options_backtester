@@ -1,10 +1,10 @@
 [build-system]
-requires = ["setuptools>=68.0", "wheel"]
-build-backend = "setuptools.build_meta"
+requires = ["maturin>=1.7,<2.0"]
+build-backend = "maturin"
 
 [project]
 name = "options_backtester"
-version = "0.2.0"
+version = "0.3.0"
 description = "The open-source options backtesting framework"
 readme = "README.md"
 license = {text = "MIT"}
@@ -21,11 +21,19 @@ dependencies = [
 charts = ["seaborn>=0.13", "matplotlib>=3.8"]
 dev = [
     "pytest>=8.0",
+    "pytest-benchmark",
     "mypy>=1.8",
     "ruff>=0.3",
     "pandas-stubs",
+    "maturin>=1.7",
 ]
 notebooks = ["jupyter", "nbconvert"]
+
+[tool.maturin]
+manifest-path = "rust/ob_python/Cargo.toml"
+module-name = "options_backtester._ob_rust"
+python-source = "."
+features = ["pyo3/extension-module"]
 
 [tool.setuptools.packages.find]
 include = ["options_backtester*", "backtester*"]

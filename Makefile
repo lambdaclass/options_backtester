@@ -1,6 +1,6 @@
 NIX_CMD := nix --extra-experimental-features 'nix-command flakes' develop --command
 
-.PHONY: test test-old test-new lint typecheck notebooks help
+.PHONY: test test-old test-new lint typecheck notebooks rust-build rust-test rust-bench bench help
 .DEFAULT_GOAL := help
 
 test: ## Run all tests (old + new)
@@ -24,6 +24,19 @@ notebooks: ## Execute all notebooks
 		$(NIX_CMD) python -m jupyter nbconvert --to notebook --execute "$$nb" \
 			--output "$$(basename $$nb)" --ExecutePreprocessor.timeout=600 || true; \
 	done
+
+rust-build: ## Build Rust extension with maturin (release)
+	$(NIX_CMD) maturin develop --manifest-path rust/ob_python/Cargo.toml --release
+
+rust-test: ## Run Rust unit tests
+	$(NIX_CMD) bash -c 'cd rust && cargo test'
+
+rust-bench: ## Run Rust benchmarks (criterion)
+	$(NIX_CMD) bash -c 'cd rust && cargo bench'
+
+bench: rust-build ## Run Python benchmarks (requires Rust build)
+	$(NIX_CMD) python -m pytest tests/bench/ -v --benchmark-only 2>/dev/null || \
+		echo "Install pytest-benchmark for Python benchmarks"
 
 help:
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) |\

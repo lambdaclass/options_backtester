@@ -1,0 +1,3 @@
+[workspace]
+members = ["ob_core", "ob_python"]
+resolver = "2"

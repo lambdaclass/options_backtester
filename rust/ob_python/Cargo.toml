@@ -1,0 +1,15 @@
+[package]
+name = "ob_python"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+name = "_ob_rust"
+crate-type = ["cdylib"]
+
+[dependencies]
+ob_core = { path = "../ob_core" }
+pyo3 = { version = "0.24", features = ["extension-module"] }
+pyo3-polars = "0.21"
+polars = { version = "0.48", features = ["lazy"] }
+rayon = "1.10"
