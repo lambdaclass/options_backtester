@@ -253,14 +253,15 @@ fn execute_exits(
             }
         }
 
-        // Check threshold exits
+        // Check threshold exits — mirrors Python's Strategy.filter_thresholds:
+        //   excess_return = (current_cost / entry_cost + 1) * -sign(entry_cost)
         if !should_exit {
             let curr = compute_position_exit_cost(pos, day_opts, contract_col, spc)?;
             let entry = pos.entry_cost;
             if entry != 0.0 {
-                let pnl_pct = (curr - entry) / entry.abs();
-                if profit_pct.map_or(false, |p| pnl_pct >= p)
-                    || loss_pct.map_or(false, |l| pnl_pct <= -l)
+                let excess_return = (curr / entry + 1.0) * -entry.signum();
+                if profit_pct.map_or(false, |p| excess_return >= p)
+                    || loss_pct.map_or(false, |l| excess_return <= -l)
                 {
                     should_exit = true;
                 }
@@ -278,8 +279,9 @@ fn execute_exits(
                 let price = get_contract_field_f64(
                     day_opts, contract_col, &pos.leg_contracts[j], exit_price_col,
                 ).unwrap_or(0.0);
-                let sign = leg.direction.invert().sign();
-                let cost = sign * price * spc as f64;
+                // Cash flow sign: BUY receives (-1), SELL pays (+1)
+                let cash_sign = if leg.direction == Direction::Buy { -1.0 } else { 1.0 };
+                let cost = cash_sign * price * spc as f64;
                 let order = match leg.direction {
                     Direction::Buy => "STC",
                     Direction::Sell => "BTC",
@@ -355,8 +357,8 @@ fn sell_some_options(
                     let price = get_contract_field_f64(
                         day_opts, contract_col, &pos.leg_contracts[j], exit_price_col,
                     ).unwrap_or(0.0);
-                    let sign = leg.direction.invert().sign();
-                    let cost = sign * price * spc as f64;
+                    let cash_sign = if leg.direction == Direction::Buy { -1.0 } else { 1.0 };
+                    let cost = cash_sign * price * spc as f64;
                     let order = match leg.direction {
                         Direction::Buy => "STC",
                         Direction::Sell => "BTC",
@@ -745,15 +747,27 @@ fn get_symbol_price(
     matched.column(price_col).ok()?.f64().ok()?.get(0)
 }
 
+/// Compute the total exit cost for a position (cash flow convention).
+///
+/// Returns NEGATIVE for BUY positions (you receive money when selling),
+/// POSITIVE for SELL positions (you pay money when buying back).
+/// This matches Python's _get_current_option_quotes sign convention:
+///   BUY exit: cost = -bid * spc
+///   SELL exit: cost = +ask * spc
 fn compute_position_exit_cost(
     pos: &Position, day_opts: &DataFrame, contract_col: &str, spc: i64,
 ) -> PolarsResult<f64> {
     let mut total = 0.0;
     for (i, contract) in pos.leg_contracts.iter().enumerate() {
         let dir = pos.leg_directions[i];
+        // Exit price column: BUY exits at bid, SELL exits at ask
         let price = get_contract_field_f64(day_opts, contract_col, contract, dir.invert().price_column())
             .unwrap_or(0.0);
-        total += dir.invert().sign() * price * spc as f64;
+        // Cash flow sign: BUY receives money (-1), SELL pays money (+1)
+        // Note: dir.invert().sign() gives the VALUE sign (for balance).
+        // We need the opposite: if ~dir == SELL (i.e. dir=BUY), negate.
+        let cash_sign = if dir == Direction::Buy { -1.0 } else { 1.0 };
+        total += cash_sign * price * spc as f64;
     }
     Ok(total)
 }

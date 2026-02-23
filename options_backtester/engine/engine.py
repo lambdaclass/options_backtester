@@ -147,9 +147,15 @@ class BacktestEngine:
         stock_dates = self.stocks_data["date"].unique()
         assert np.array_equal(stock_dates, option_dates)
 
-        # Dispatch to Rust full-loop if explicitly opted in via _use_rust_loop
-        if (getattr(self, '_use_rust_loop', False)
-                and use_rust() and not monthly and not sma_days
+        # Dispatch to Rust full-loop when available and all features are default.
+        # Skip if any leg has per-leg overrides (Rust doesn't support them).
+        has_per_leg_overrides = any(
+            getattr(leg, 'signal_selector', None) is not None
+            or getattr(leg, 'fill_model', None) is not None
+            for leg in self._options_strategy.legs
+        )
+        if (use_rust() and not monthly and not sma_days
+                and not has_per_leg_overrides
                 and isinstance(self.cost_model, NoCosts)
                 and isinstance(self.fill_model, MarketAtBidAsk)
                 and isinstance(self.signal_selector, FirstMatch)
@@ -260,9 +266,27 @@ class BacktestEngine:
                 .apply(lambda x: x.index.min())
                 .values
             )
-            rb_date_strs = [str(d) for d in rebalancing_days]
+            date_fmt = "%Y-%m-%d %H:%M:%S"
+            rb_date_strs = [d.strftime(date_fmt) for d in rebalancing_days]
         else:
             rb_date_strs = []
+            date_fmt = "%Y-%m-%d %H:%M:%S"
+
+        # Convert datetime columns to strings for Rust Polars compat.
+        # Polars Datetime columns can't be compared with string literals
+        # in the Rust filter, so we normalize to string format here.
+        opts_date_col = self._options_schema["date"]
+        stocks_date_col = self._stocks_schema["date"]
+        exp_col = self._options_schema["expiration"]
+
+        opts_copy = self._options_data._data.copy()
+        for c in [opts_date_col, exp_col]:
+            if c in opts_copy.columns and pd.api.types.is_datetime64_any_dtype(opts_copy[c]):
+                opts_copy[c] = opts_copy[c].dt.strftime(date_fmt)
+
+        stocks_copy = self._stocks_data._data.copy()
+        if stocks_date_col in stocks_copy.columns and pd.api.types.is_datetime64_any_dtype(stocks_copy[stocks_date_col]):
+            stocks_copy[stocks_date_col] = stocks_copy[stocks_date_col].dt.strftime(date_fmt)
 
         config = {
             "allocation": self.allocation,
@@ -291,8 +315,8 @@ class BacktestEngine:
 
         schema_mapping = {
             "contract": self._options_schema["contract"],
-            "date": self._options_schema["date"],
-            "stocks_date": self._stocks_schema["date"],
+            "date": opts_date_col,
+            "stocks_date": stocks_date_col,
             "stocks_symbol": self._stocks_schema["symbol"],
             "stocks_price": self._stocks_schema["adjClose"],
             "underlying": self._options_schema["underlying"],
@@ -301,8 +325,8 @@ class BacktestEngine:
             "strike": self._options_schema["strike"],
         }
 
-        opts_pl = pl.from_pandas(self._options_data._data)
-        stocks_pl = pl.from_pandas(self._stocks_data._data)
+        opts_pl = pl.from_pandas(opts_copy)
+        stocks_pl = pl.from_pandas(stocks_copy)
 
         balance_pl, trade_log_pl, stats = rust.run_backtest_py(
             opts_pl, stocks_pl, config, schema_mapping,
@@ -315,16 +339,41 @@ class BacktestEngine:
         # Convert balance
         self.balance = balance_pl.to_pandas()
         if "date" in self.balance.columns:
+            self.balance["date"] = pd.to_datetime(self.balance["date"])
             self.balance.set_index("date", inplace=True)
+
+        # Add initial balance row (day before first rebalance) — matches Python
+        initial_date = self.stocks_data.start_date - pd.Timedelta(1, unit="day")
+        initial_row = pd.DataFrame(
+            {"total capital": self.initial_capital, "cash": float(self.initial_capital)},
+            index=[initial_date],
+        )
+        self.balance = pd.concat([initial_row, self.balance], sort=False)
+        for col_name in self.balance.columns:
+            self.balance[col_name] = pd.to_numeric(self.balance[col_name], errors="coerce")
+
+        # Ensure per-stock columns exist (match Python's balance format)
+        for stock in self._stocks:
+            sym = stock.symbol
+            if sym not in self.balance.columns:
+                self.balance[sym] = 0.0
+            if f"{sym} qty" not in self.balance.columns:
+                self.balance[f"{sym} qty"] = 0.0
+        for col_name in ["options qty", "stocks qty", "calls capital", "puts capital"]:
+            if col_name not in self.balance.columns:
+                self.balance[col_name] = 0.0
 
         # Add derived columns matching Python output
         self.balance["options capital"] = (
-            self.balance.get("calls capital", 0) + self.balance.get("puts capital", 0)
-        )
-        stock_cols = [s.symbol for s in self._stocks if s.symbol in self.balance.columns]
+            self.balance["calls capital"] + self.balance["puts capital"]
+        ).fillna(0)
+        stock_cols = [s.symbol for s in self._stocks]
         self.balance["stocks capital"] = sum(
-            self.balance[c] for c in stock_cols
-        ) if stock_cols else 0
+            self.balance.get(c, 0) for c in stock_cols
+        )
+        first_idx = self.balance.index[0]
+        self.balance.loc[first_idx, "stocks capital"] = 0
+        self.balance.loc[first_idx, "options capital"] = 0
         self.balance["total capital"] = (
             self.balance["cash"]
             + self.balance["stocks capital"]
@@ -333,7 +382,10 @@ class BacktestEngine:
         self.balance["% change"] = self.balance["total capital"].pct_change()
         self.balance["accumulated return"] = (1.0 + self.balance["% change"]).cumprod()
 
-        self.current_cash = stats.get("final_cash", 0.0)
+        # Set current_cash to match Python loop's final state after rebalancing
+        # (after the loop, all capital is allocated to stocks/options/cash per allocation)
+        final_total = self.balance["total capital"].iloc[-1]
+        self.current_cash = self.allocation["cash"] * final_total
         self._initialize_inventories()
         self._portfolio = Portfolio(initial_cash=self.current_cash)
 
@@ -491,8 +543,8 @@ class BacktestEngine:
         )
 
     def _update_balance(self, start_date, end_date):
-        # Per-method Rust dispatch for balance computation (opt-in)
-        if getattr(self, '_use_rust_loop', False) and use_rust():
+        # Per-method Rust dispatch for balance computation
+        if use_rust():
             try:
                 return self._update_balance_rust(start_date, end_date)
             except ImportError:
