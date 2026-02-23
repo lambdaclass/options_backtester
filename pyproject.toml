@@ -18,6 +18,7 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+rust = ["polars>=1.0,<1.6"]
 charts = ["seaborn>=0.13", "matplotlib>=3.8"]
 dev = [
     "pytest>=8.0",

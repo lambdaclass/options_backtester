@@ -27,6 +27,9 @@ from options_backtester.execution.fill_model import FillModel, MarketAtBidAsk
 from options_backtester.execution.sizer import PositionSizer, CapitalBased
 from options_backtester.execution.signal_selector import SignalSelector, FirstMatch
 from options_backtester.portfolio.risk import RiskManager
+from options_backtester.portfolio.portfolio import Portfolio, StockHolding
+from options_backtester.portfolio.position import OptionPosition, PositionLeg
+from options_backtester.engine._dispatch import use_rust, rust
 
 # We still use the original data handler types for backward compat in the engine
 from backtester.datahandler.historical_options_data import HistoricalOptionsData
@@ -144,6 +147,16 @@ class BacktestEngine:
         stock_dates = self.stocks_data["date"].unique()
         assert np.array_equal(stock_dates, option_dates)
 
+        # Dispatch to Rust full-loop if explicitly opted in via _use_rust_loop
+        if (getattr(self, '_use_rust_loop', False)
+                and use_rust() and not monthly and not sma_days
+                and isinstance(self.cost_model, NoCosts)
+                and isinstance(self.fill_model, MarketAtBidAsk)
+                and isinstance(self.signal_selector, FirstMatch)
+                and not self.risk_manager.constraints
+                and self.options_budget is None):
+            return self._run_rust(rebalance_freq)
+
         self._initialize_inventories()
         self.current_cash: float = self.initial_capital
         self._trade_log_parts: list[pd.DataFrame] = []
@@ -227,6 +240,119 @@ class BacktestEngine:
 
         return self.trade_log
 
+    def _run_rust(self, rebalance_freq: int) -> pd.DataFrame:
+        """Run the backtest using the Rust full-loop implementation."""
+        import math
+        import polars as pl
+
+        strategy = self._options_strategy
+
+        # Compute rebalance dates in Python (same BMS logic as the Python loop)
+        # to guarantee date parity with the Python path.
+        dates_df = (
+            pd.DataFrame(self.options_data._data[["quotedate", "volume"]])
+            .drop_duplicates("quotedate")
+            .set_index("quotedate")
+        )
+        if rebalance_freq:
+            rebalancing_days = pd.to_datetime(
+                dates_df.groupby(pd.Grouper(freq=f"{rebalance_freq}BMS"))
+                .apply(lambda x: x.index.min())
+                .values
+            )
+            rb_date_strs = [str(d) for d in rebalancing_days]
+        else:
+            rb_date_strs = []
+
+        config = {
+            "allocation": self.allocation,
+            "initial_capital": float(self.initial_capital),
+            "shares_per_contract": self.shares_per_contract,
+            "rebalance_dates": rb_date_strs,
+            "legs": [{
+                "name": leg.name,
+                "entry_filter": leg.entry_filter.query,
+                "exit_filter": leg.exit_filter.query,
+                "direction": leg.direction.value,
+                "type": leg.type.value,
+                "entry_sort_col": leg.entry_sort[0] if leg.entry_sort else None,
+                "entry_sort_asc": leg.entry_sort[1] if leg.entry_sort else True,
+            } for leg in strategy.legs],
+            "profit_pct": (
+                strategy.exit_thresholds[0]
+                if strategy.exit_thresholds[0] != math.inf else None
+            ),
+            "loss_pct": (
+                strategy.exit_thresholds[1]
+                if strategy.exit_thresholds[1] != math.inf else None
+            ),
+            "stocks": [(s.symbol, s.percentage) for s in self._stocks],
+        }
+
+        schema_mapping = {
+            "contract": self._options_schema["contract"],
+            "date": self._options_schema["date"],
+            "stocks_date": self._stocks_schema["date"],
+            "stocks_symbol": self._stocks_schema["symbol"],
+            "stocks_price": self._stocks_schema["adjClose"],
+            "underlying": self._options_schema["underlying"],
+            "expiration": self._options_schema["expiration"],
+            "type": self._options_schema["type"],
+            "strike": self._options_schema["strike"],
+        }
+
+        opts_pl = pl.from_pandas(self._options_data._data)
+        stocks_pl = pl.from_pandas(self._stocks_data._data)
+
+        balance_pl, trade_log_pl, stats = rust.run_backtest_py(
+            opts_pl, stocks_pl, config, schema_mapping,
+        )
+
+        # Convert trade log from flat columns to MultiIndex
+        trade_log_pd = trade_log_pl.to_pandas()
+        self.trade_log = self._flat_trade_log_to_multiindex(trade_log_pd)
+
+        # Convert balance
+        self.balance = balance_pl.to_pandas()
+        if "date" in self.balance.columns:
+            self.balance.set_index("date", inplace=True)
+
+        # Add derived columns matching Python output
+        self.balance["options capital"] = (
+            self.balance.get("calls capital", 0) + self.balance.get("puts capital", 0)
+        )
+        stock_cols = [s.symbol for s in self._stocks if s.symbol in self.balance.columns]
+        self.balance["stocks capital"] = sum(
+            self.balance[c] for c in stock_cols
+        ) if stock_cols else 0
+        self.balance["total capital"] = (
+            self.balance["cash"]
+            + self.balance["stocks capital"]
+            + self.balance["options capital"]
+        )
+        self.balance["% change"] = self.balance["total capital"].pct_change()
+        self.balance["accumulated return"] = (1.0 + self.balance["% change"]).cumprod()
+
+        self.current_cash = stats.get("final_cash", 0.0)
+        self._initialize_inventories()
+        self._portfolio = Portfolio(initial_cash=self.current_cash)
+
+        return self.trade_log
+
+    def _flat_trade_log_to_multiindex(self, flat_df: pd.DataFrame) -> pd.DataFrame:
+        """Convert flat 'leg__field' columns from Rust to MultiIndex DataFrame."""
+        if flat_df.empty:
+            return pd.DataFrame()
+        tuples = []
+        for c in flat_df.columns:
+            if "__" in c:
+                parts = c.split("__", 1)
+                tuples.append((parts[0], parts[1]))
+            else:
+                tuples.append(("", c))
+        flat_df.columns = pd.MultiIndex.from_tuples(tuples)
+        return flat_df
+
     # -- Internals (same logic as original, with pluggable components) --
 
     def _total_capital_estimate(self, stocks: pd.DataFrame,
@@ -250,6 +376,8 @@ class BacktestEngine:
         self._stocks_inventory: pd.DataFrame = pd.DataFrame(
             columns=["symbol", "price", "qty"]
         )
+        # Portfolio dataclass — dual-write alongside legacy DataFrames
+        self._portfolio = Portfolio(initial_cash=0.0)
 
     def _data_iterator(self, monthly: bool):
         if monthly:
@@ -363,6 +491,13 @@ class BacktestEngine:
         )
 
     def _update_balance(self, start_date, end_date):
+        # Per-method Rust dispatch for balance computation (opt-in)
+        if getattr(self, '_use_rust_loop', False) and use_rust():
+            try:
+                return self._update_balance_rust(start_date, end_date)
+            except ImportError:
+                pass  # polars not installed, fall through to Python
+
         stocks_date_col = self._stocks_schema["date"]
         sd = self._stocks_data._data
         stocks_data = sd[(sd[stocks_date_col] >= start_date) & (sd[stocks_date_col] < end_date)]
@@ -427,6 +562,76 @@ class BacktestEngine:
             add[symbol + " qty"] = qty
 
         self._balance_parts.append(pd.DataFrame(add))
+
+    def _update_balance_rust(self, start_date, end_date):
+        """Rust-accelerated balance update using the _ob_rust.update_balance function."""
+        import polars as pl
+
+        stocks_date_col = self._stocks_schema["date"]
+        sd = self._stocks_data._data
+        stocks_data = sd[(sd[stocks_date_col] >= start_date) & (sd[stocks_date_col] < end_date)]
+
+        options_date_col = self._options_schema["date"]
+        od = self._options_data._data
+        options_data = od[(od[options_date_col] >= start_date) & (od[options_date_col] < end_date)]
+
+        if options_data.empty:
+            return
+
+        # Build leg inventory lists for Rust
+        leg_contracts = []
+        leg_qtys = []
+        leg_types = []
+        leg_directions = []
+        for leg in self._options_strategy.legs:
+            leg_inv = self._options_inventory[leg.name]
+            if leg_inv.empty or leg_inv["contract"].isna().all():
+                leg_contracts.append([])
+                leg_qtys.append([])
+                leg_types.append([])
+            else:
+                leg_contracts.append(leg_inv["contract"].astype(str).tolist())
+                leg_qtys.append(self._options_inventory["totals"]["qty"].astype(float).tolist())
+                leg_types.append(leg_inv["type"].astype(str).tolist())
+            leg_directions.append(leg.direction.value)
+
+        opts_pl = pl.from_pandas(options_data)
+        stocks_pl = pl.from_pandas(stocks_data)
+
+        result_pl = rust.update_balance(
+            leg_contracts, leg_qtys, leg_types, leg_directions,
+            self._stocks_inventory["symbol"].tolist(),
+            self._stocks_inventory["qty"].astype(float).tolist(),
+            opts_pl, stocks_pl,
+            self._options_schema["contract"],
+            options_date_col,
+            stocks_date_col,
+            self._stocks_schema["symbol"],
+            self._stocks_schema["adjClose"],
+            self.shares_per_contract,
+            self.current_cash,
+        )
+
+        # Convert Polars result back to pandas and append to balance parts
+        result_pd = result_pl.to_pandas()
+        if not result_pd.empty:
+            # Remap column names for backward compat
+            renames = {
+                "calls_capital": "calls capital",
+                "puts_capital": "puts capital",
+                "options_qty": "options qty",
+                "stocks_qty": "stocks qty",
+            }
+            result_pd.rename(columns=renames, inplace=True)
+            if options_date_col in result_pd.columns:
+                result_pd.set_index(options_date_col, inplace=True)
+
+            # Add stock qty columns
+            for symbol, qty in zip(self._stocks_inventory["symbol"],
+                                   self._stocks_inventory["qty"]):
+                result_pd[symbol + " qty"] = qty
+
+            self._balance_parts.append(result_pd)
 
     def _compute_portfolio_greeks(self, options) -> Greeks:
         """Compute aggregate Greeks for current portfolio positions."""
@@ -546,6 +751,10 @@ class BacktestEngine:
 
         entries = self._pick_entry_signals(entry_signals_df, subset_options)
 
+        # Apply per-leg fill model if available
+        if not entries.empty:
+            entries = self._apply_fill_models(entries, subset_options)
+
         # Risk check: reject entry if any constraint is violated
         if not entries.empty and self.risk_manager.constraints:
             portfolio_value = (
@@ -565,6 +774,10 @@ class BacktestEngine:
             [self._options_inventory, entries_df], ignore_index=True
         )
         self._trade_log_parts.append(entries_df)
+
+        # Dual-write: add to Portfolio dataclass
+        if not entries.empty:
+            self._add_position_to_portfolio(entries, date)
 
         # Apply commission from cost model
         qty_val = entries["totals"]["qty"]
@@ -610,9 +823,13 @@ class BacktestEngine:
         exits = exit_candidates[exits_mask]
         total_costs = total_costs[exits_mask] * exits["totals"]["qty"]
 
-        self._options_inventory.drop(
-            self._options_inventory[exits_mask].index, inplace=True
-        )
+        exited_indices = self._options_inventory[exits_mask].index.tolist()
+        self._options_inventory.drop(exited_indices, inplace=True)
+
+        # Dual-write: remove from Portfolio dataclass
+        for idx in exited_indices:
+            self._portfolio.remove_option_position(idx)
+
         if not exits.empty:
             self._trade_log_parts.append(pd.DataFrame(exits))
 
@@ -635,8 +852,13 @@ class BacktestEngine:
         first_leg = self._options_strategy.legs[0]
         candidates = entry_signals[first_leg.name].copy()
 
+        # Use per-leg signal selector if available, otherwise engine-level
+        selector = self.signal_selector
+        if hasattr(first_leg, 'signal_selector') and first_leg.signal_selector is not None:
+            selector = first_leg.signal_selector
+
         # Enrich with extra columns the selector needs (e.g. delta, openinterest)
-        extra_cols = self.signal_selector.column_requirements
+        extra_cols = selector.column_requirements
         if extra_cols and subset_options is not None:
             contract_col = self._options_schema["contract"]
             for col in extra_cols:
@@ -648,8 +870,61 @@ class BacktestEngine:
                     )
                     candidates[col] = candidates["contract"].map(lookup)
 
-        selected = self.signal_selector.select(candidates)
+        selected = selector.select(candidates)
         return entry_signals.loc[selected.name]
+
+    def _apply_fill_models(self, entries, subset_options):
+        """Re-price entry legs using per-leg fill models when they differ from MarketAtBidAsk."""
+        contract_col = self._options_schema["contract"]
+        total_cost = 0.0
+        for leg in self._options_strategy.legs:
+            fill = getattr(leg, 'fill_model', None)
+            if fill is None:
+                fill = self.fill_model
+            if isinstance(fill, MarketAtBidAsk):
+                total_cost += entries[leg.name]["cost"]
+                continue
+            contract_id = entries[leg.name]["contract"]
+            match = subset_options[subset_options[contract_col] == contract_id]
+            if match.empty:
+                total_cost += entries[leg.name]["cost"]
+                continue
+            new_price = fill.get_fill_price(match.iloc[0], leg.direction)
+            # Handle both legacy Direction (value="bid") and new Direction (value="sell")
+            is_sell = (leg.direction == LegacyDirection.SELL
+                       or getattr(leg.direction, 'value', None) == "sell")
+            sign = -1 if is_sell else 1
+            new_cost = sign * new_price * self.shares_per_contract
+            entries[leg.name, "cost"] = new_cost
+            total_cost += new_cost
+        entries["totals", "cost"] = total_cost
+        return entries
+
+    def _add_position_to_portfolio(self, entries, date):
+        """Dual-write: create OptionPosition from entry signals and add to portfolio."""
+        pid = self._portfolio.next_position_id()
+        pos = OptionPosition(
+            position_id=pid,
+            quantity=int(entries["totals"]["qty"]),
+            entry_cost=float(entries["totals"]["cost"]),
+            entry_date=date,
+        )
+        for leg in self._options_strategy.legs:
+            leg_data = entries[leg.name]
+            pos.add_leg(PositionLeg(
+                name=leg.name,
+                contract_id=leg_data["contract"],
+                underlying=leg_data["underlying"],
+                expiration=leg_data["expiration"],
+                option_type=OptionType.CALL if leg_data["type"] == LegacyType.CALL.value else OptionType.PUT,
+                strike=float(leg_data["strike"]),
+                entry_price=float(leg_data["cost"]),
+                direction=Direction.BUY if leg.direction == LegacyDirection.BUY else Direction.SELL,
+                order=leg_data["order"],
+            ))
+        # Use the DataFrame index as the position ID for exit cross-reference
+        inv_idx = self._options_inventory.index[-1]
+        self._portfolio.option_positions[inv_idx] = pos
 
     def _signal_fields(self, cost_field):
         return {

@@ -5,3 +5,4 @@ pub mod filter;
 pub mod entries;
 pub mod exits;
 pub mod stats;
+pub mod backtest;

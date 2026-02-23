@@ -36,8 +36,8 @@ class StrategyLeg:
         self.schema = schema
         self.type = option_type
         self.direction = direction
-        self.signal_selector = signal_selector or FirstMatch()
-        self.fill_model = fill_model or MarketAtBidAsk()
+        self.signal_selector = signal_selector  # None = use engine-level default
+        self.fill_model = fill_model  # None = use engine-level default
 
         self.entry_sort: tuple[str, bool] | None = None
         self._entry_filter: "Filter" = self._base_entry_filter()

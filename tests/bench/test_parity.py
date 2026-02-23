@@ -17,6 +17,7 @@ try:
         compile_filter as rust_compile_filter,
         apply_filter as rust_apply_filter,
         compute_exit_mask as rust_compute_exit_mask,
+        run_backtest_py as rust_run_backtest,
     )
     RUST_AVAILABLE = True
 except ImportError:
@@ -264,3 +265,70 @@ class TestCompiledFilter:
     def test_repr(self):
         f = rust_compile_filter("dte >= 60")
         assert "Cmp" in repr(f)
+
+
+class TestFullBacktestParity:
+    """Verify Rust full backtest loop produces consistent results."""
+
+    def test_rust_backtest_runs(self):
+        """Smoke test: Rust backtest completes without error."""
+        # Build minimal options data
+        dates = ["2024-01-01"] * 4 + ["2024-01-15"] * 4
+        opts = pd.DataFrame({
+            "optionroot": ["A", "B", "C", "D"] * 2,
+            "underlying": ["SPX"] * 8,
+            "underlying_last": [4500.0] * 8,
+            "quotedate": dates,
+            "type": ["put", "put", "call", "put"] * 2,
+            "expiration": ["2024-03-01"] * 8,
+            "strike": [4400.0, 4300.0, 4500.0, 4200.0] * 2,
+            "bid": [5.0, 8.0, 3.0, 12.0, 4.0, 7.0, 2.0, 11.0],
+            "ask": [6.0, 9.0, 4.0, 13.0, 5.0, 8.0, 3.0, 12.0],
+            "volume": [100] * 8,
+            "open_interest": [1000] * 8,
+            "dte": [60] * 8,
+        })
+        stocks = pd.DataFrame({
+            "date": ["2024-01-01", "2024-01-15"] * 2,
+            "symbol": ["SPY", "SPY", "TLT", "TLT"],
+            "adjClose": [450.0, 455.0, 100.0, 101.0],
+        })
+
+        config = {
+            "allocation": {"stocks": 0.5, "options": 0.3, "cash": 0.2},
+            "initial_capital": 100000.0,
+            "shares_per_contract": 100,
+            "rebalance_freq": 1,
+            "legs": [{
+                "name": "leg_1",
+                "entry_filter": "(type == 'put') & (ask > 0)",
+                "exit_filter": "type == 'put'",
+                "direction": "ask",
+                "type": "put",
+                "entry_sort_col": None,
+                "entry_sort_asc": True,
+            }],
+            "profit_pct": None,
+            "loss_pct": None,
+            "stocks": [("SPY", 0.6), ("TLT", 0.4)],
+            "rebalance_dates": ["2024-01-01", "2024-01-15"],
+        }
+        schema = {
+            "contract": "optionroot",
+            "date": "quotedate",
+            "stocks_date": "date",
+            "stocks_symbol": "symbol",
+            "stocks_price": "adjClose",
+        }
+
+        opts_pl = _pd_to_pl(opts)
+        stocks_pl = _pd_to_pl(stocks)
+
+        balance, trade_log, stats = rust_run_backtest(
+            opts_pl, stocks_pl, config, schema,
+        )
+
+        assert balance.height > 0
+        assert isinstance(stats, dict)
+        assert "total_return" in stats
+        assert "final_cash" in stats
