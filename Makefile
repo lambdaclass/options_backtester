@@ -2,7 +2,7 @@ NIX_CMD := XDG_CACHE_HOME=$(CURDIR)/.cache nix --extra-experimental-features 'ni
 RUNCMD := $(NIX_CMD)
 PYTHON := python
 
-.PHONY: test test-old test-new test-bench lint typecheck notebooks rust-build rust-test rust-bench bench install-dev compare-bt benchmark-matrix walk-forward-report parity-gate help
+.PHONY: test test-old test-new test-bench lint typecheck notebooks rust-build rust-test rust-bench bench install-dev compare-bt benchmark-matrix walk-forward-report parity-gate bench-rust-vs-python help
 .DEFAULT_GOAL := help
 
 test: ## Run all tests (old + new)
@@ -54,6 +54,9 @@ benchmark-matrix: ## Run standardized runtime/accuracy matrix vs bt
 
 walk-forward-report: ## Run walk-forward/OOS harness and save report
 	$(RUNCMD) $(PYTHON) scripts/walk_forward_report.py
+
+bench-rust-vs-python: ## Benchmark Rust vs Python vs bt (options + stock-only)
+	$(RUNCMD) $(PYTHON) scripts/benchmark_rust_vs_python.py --stock-only
 
 parity-gate: ## Run bt overlap parity CI gate (bench marker)
 	$(RUNCMD) $(PYTHON) -m pytest -v tests/compat/test_bt_overlap_gate.py -m bench

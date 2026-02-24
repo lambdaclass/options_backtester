@@ -19,6 +19,13 @@ class StrategyTreeNode:
     engine: BacktestEngine | None = None
     children: list["StrategyTreeNode"] = field(default_factory=list)
 
+    def __post_init__(self) -> None:
+        if self.engine is not None and self.children:
+            raise ValueError(
+                f"StrategyTreeNode '{self.name}' has both engine and children; "
+                "a node must be either a leaf (engine) or a branch (children), not both"
+            )
+
     def is_leaf(self) -> bool:
         return self.engine is not None
 
@@ -57,9 +64,11 @@ class StrategyTreeEngine:
 
         balances: list[pd.DataFrame] = []
         for leaf, share in leaf_allocs:
-            cap = int(self.initial_capital * share)
+            cap = round(self.initial_capital * share)
+            saved_capital = leaf.engine.initial_capital
             leaf.engine.initial_capital = cap
             trade_log = leaf.engine.run(rebalance_freq=rebalance_freq, monthly=monthly, sma_days=sma_days)
+            leaf.engine.initial_capital = saved_capital
             results[leaf.name] = trade_log
             self.attribution[leaf.name] = {
                 "weight": share,

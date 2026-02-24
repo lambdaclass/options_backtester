@@ -53,6 +53,7 @@ from options_backtester.engine.algo_adapters import (
     EnginePipelineContext,
     EngineRunMonthly,
     BudgetPercent,
+    RangeFilter,
     SelectByDelta,
     SelectByDTE,
     IVRankFilter,
@@ -87,7 +88,7 @@ __all__ = [
     "AlgoPipelineBacktester", "PipelineContext", "PipelineLogRow", "StepDecision",
     "RunMonthly", "SelectThese", "WeighSpecified", "MaxDrawdownGuard", "Rebalance",
     "EngineAlgo", "EngineStepDecision", "EnginePipelineContext", "EngineRunMonthly",
-    "BudgetPercent", "SelectByDelta", "SelectByDTE", "IVRankFilter",
+    "BudgetPercent", "RangeFilter", "SelectByDelta", "SelectByDTE", "IVRankFilter",
     "MaxGreekExposure", "ExitOnThreshold",
     "StrategyTreeNode", "StrategyTreeEngine",
     # Analytics

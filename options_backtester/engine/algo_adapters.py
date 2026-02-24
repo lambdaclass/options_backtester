@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass, field
 from typing import Literal, Protocol
 
@@ -47,6 +48,9 @@ class EngineRunMonthly:
     def __init__(self) -> None:
         self._last_month: tuple[int, int] | None = None
 
+    def reset(self) -> None:
+        self._last_month = None
+
     def __call__(self, ctx: EnginePipelineContext) -> EngineStepDecision:
         key = (ctx.date.year, ctx.date.month)
         if self._last_month == key:
@@ -66,61 +70,44 @@ class BudgetPercent:
         return EngineStepDecision()
 
 
-class SelectByDelta:
+class RangeFilter:
+    """Keep contracts where *column* falls within [min_val, max_val].
+
+    Generic building block — use directly or via the convenience aliases
+    ``SelectByDelta``, ``SelectByDTE``, ``IVRankFilter``.
+    """
+
+    def __init__(self, column: str, min_val: float, max_val: float) -> None:
+        self.column = column
+        self.min_val = float(min_val)
+        self.max_val = float(max_val)
+
+    def __call__(self, ctx: EnginePipelineContext) -> EngineStepDecision:
+        lo, hi, col = self.min_val, self.max_val, self.column
+
+        def _flt(df: pd.DataFrame) -> pd.Series:
+            if col not in df.columns:
+                return pd.Series(True, index=df.index)
+            v = df[col]
+            return (v >= lo) & (v <= hi)
+
+        ctx.entry_filters.append(_flt)
+        return EngineStepDecision()
+
+
+def SelectByDelta(min_delta: float = -1.0, max_delta: float = 1.0, column: str = "delta") -> RangeFilter:
     """Keep contracts with delta within [min_delta, max_delta]."""
-
-    def __init__(self, min_delta: float = -1.0, max_delta: float = 1.0, column: str = "delta") -> None:
-        self.min_delta = float(min_delta)
-        self.max_delta = float(max_delta)
-        self.column = column
-
-    def __call__(self, ctx: EnginePipelineContext) -> EngineStepDecision:
-        def _flt(df: pd.DataFrame) -> pd.Series:
-            if self.column not in df.columns:
-                return pd.Series(True, index=df.index)
-            v = df[self.column]
-            return (v >= self.min_delta) & (v <= self.max_delta)
-
-        ctx.entry_filters.append(_flt)
-        return EngineStepDecision()
+    return RangeFilter(column=column, min_val=min_delta, max_val=max_delta)
 
 
-class SelectByDTE:
+def SelectByDTE(min_dte: int = 0, max_dte: int = 10_000, column: str = "dte") -> RangeFilter:
     """Keep contracts with DTE within [min_dte, max_dte]."""
-
-    def __init__(self, min_dte: int = 0, max_dte: int = 10_000, column: str = "dte") -> None:
-        self.min_dte = int(min_dte)
-        self.max_dte = int(max_dte)
-        self.column = column
-
-    def __call__(self, ctx: EnginePipelineContext) -> EngineStepDecision:
-        def _flt(df: pd.DataFrame) -> pd.Series:
-            if self.column not in df.columns:
-                return pd.Series(True, index=df.index)
-            v = df[self.column]
-            return (v >= self.min_dte) & (v <= self.max_dte)
-
-        ctx.entry_filters.append(_flt)
-        return EngineStepDecision()
+    return RangeFilter(column=column, min_val=float(min_dte), max_val=float(max_dte))
 
 
-class IVRankFilter:
+def IVRankFilter(min_rank: float = 0.0, max_rank: float = 1.0, column: str = "iv_rank") -> RangeFilter:
     """Keep contracts with IV rank within [min_rank, max_rank]."""
-
-    def __init__(self, min_rank: float = 0.0, max_rank: float = 1.0, column: str = "iv_rank") -> None:
-        self.min_rank = float(min_rank)
-        self.max_rank = float(max_rank)
-        self.column = column
-
-    def __call__(self, ctx: EnginePipelineContext) -> EngineStepDecision:
-        def _flt(df: pd.DataFrame) -> pd.Series:
-            if self.column not in df.columns:
-                return pd.Series(True, index=df.index)
-            v = df[self.column]
-            return (v >= self.min_rank) & (v <= self.max_rank)
-
-        ctx.entry_filters.append(_flt)
-        return EngineStepDecision()
+    return RangeFilter(column=column, min_val=min_rank, max_val=max_rank)
 
 
 class MaxGreekExposure:
@@ -149,11 +136,22 @@ class MaxGreekExposure:
 
 
 class ExitOnThreshold:
-    """Override strategy exit profit/loss thresholds for this run."""
+    """Override strategy exit profit/loss thresholds for this run.
+
+    At least one of *profit_pct* or *loss_pct* must be finite, otherwise the
+    algo is a no-op and likely a caller mistake.
+    """
 
     def __init__(self, profit_pct: float = float("inf"), loss_pct: float = float("inf")) -> None:
         self.profit_pct = float(profit_pct)
         self.loss_pct = float(loss_pct)
+        if math.isinf(self.profit_pct) and math.isinf(self.loss_pct):
+            import warnings
+            warnings.warn(
+                "ExitOnThreshold created with both thresholds infinite — "
+                "exit overrides will have no effect",
+                stacklevel=2,
+            )
 
     def __call__(self, ctx: EnginePipelineContext) -> EngineStepDecision:
         ctx.exit_threshold_override = (self.profit_pct, self.loss_pct)

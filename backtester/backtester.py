@@ -213,7 +213,8 @@ class Backtest:
 
         for date, stocks in data_iterator:
             if date in rebalancing_days:
-                previous_rb_date = rebalancing_days[rebalancing_days.get_loc(date) - 1] if rebalancing_days.get_loc(date) != 0 else date
+                loc = rebalancing_days.get_loc(date)
+                previous_rb_date = rebalancing_days[loc - 1] if loc != 0 else date
                 self._update_balance_stock_only(previous_rb_date, date)
                 self._rebalance_portfolio_stock_only(stocks, sma_days)
             bar.update()
@@ -229,6 +230,8 @@ class Backtest:
         for col in self.balance.columns:
             self.balance[col] = pd.to_numeric(self.balance[col], errors='coerce')
 
+        # Balance columns below must match run() output schema (calls/puts capital
+        # are injected as zeros in _update_balance_stock_only to keep parity).
         self.balance['options capital'] = self.balance['calls capital'] + self.balance['puts capital']
         self.balance['stocks capital'] = sum(self.balance[stock.symbol] for stock in self._stocks)
         first_idx = self.balance.index[0]

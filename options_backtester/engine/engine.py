@@ -148,6 +148,9 @@ class BacktestEngine:
             sma_days: int | None = None) -> pd.DataFrame:
         """Run the backtest. Returns the trade log DataFrame."""
         self._event_log_rows = []
+        for algo in self.algos:
+            if hasattr(algo, "reset"):
+                algo.reset()
         assert self._stocks_data, "Stock data not set"
         assert all(
             stock.symbol in self._stocks_data["symbol"].values
@@ -311,10 +314,20 @@ class BacktestEngine:
         return self.trade_log
 
     def events_dataframe(self) -> pd.DataFrame:
-        """Structured execution event log for debugging and audit."""
+        """Structured execution event log for debugging and audit.
+
+        The ``data`` dict from each event is flattened into top-level columns
+        so that the result can be filtered directly (e.g.
+        ``df[df["cash"] > 0]``).
+        """
         if not self._event_log_rows:
-            return pd.DataFrame(columns=["date", "event", "status", "data"])
-        return pd.DataFrame(self._event_log_rows)
+            return pd.DataFrame(columns=["date", "event", "status"])
+        flat = []
+        for row in self._event_log_rows:
+            entry = {"date": row["date"], "event": row["event"], "status": row["status"]}
+            entry.update(row.get("data", {}))
+            flat.append(entry)
+        return pd.DataFrame(flat)
 
     def _run_rust(
         self,
@@ -1034,19 +1047,18 @@ class BacktestEngine:
             self.current_cash -= options_allocation
             return
 
-        entries_df = pd.DataFrame(entries) if entries.empty else pd.DataFrame([entries])
+        entries_df = pd.DataFrame([entries])
         self._options_inventory = pd.concat(
             [self._options_inventory, entries_df], ignore_index=True
         )
         self._trade_log_parts.append(entries_df)
         self._log_event(date, "option_entry", "ok", {
-            "qty": int(entries["totals"]["qty"]) if not entries.empty else 0,
-            "cost": float(entries["totals"]["cost"]) if not entries.empty else 0.0,
+            "qty": int(entries["totals"]["qty"]),
+            "cost": float(entries["totals"]["cost"]),
         })
 
         # Dual-write: add to Portfolio dataclass
-        if not entries.empty:
-            self._add_position_to_portfolio(entries, date)
+        self._add_position_to_portfolio(entries, date)
 
         # Apply commission from cost model
         qty_val = entries["totals"]["qty"]

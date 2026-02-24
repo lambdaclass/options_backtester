@@ -54,6 +54,9 @@ class RunMonthly:
     def __init__(self) -> None:
         self._last_month: tuple[int, int] | None = None
 
+    def reset(self) -> None:
+        self._last_month = None
+
     def __call__(self, ctx: PipelineContext) -> StepDecision:
         key = (ctx.date.year, ctx.date.month)
         if self._last_month == key:
@@ -100,6 +103,9 @@ class MaxDrawdownGuard:
         self.max_drawdown_pct = float(max_drawdown_pct)
         self._peak = 0.0
 
+    def reset(self) -> None:
+        self._peak = 0.0
+
     def __call__(self, ctx: PipelineContext) -> StepDecision:
         self._peak = max(self._peak, float(ctx.total_capital))
         if self._peak <= 0:
@@ -111,7 +117,13 @@ class MaxDrawdownGuard:
 
 
 class Rebalance:
-    """Rebalance positions to target weights at current prices."""
+    """Rebalance positions to target weights at current prices.
+
+    Note: this performs a full liquidate-and-rebuy on each rebalance date.
+    Under a zero-cost model this is equivalent to delta-rebalancing, but if
+    transaction costs are added later, consider a delta-only mode that trades
+    only the difference between current and target positions.
+    """
 
     def __call__(self, ctx: PipelineContext) -> StepDecision:
         if not ctx.target_weights:
@@ -148,12 +160,16 @@ class AlgoPipelineBacktester:
         self.logs: list[PipelineLogRow] = []
 
     def run(self) -> pd.DataFrame:
+        self.logs = []
+        for algo in self.algos:
+            if hasattr(algo, "reset"):
+                algo.reset()
         cash = float(self.initial_capital)
         positions: dict[str, float] = {}
         rows: list[dict[str, float | pd.Timestamp]] = []
 
         for date, price_row in self.prices.iterrows():
-            stocks_cap = float(sum(float(qty) * float(price_row.get(sym, np.nan))
+            stocks_cap = float(sum(float(qty) * float(price_row[sym])
                                    for sym, qty in positions.items()
                                    if sym in price_row.index and pd.notna(price_row[sym])))
             total_cap = cash + stocks_cap
@@ -184,7 +200,7 @@ class AlgoPipelineBacktester:
 
             cash = float(ctx.cash)
             positions = dict(ctx.positions)
-            stocks_cap = float(sum(float(qty) * float(price_row.get(sym, np.nan))
+            stocks_cap = float(sum(float(qty) * float(price_row[sym])
                                    for sym, qty in positions.items()
                                    if sym in price_row.index and pd.notna(price_row[sym])))
             total_cap = cash + stocks_cap
@@ -201,6 +217,10 @@ class AlgoPipelineBacktester:
             if stop_all:
                 break
 
+        if not rows:
+            balance = pd.DataFrame()
+            self.balance = balance
+            return balance
         balance = pd.DataFrame(rows).set_index("date")
         if not balance.empty:
             balance["% change"] = balance["total capital"].pct_change()
