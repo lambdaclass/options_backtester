@@ -42,6 +42,10 @@ include = ["options_backtester*", "backtester*"]
 
 [tool.pytest.ini_options]
 testpaths = ["backtester/test", "tests"]
+addopts = "-m \"not bench\""
+markers = [
+    "bench: benchmark/property tests requiring explicit opt-in",
+]
 filterwarnings = ["ignore::DeprecationWarning"]
 
 [tool.mypy]

@@ -55,7 +55,7 @@ This fetches from the [self-hosted GitHub Release](https://github.com/lambdaclas
 ```shell
 make test          # all tests (Python + legacy)
 make test-new      # new framework tests only
-make test-bench    # benchmark/property tests
+make test-bench    # benchmark/property tests (explicit opt-in)
 make lint          # ruff linter
 make typecheck     # mypy type checking
 make rust-test     # Rust unit tests
@@ -64,7 +64,8 @@ make rust-bench    # Rust criterion benchmarks
 make bench         # Python benchmark suite
 ```
 
-`make` uses `nix develop` automatically when Nix is available; otherwise it uses `.venv/bin/python` (or `python3`) directly.
+`make` always runs via `nix develop`.
+Default pytest runs exclude the `bench` marker; run `make test-bench` for parity/fuzz benchmarks.
 
 ## Architecture
 

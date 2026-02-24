@@ -9,6 +9,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
+hypothesis = pytest.importorskip("hypothesis")
 from hypothesis import given, settings, assume, HealthCheck
 from hypothesis import strategies as st
 
@@ -24,7 +25,9 @@ try:
 except ImportError:
     RUST_AVAILABLE = False
 
-pytestmark = pytest.mark.skipif(not RUST_AVAILABLE, reason="Rust extension not installed")
+pytestmark = [
+    pytest.mark.skipif(not RUST_AVAILABLE, reason="Rust extension not installed"),
+]
 
 
 # ---------------------------------------------------------------------------

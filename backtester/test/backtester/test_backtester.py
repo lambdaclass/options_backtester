@@ -308,6 +308,24 @@ def test_options_budget_callable(options_data_2puts_buy, ivy_portfolio_5assets_d
         assert isinstance(capital, (int, float, np.floating))
 
 
+def test_run_metadata_attached(sample_stock_portfolio, sample_stocks_datahandler, sample_options_datahandler):
+    bt = run_backtest(sample_stocks_datahandler,
+                      sample_options_datahandler,
+                      sample_options_strategy(Direction.BUY, sample_options_datahandler.schema),
+                      stocks=sample_stock_portfolio)
+
+    meta = bt.run_metadata
+    assert meta['framework'] == 'backtester.Backtest'
+    assert meta['dispatch_mode'] == 'python-legacy'
+    assert isinstance(meta['git_sha'], str)
+    assert len(meta['config_hash']) == 64
+    assert len(meta['data_snapshot_hash']) == 64
+    assert meta['data_snapshot']['options_rows'] > 0
+    assert meta['data_snapshot']['stocks_rows'] > 0
+    assert bt.trade_log.attrs['run_metadata'] == meta
+    assert bt.balance.attrs['run_metadata'] == meta
+
+
 def sample_options_strategy(direction, schema):
     test_strat = Strategy(schema)
     leg1 = StrategyLeg("leg_1", schema, option_type=Type.CALL, direction=direction)

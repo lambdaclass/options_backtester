@@ -139,6 +139,24 @@ class TestEngineWithCosts:
         assert with_cost_final < no_cost_final
 
 
+class TestRunMetadata:
+    """Ensure reproducibility metadata is attached to outputs."""
+
+    def test_metadata_attached_to_trade_log_and_balance(self):
+        engine = _run_engine()
+        meta = engine.run_metadata
+
+        assert meta["framework"] == "options_backtester.engine.BacktestEngine"
+        assert meta["dispatch_mode"] in {"python", "rust-full"}
+        assert isinstance(meta["git_sha"], str)
+        assert len(meta["config_hash"]) == 64
+        assert len(meta["data_snapshot_hash"]) == 64
+        assert meta["data_snapshot"]["options_rows"] > 0
+        assert meta["data_snapshot"]["stocks_rows"] > 0
+        assert engine.trade_log.attrs["run_metadata"] == meta
+        assert engine.balance.attrs["run_metadata"] == meta
+
+
 class TestEngineInit:
     """Test engine initialization without running backtests."""
 

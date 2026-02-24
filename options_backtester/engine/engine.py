@@ -11,7 +11,12 @@ Replaces the monolithic Backtest class with a clean composition of:
 
 from __future__ import annotations
 
+import hashlib
+import json
+import subprocess
+from datetime import datetime, timezone
 from functools import reduce
+from pathlib import Path
 from typing import Any, Callable, Union
 
 import numpy as np
@@ -91,6 +96,7 @@ class BacktestEngine:
         self._options_strategy: Strategy | None = None
         self._stocks_data: TiingoData | None = None
         self._options_data: HistoricalOptionsData | None = None
+        self.run_metadata: dict[str, Any] = {}
 
     # -- Properties (same API as original Backtest) --
 
@@ -161,7 +167,11 @@ class BacktestEngine:
                 and isinstance(self.signal_selector, FirstMatch)
                 and not self.risk_manager.constraints
                 and self.options_budget is None):
-            return self._run_rust(rebalance_freq)
+            return self._run_rust(
+                rebalance_freq,
+                monthly=monthly,
+                sma_days=sma_days,
+            )
 
         self._initialize_inventories()
         self.current_cash: float = self.initial_capital
@@ -243,10 +253,21 @@ class BacktestEngine:
         self.balance["accumulated return"] = (
             1.0 + self.balance["% change"]
         ).cumprod()
+        self._attach_run_metadata(
+            rebalance_freq=rebalance_freq,
+            monthly=monthly,
+            sma_days=sma_days,
+            dispatch_mode="python",
+        )
 
         return self.trade_log
 
-    def _run_rust(self, rebalance_freq: int) -> pd.DataFrame:
+    def _run_rust(
+        self,
+        rebalance_freq: int,
+        monthly: bool,
+        sma_days: int | None,
+    ) -> pd.DataFrame:
         """Run the backtest using the Rust full-loop implementation."""
         import math
         import polars as pl
@@ -388,8 +409,97 @@ class BacktestEngine:
         self.current_cash = self.allocation["cash"] * final_total
         self._initialize_inventories()
         self._portfolio = Portfolio(initial_cash=self.current_cash)
+        self._attach_run_metadata(
+            rebalance_freq=rebalance_freq,
+            monthly=monthly,
+            sma_days=sma_days,
+            dispatch_mode="rust-full",
+        )
 
         return self.trade_log
+
+    def _attach_run_metadata(
+        self,
+        rebalance_freq: int,
+        monthly: bool,
+        sma_days: int | None,
+        dispatch_mode: str,
+    ) -> None:
+        metadata = self._build_run_metadata(
+            rebalance_freq=rebalance_freq,
+            monthly=monthly,
+            sma_days=sma_days,
+            dispatch_mode=dispatch_mode,
+        )
+        self.run_metadata = metadata
+        self.balance.attrs["run_metadata"] = metadata
+        self.trade_log.attrs["run_metadata"] = metadata
+
+    def _build_run_metadata(
+        self,
+        rebalance_freq: int,
+        monthly: bool,
+        sma_days: int | None,
+        dispatch_mode: str,
+    ) -> dict[str, Any]:
+        stocks = [
+            {"symbol": stock.symbol, "percentage": float(stock.percentage)}
+            for stock in self._stocks
+        ]
+        run_config = {
+            "allocation": {k: float(v) for k, v in self.allocation.items()},
+            "initial_capital": float(self.initial_capital),
+            "shares_per_contract": int(self.shares_per_contract),
+            "rebalance_freq": int(rebalance_freq),
+            "monthly": bool(monthly),
+            "sma_days": int(sma_days) if sma_days is not None else None,
+            "stocks": stocks,
+        }
+        data_snapshot = self._data_snapshot()
+        return {
+            "framework": "options_backtester.engine.BacktestEngine",
+            "dispatch_mode": dispatch_mode,
+            "rust_available": bool(use_rust()),
+            "git_sha": self._git_sha(),
+            "run_at_utc": datetime.now(timezone.utc).isoformat(),
+            "config_hash": self._sha256_json(run_config),
+            "data_snapshot_hash": self._sha256_json(data_snapshot),
+            "data_snapshot": data_snapshot,
+        }
+
+    def _data_snapshot(self) -> dict[str, Any]:
+        options_dates = self._options_data["date"]
+        stocks_dates = self._stocks_data["date"]
+        return {
+            "options_rows": int(len(self._options_data._data)),
+            "stocks_rows": int(len(self._stocks_data._data)),
+            "options_date_start": pd.Timestamp(options_dates.min()).isoformat(),
+            "options_date_end": pd.Timestamp(options_dates.max()).isoformat(),
+            "stocks_date_start": pd.Timestamp(stocks_dates.min()).isoformat(),
+            "stocks_date_end": pd.Timestamp(stocks_dates.max()).isoformat(),
+            "options_columns": list(self._options_data._data.columns),
+            "stocks_columns": list(self._stocks_data._data.columns),
+        }
+
+    @staticmethod
+    def _sha256_json(payload: dict[str, Any]) -> str:
+        blob = json.dumps(payload, sort_keys=True, separators=(",", ":"), default=str)
+        return hashlib.sha256(blob.encode("utf-8")).hexdigest()
+
+    @staticmethod
+    def _git_sha() -> str:
+        repo_root = Path(__file__).resolve().parents[2]
+        try:
+            proc = subprocess.run(
+                ["git", "rev-parse", "HEAD"],
+                cwd=repo_root,
+                check=True,
+                capture_output=True,
+                text=True,
+            )
+            return proc.stdout.strip()
+        except Exception:
+            return "unknown"
 
     def _flat_trade_log_to_multiindex(self, flat_df: pd.DataFrame) -> pd.DataFrame:
         """Convert flat 'leg__field' columns from Rust to MultiIndex DataFrame."""
