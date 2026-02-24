@@ -62,10 +62,20 @@ make rust-test     # Rust unit tests
 make rust-build    # build Rust extension
 make rust-bench    # Rust criterion benchmarks
 make bench         # Python benchmark suite
+make compare-bt    # head-to-head stock-only comparison vs bt
+make benchmark-matrix   # matrix benchmark across ranges/rebalance configs
+make walk-forward-report # walk-forward IS/OOS report
+make parity-gate        # bt overlap tolerance gate (bench test)
 ```
 
 `make` always runs via `nix develop`.
 Default pytest runs exclude the `bench` marker; run `make test-bench` for parity/fuzz benchmarks.
+
+New bt-style extensions:
+- Engine algo adapters (`EngineRunMonthly`, `BudgetPercent`, `SelectByDelta`, `SelectByDTE`, `IVRankFilter`, `MaxGreekExposure`, `ExitOnThreshold`)
+- Structured engine event log via `BacktestEngine.events_dataframe()`
+- Tearsheet exports: `to_csv()`, `to_markdown()`, `to_html()`
+- Strategy-tree throttling with per-leaf `max_share` and `unallocated_cash` tracking
 
 ## Architecture
 

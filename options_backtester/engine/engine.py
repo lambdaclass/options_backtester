@@ -35,6 +35,10 @@ from options_backtester.portfolio.risk import RiskManager
 from options_backtester.portfolio.portfolio import Portfolio, StockHolding
 from options_backtester.portfolio.position import OptionPosition, PositionLeg
 from options_backtester.engine._dispatch import use_rust, rust
+from options_backtester.engine.algo_adapters import (
+    EngineAlgo,
+    EnginePipelineContext,
+)
 
 # We still use the original data handler types for backward compat in the engine
 from backtester.datahandler.historical_options_data import HistoricalOptionsData
@@ -73,6 +77,7 @@ class BacktestEngine:
         sizer: PositionSizer | None = None,
         signal_selector: SignalSelector | None = None,
         risk_manager: RiskManager | None = None,
+        algos: list[EngineAlgo] | None = None,
         stop_if_broke: bool = False,
     ) -> None:
         assets = ("stocks", "options", "cash")
@@ -89,6 +94,7 @@ class BacktestEngine:
         self.sizer = sizer or CapitalBased()
         self.signal_selector = signal_selector or FirstMatch()
         self.risk_manager = risk_manager or RiskManager()
+        self.algos = list(algos or [])
         self.stop_if_broke = stop_if_broke
 
         self.options_budget: Union[Callable[[pd.Timestamp, float], float], float, None] = None
@@ -97,6 +103,7 @@ class BacktestEngine:
         self._stocks_data: TiingoData | None = None
         self._options_data: HistoricalOptionsData | None = None
         self.run_metadata: dict[str, Any] = {}
+        self._event_log_rows: list[dict[str, Any]] = []
 
     # -- Properties (same API as original Backtest) --
 
@@ -140,6 +147,7 @@ class BacktestEngine:
     def run(self, rebalance_freq: int = 0, monthly: bool = False,
             sma_days: int | None = None) -> pd.DataFrame:
         """Run the backtest. Returns the trade log DataFrame."""
+        self._event_log_rows = []
         assert self._stocks_data, "Stock data not set"
         assert all(
             stock.symbol in self._stocks_data["symbol"].values
@@ -161,17 +169,23 @@ class BacktestEngine:
             for leg in self._options_strategy.legs
         )
         if (use_rust() and not monthly and not sma_days
+                and not self.algos
                 and not has_per_leg_overrides
                 and isinstance(self.cost_model, NoCosts)
                 and isinstance(self.fill_model, MarketAtBidAsk)
                 and isinstance(self.signal_selector, FirstMatch)
                 and not self.risk_manager.constraints
                 and self.options_budget is None):
-            return self._run_rust(
-                rebalance_freq,
-                monthly=monthly,
-                sma_days=sma_days,
-            )
+            try:
+                return self._run_rust(
+                    rebalance_freq,
+                    monthly=monthly,
+                    sma_days=sma_days,
+                )
+            except Exception:
+                # Keep run alive when Rust extension is installed but incompatible
+                # with the active pandas/polars runtime.
+                pass
 
         self._initialize_inventories()
         self.current_cash: float = self.initial_capital
@@ -209,7 +223,41 @@ class BacktestEngine:
                 loc = rebalancing_days.get_loc(date)
                 previous_rb_date = rebalancing_days[loc - 1] if loc != 0 else date
                 self._update_balance(previous_rb_date, date)
-                self._rebalance_portfolio(date, stocks, options, sma_days)
+                self._log_event(date, "rebalance_start", "ok", {
+                    "cash": float(self.current_cash),
+                })
+
+                stock_capital = self._current_stock_capital(stocks)
+                options_capital = self._current_options_capital(options)
+                total_capital = self.current_cash + stock_capital + options_capital
+                options_allocation = self.allocation["options"] * total_capital
+                current_greeks = self._compute_portfolio_greeks(options)
+                ctx = EnginePipelineContext(
+                    date=pd.Timestamp(date),
+                    stocks=stocks,
+                    options=options,
+                    total_capital=float(total_capital),
+                    current_cash=float(self.current_cash),
+                    current_greeks=current_greeks,
+                    options_allocation=float(options_allocation),
+                )
+                should_stop, skip_day = self._apply_algos(ctx)
+                if should_stop:
+                    self._log_event(date, "algo_stop", "stop", {})
+                    break
+                if skip_day:
+                    self._log_event(date, "algo_skip_day", "skip_day", {})
+                    continue
+
+                self._rebalance_portfolio(
+                    date,
+                    stocks,
+                    ctx.options,
+                    sma_days,
+                    options_allocation_override=ctx.options_allocation,
+                    entry_filters=ctx.entry_filters,
+                    exit_threshold_override=ctx.exit_threshold_override,
+                )
 
                 # Track peak for drawdown risk checks
                 total = self._total_capital_estimate(stocks, options)
@@ -261,6 +309,12 @@ class BacktestEngine:
         )
 
         return self.trade_log
+
+    def events_dataframe(self) -> pd.DataFrame:
+        """Structured execution event log for debugging and audit."""
+        if not self._event_log_rows:
+            return pd.DataFrame(columns=["date", "event", "status", "data"])
+        return pd.DataFrame(self._event_log_rows)
 
     def _run_rust(
         self,
@@ -551,8 +605,17 @@ class BacktestEngine:
             for (date, stocks), (_, options) in it
         )
 
-    def _rebalance_portfolio(self, date, stocks, options, sma_days):
-        self._execute_option_exits(date, options)
+    def _rebalance_portfolio(
+        self,
+        date,
+        stocks,
+        options,
+        sma_days,
+        options_allocation_override: float | None = None,
+        entry_filters: list | None = None,
+        exit_threshold_override: tuple[float, float] | None = None,
+    ):
+        self._execute_option_exits(date, options, exit_threshold_override=exit_threshold_override)
 
         stock_capital = self._current_stock_capital(stocks)
         options_capital = self._current_options_capital(options)
@@ -563,13 +626,26 @@ class BacktestEngine:
         self.current_cash = stocks_allocation + total_capital * self.allocation["cash"]
         self._buy_stocks(stocks, stocks_allocation, sma_days)
 
-        if self.options_budget is not None:
+        if options_allocation_override is not None:
+            options_allocation = float(options_allocation_override)
+        elif self.options_budget is not None:
             budget = self.options_budget
             options_allocation: float = budget(date, total_capital) if callable(budget) else budget
         else:
             options_allocation = self.allocation["options"] * total_capital
+        self._log_event(date, "target_allocation", "ok", {
+            "total_capital": float(total_capital),
+            "options_allocation": float(options_allocation),
+            "options_capital": float(options_capital),
+        })
         if options_allocation >= options_capital:
-            self._execute_option_entries(date, options, options_allocation - options_capital, stocks)
+            self._execute_option_entries(
+                date,
+                options,
+                options_allocation - options_capital,
+                stocks,
+                entry_filters=entry_filters,
+            )
         else:
             to_sell = options_capital - options_allocation
             current_options = self._get_current_option_quotes(options)
@@ -606,6 +682,11 @@ class BacktestEngine:
 
         if trade_rows:
             self._trade_log_parts.append(pd.DataFrame(trade_rows))
+        self._log_event(date, "partial_option_delever", "ok", {
+            "target_to_sell": float(to_sell),
+            "sold": float(sold),
+            "trade_rows": int(len(trade_rows)),
+        })
         self.current_cash += sold - to_sell
 
     def _current_stock_capital(self, stocks):
@@ -657,7 +738,7 @@ class BacktestEngine:
         if use_rust():
             try:
                 return self._update_balance_rust(start_date, end_date)
-            except ImportError:
+            except Exception:
                 pass  # polars not installed, fall through to Python
 
         stocks_date_col = self._stocks_schema["date"]
@@ -861,7 +942,7 @@ class BacktestEngine:
 
         return total
 
-    def _execute_option_entries(self, date, options, options_allocation, stocks=None):
+    def _execute_option_entries(self, date, options, options_allocation, stocks=None, entry_filters=None):
         self.current_cash += options_allocation
 
         inventory_contracts = pd.concat(
@@ -870,6 +951,15 @@ class BacktestEngine:
         subset_options = options[
             ~options[self._options_schema["contract"]].isin(inventory_contracts)
         ]
+        if entry_filters:
+            for flt in entry_filters:
+                subset_options = subset_options[flt(subset_options)]
+            if subset_options.empty:
+                self._log_event(date, "option_entry_filtered", "skip_day", {
+                    "options_allocation": float(options_allocation),
+                })
+                self.current_cash -= options_allocation
+                return
 
         entry_signals: list[pd.DataFrame] = []
         for leg in self._options_strategy.legs:
@@ -878,6 +968,10 @@ class BacktestEngine:
 
             leg_entries = subset_options[flt(subset_options)]
             if leg_entries.empty:
+                self._log_event(date, "option_entry_no_candidates", "skip_day", {
+                    "leg": leg.name,
+                })
+                self.current_cash -= options_allocation
                 return
 
             if leg.entry_sort:
@@ -929,13 +1023,26 @@ class BacktestEngine:
                 current_greeks, proposed_greeks, portfolio_value, self._peak_value,
             )
             if not allowed:
+                self._log_event(date, "risk_block_entry", "skip_day", {
+                    "portfolio_value": float(portfolio_value),
+                })
+                self.current_cash -= options_allocation
                 return
+
+        if entries.empty:
+            self._log_event(date, "option_entry_none_selected", "skip_day", {})
+            self.current_cash -= options_allocation
+            return
 
         entries_df = pd.DataFrame(entries) if entries.empty else pd.DataFrame([entries])
         self._options_inventory = pd.concat(
             [self._options_inventory, entries_df], ignore_index=True
         )
         self._trade_log_parts.append(entries_df)
+        self._log_event(date, "option_entry", "ok", {
+            "qty": int(entries["totals"]["qty"]) if not entries.empty else 0,
+            "cost": float(entries["totals"]["cost"]) if not entries.empty else 0.0,
+        })
 
         # Dual-write: add to Portfolio dataclass
         if not entries.empty:
@@ -949,7 +1056,7 @@ class BacktestEngine:
         )
         self.current_cash -= np.sum(cost_val * qty_val) + commission
 
-    def _execute_option_exits(self, date, options):
+    def _execute_option_exits(self, date, options, exit_threshold_override: tuple[float, float] | None = None):
         strategy = self._options_strategy
         current_options_quotes = self._get_current_option_quotes(options)
 
@@ -976,9 +1083,15 @@ class BacktestEngine:
         totals.columns = pd.MultiIndex.from_product([["totals"], totals.columns])
         exit_candidates = pd.concat([exit_candidates, totals], axis=1)
 
-        threshold_exits = strategy.filter_thresholds(
-            self._options_inventory["totals"]["cost"], total_costs
-        )
+        if exit_threshold_override is None:
+            threshold_exits = strategy.filter_thresholds(
+                self._options_inventory["totals"]["cost"], total_costs
+            )
+        else:
+            entry_cost = self._options_inventory["totals"]["cost"]
+            profit_pct, loss_pct = exit_threshold_override
+            excess_return = (total_costs / entry_cost + 1) * -np.sign(entry_cost)
+            threshold_exits = (excess_return >= profit_pct) | (excess_return <= -loss_pct)
         filter_mask = reduce(lambda x, y: x | y, filter_masks)
         exits_mask = threshold_exits | filter_mask
 
@@ -994,6 +1107,9 @@ class BacktestEngine:
 
         if not exits.empty:
             self._trade_log_parts.append(pd.DataFrame(exits))
+        self._log_event(date, "option_exit", "ok", {
+            "rows": int(len(exits)),
+        })
 
         # Apply commission on exit
         for _, row in exits.iterrows():
@@ -1005,6 +1121,31 @@ class BacktestEngine:
             self.current_cash -= commission
 
         self.current_cash -= sum(total_costs)
+
+    def _apply_algos(self, ctx: EnginePipelineContext) -> tuple[bool, bool]:
+        should_stop = False
+        skip_day = False
+        for algo in self.algos:
+            decision = algo(ctx)
+            self._log_event(ctx.date, "algo_step", decision.status, {
+                "step": algo.__class__.__name__,
+                "message": decision.message,
+            })
+            if decision.status == "skip_day":
+                skip_day = True
+                break
+            if decision.status == "stop":
+                should_stop = True
+                break
+        return should_stop, skip_day
+
+    def _log_event(self, date: pd.Timestamp, event: str, status: str, data: dict[str, Any]) -> None:
+        self._event_log_rows.append({
+            "date": pd.Timestamp(date),
+            "event": str(event),
+            "status": str(status),
+            "data": data,
+        })
 
     def _pick_entry_signals(self, entry_signals, subset_options=None):
         if entry_signals.empty:

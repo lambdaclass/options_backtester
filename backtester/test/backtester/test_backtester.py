@@ -108,6 +108,37 @@ def test_only_cash(sample_stock_portfolio, sample_stocks_datahandler, sample_opt
     assert np.allclose(balance['accumulated return'], 1.0, rtol=tolerance)
 
 
+def test_stock_only_fast_path_without_options(sample_stock_portfolio, sample_stocks_datahandler):
+    allocation = {'stocks': 1.0, 'options': 0.0, 'cash': 0.0}
+    bt = Backtest(allocation, initial_capital=1_000_000)
+    bt.stocks = sample_stock_portfolio
+    bt.stocks_data = sample_stocks_datahandler
+
+    bt.run(rebalance_freq=1)
+
+    assert bt.trade_log.empty
+    assert 'options capital' in bt.balance.columns
+    assert np.allclose(bt.balance['options capital'].fillna(0), 0.0)
+    assert bt.run_metadata['dispatch_mode'] == 'python-legacy'
+
+
+def test_stock_only_fast_path_skips_option_methods(sample_stock_portfolio, sample_stocks_datahandler):
+    allocation = {'stocks': 1.0, 'options': 0.0, 'cash': 0.0}
+    bt = Backtest(allocation, initial_capital=1_000_000)
+    bt.stocks = sample_stock_portfolio
+    bt.stocks_data = sample_stocks_datahandler
+
+    def _fail(*_args, **_kwargs):
+        raise AssertionError('Option path should not run in stock-only mode')
+
+    bt._execute_option_exits = _fail
+    bt._execute_option_entries = _fail
+    bt._current_options_capital = _fail
+
+    bt.run(rebalance_freq=1)
+    assert bt.trade_log.empty
+
+
 def test_only_options(sample_stock_portfolio, sample_stocks_datahandler, sample_options_datahandler):
     allocation = {'stocks': 0.0, 'options': 1.0, 'cash': 0.0}
     bt = run_backtest(sample_stocks_datahandler,

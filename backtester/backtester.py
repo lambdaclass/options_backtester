@@ -90,6 +90,19 @@ class Backtest:
         assert self._stocks_data, 'Stock data not set'
         assert all(stock.symbol in self._stocks_data['symbol'].values
                    for stock in self._stocks), 'Ensure all stocks in portfolio are present in the data'
+
+        stock_only_mode = (
+            np.isclose(self.allocation['options'], 0.0, atol=1e-12)
+            and self.options_budget is None
+        )
+        if stock_only_mode:
+            return self._run_stock_only(
+                rebalance_freq=rebalance_freq,
+                monthly=monthly,
+                sma_days=sma_days,
+                rebalance_unit=rebalance_unit,
+            )
+
         assert self._options_data, 'Options data not set'
         assert self._options_strategy, 'Options Strategy not set'
         assert self._options_data.schema == self._options_strategy.schema
@@ -133,7 +146,7 @@ class Backtest:
 
             bar.update()
 
-        # Update balance for the period between the last rebalancing day and the last day
+        # Update balance for the period between the last rebalancing day and the last day.
         self._update_balance(rebalancing_days[-1], self.stocks_data.end_date)
 
         # Assemble trade_log and balance from accumulated parts
@@ -160,6 +173,108 @@ class Backtest:
         )
 
         return self.trade_log
+
+    def _run_stock_only(
+        self,
+        rebalance_freq: int,
+        monthly: bool,
+        sma_days: int | None,
+        rebalance_unit: str,
+    ) -> pd.DataFrame:
+        self.current_cash = self.initial_capital
+        self._trade_log_parts = []
+        self._stocks_inventory = pd.DataFrame(columns=['symbol', 'price', 'qty'])
+
+        initial_balance = pd.DataFrame({
+            'total capital': self.current_cash,
+            'cash': self.current_cash,
+        }, index=[self.stocks_data.start_date - pd.Timedelta(1, unit='day')])
+        self._balance_parts = [initial_balance]
+
+        if sma_days:
+            self.stocks_data.sma(sma_days)
+
+        stocks_date_col = self._stocks_schema['date']
+        dates = pd.DataFrame(self.stocks_data._data[[stocks_date_col]]).drop_duplicates(stocks_date_col).set_index(stocks_date_col)
+        if rebalance_freq:
+            freq_str = str(rebalance_freq) + rebalance_unit
+            rebalancing_days = pd.to_datetime(
+                dates.groupby(pd.Grouper(freq=freq_str)).apply(lambda x: x.index.min()).values
+            )
+        else:
+            rebalancing_days = []
+
+        if monthly:
+            data_iterator = self._stocks_data.iter_months()
+        else:
+            data_iterator = self._stocks_data.iter_dates()
+        stock_dates = self.stocks_data['date'].unique()
+        bar = pyprind.ProgBar(len(stock_dates), bar_char='█')
+
+        for date, stocks in data_iterator:
+            if date in rebalancing_days:
+                previous_rb_date = rebalancing_days[rebalancing_days.get_loc(date) - 1] if rebalancing_days.get_loc(date) != 0 else date
+                self._update_balance_stock_only(previous_rb_date, date)
+                self._rebalance_portfolio_stock_only(stocks, sma_days)
+            bar.update()
+
+        if len(rebalancing_days) > 0:
+            self._update_balance_stock_only(
+                rebalancing_days[-1],
+                self.stocks_data.end_date + pd.Timedelta(1, unit='day'),
+            )
+
+        self.trade_log = pd.DataFrame()
+        self.balance = pd.concat(self._balance_parts, sort=False)
+        for col in self.balance.columns:
+            self.balance[col] = pd.to_numeric(self.balance[col], errors='coerce')
+
+        self.balance['options capital'] = self.balance['calls capital'] + self.balance['puts capital']
+        self.balance['stocks capital'] = sum(self.balance[stock.symbol] for stock in self._stocks)
+        first_idx = self.balance.index[0]
+        self.balance.loc[first_idx, 'stocks capital'] = 0
+        self.balance.loc[first_idx, 'options capital'] = 0
+        self.balance['total capital'] = self.balance['cash'] + self.balance['stocks capital'] + self.balance['options capital']
+        self.balance['% change'] = self.balance['total capital'].pct_change()
+        self.balance['accumulated return'] = (1.0 + self.balance['% change']).cumprod()
+        self._attach_run_metadata(
+            rebalance_freq=rebalance_freq,
+            monthly=monthly,
+            sma_days=sma_days,
+            rebalance_unit=rebalance_unit,
+        )
+        return self.trade_log
+
+    def _rebalance_portfolio_stock_only(self, stocks: pd.DataFrame, sma_days: int | None) -> None:
+        stock_capital = self._current_stock_capital(stocks)
+        total_capital = self.current_cash + stock_capital
+        stocks_allocation = self.allocation['stocks'] * total_capital
+        self._stocks_inventory = pd.DataFrame(columns=['symbol', 'price', 'qty'])
+        self.current_cash = stocks_allocation + total_capital * self.allocation['cash']
+        self._buy_stocks(stocks, stocks_allocation, sma_days)
+
+    def _update_balance_stock_only(self, start_date: pd.Timestamp, end_date: pd.Timestamp) -> None:
+        stocks_date_col = self._stocks_schema['date']
+        sd = self._stocks_data._data
+        stocks_data = sd[(sd[stocks_date_col] >= start_date) & (sd[stocks_date_col] < end_date)]
+
+        stocks_current = self._stocks_inventory[['symbol', 'qty']].merge(
+            stocks_data[['date', 'symbol', 'adjClose']], on='symbol'
+        )
+        stocks_current['cost'] = stocks_current['qty'] * stocks_current['adjClose']
+
+        add = stocks_current.pivot_table(index=stocks_date_col, columns='symbol', values='cost', aggfunc='sum')
+        add = add.reindex(columns=[stock.symbol for stock in self._stocks])
+        add['cash'] = self.current_cash
+        add['options qty'] = 0
+        add['calls capital'] = 0.0
+        add['puts capital'] = 0.0
+        add['stocks qty'] = self._stocks_inventory['qty'].sum()
+
+        for symbol, qty in zip(self._stocks_inventory['symbol'], self._stocks_inventory['qty']):
+            add[symbol + ' qty'] = qty
+
+        self._balance_parts.append(pd.DataFrame(add))
 
     def _attach_run_metadata(
         self,
@@ -209,16 +324,26 @@ class Backtest:
         }
 
     def _data_snapshot(self) -> dict[str, Any]:
-        options_dates = self._options_data['date']
         stocks_dates = self._stocks_data['date']
+        if self._options_data is not None:
+            options_dates = self._options_data['date']
+            options_rows = int(len(self._options_data._data))
+            options_date_start = pd.Timestamp(options_dates.min()).isoformat()
+            options_date_end = pd.Timestamp(options_dates.max()).isoformat()
+            options_columns = list(self._options_data._data.columns)
+        else:
+            options_rows = 0
+            options_date_start = None
+            options_date_end = None
+            options_columns = []
         return {
-            'options_rows': int(len(self._options_data._data)),
+            'options_rows': options_rows,
             'stocks_rows': int(len(self._stocks_data._data)),
-            'options_date_start': pd.Timestamp(options_dates.min()).isoformat(),
-            'options_date_end': pd.Timestamp(options_dates.max()).isoformat(),
+            'options_date_start': options_date_start,
+            'options_date_end': options_date_end,
             'stocks_date_start': pd.Timestamp(stocks_dates.min()).isoformat(),
             'stocks_date_end': pd.Timestamp(stocks_dates.max()).isoformat(),
-            'options_columns': list(self._options_data._data.columns),
+            'options_columns': options_columns,
             'stocks_columns': list(self._stocks_data._data.columns),
         }
 

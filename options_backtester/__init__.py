@@ -43,10 +43,28 @@ from options_backtester.portfolio.risk import RiskManager, MaxDelta, MaxVega, Ma
 # Engine
 from options_backtester.engine.engine import BacktestEngine
 from options_backtester.engine.clock import TradingClock
+from options_backtester.engine.pipeline import (
+    AlgoPipelineBacktester, PipelineContext, PipelineLogRow, StepDecision,
+    RunMonthly, SelectThese, WeighSpecified, MaxDrawdownGuard, Rebalance,
+)
+from options_backtester.engine.algo_adapters import (
+    EngineAlgo,
+    EngineStepDecision,
+    EnginePipelineContext,
+    EngineRunMonthly,
+    BudgetPercent,
+    SelectByDelta,
+    SelectByDTE,
+    IVRankFilter,
+    MaxGreekExposure,
+    ExitOnThreshold,
+)
+from options_backtester.engine.strategy_tree import StrategyTreeNode, StrategyTreeEngine
 
 # Analytics
 from options_backtester.analytics.stats import BacktestStats
 from options_backtester.analytics.trade_log import TradeLog
+from options_backtester.analytics.tearsheet import TearsheetReport, build_tearsheet
 
 __all__ = [
     # Core types
@@ -66,6 +84,12 @@ __all__ = [
     "RiskManager", "MaxDelta", "MaxVega", "MaxDrawdown",
     # Engine
     "BacktestEngine", "TradingClock",
+    "AlgoPipelineBacktester", "PipelineContext", "PipelineLogRow", "StepDecision",
+    "RunMonthly", "SelectThese", "WeighSpecified", "MaxDrawdownGuard", "Rebalance",
+    "EngineAlgo", "EngineStepDecision", "EnginePipelineContext", "EngineRunMonthly",
+    "BudgetPercent", "SelectByDelta", "SelectByDTE", "IVRankFilter",
+    "MaxGreekExposure", "ExitOnThreshold",
+    "StrategyTreeNode", "StrategyTreeEngine",
     # Analytics
-    "BacktestStats", "TradeLog",
+    "BacktestStats", "TradeLog", "TearsheetReport", "build_tearsheet",
 ]
