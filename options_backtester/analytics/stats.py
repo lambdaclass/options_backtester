@@ -1,15 +1,18 @@
-"""BacktestStats — comprehensive analytics with fixed profit_factor.
+"""BacktestStats — comprehensive analytics matching and exceeding bt/ffn.
 
-Replaces the original stats.py with:
-- Fixed profit_factor (dollar gross profit / gross loss, NOT win/loss count ratio)
-- Sharpe, Sortino, Calmar ratios
-- Max drawdown duration
-- Tail ratio
+Provides:
+- Trade stats: profit factor, win rate, largest win/loss
+- Return stats: total, annualized, Sharpe, Sortino, Calmar
+- Risk stats: max drawdown, drawdown duration, volatility, tail ratio
+- Period stats: monthly/yearly Sharpe, Sortino, mean, vol, skew, kurtosis
+- Extreme analysis: best/worst day, month, year
+- Lookback returns: MTD, 3M, 6M, YTD, 1Y, 3Y, 5Y, 10Y
+- Portfolio metrics: turnover, Herfindahl concentration index
 """
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any
 
 import numpy as np
@@ -17,6 +20,62 @@ import pandas as pd
 
 
 TRADING_DAYS_PER_YEAR = 252
+MONTHS_PER_YEAR = 12
+
+
+def _safe_ratio(numerator: float, denominator: float) -> float:
+    return numerator / denominator if denominator > 0 else 0.0
+
+
+def _sharpe(returns: pd.Series, risk_free_rate: float, periods_per_year: int) -> float:
+    if len(returns) < 2:
+        return 0.0
+    rf_per_period = (1 + risk_free_rate) ** (1 / periods_per_year) - 1
+    excess = returns - rf_per_period
+    std = excess.std()
+    if std == 0 or np.isnan(std):
+        return 0.0
+    return float(excess.mean() / std * np.sqrt(periods_per_year))
+
+
+def _sortino(returns: pd.Series, risk_free_rate: float, periods_per_year: int) -> float:
+    if len(returns) < 2:
+        return 0.0
+    rf_per_period = (1 + risk_free_rate) ** (1 / periods_per_year) - 1
+    excess = returns - rf_per_period
+    downside = excess[excess < 0]
+    if len(downside) == 0:
+        return 0.0
+    std = downside.std()
+    if std == 0 or np.isnan(std):
+        return 0.0
+    return float(excess.mean() / std * np.sqrt(periods_per_year))
+
+
+@dataclass
+class PeriodStats:
+    """Stats for a specific return frequency (daily, monthly, yearly)."""
+    mean: float = 0.0
+    vol: float = 0.0
+    sharpe: float = 0.0
+    sortino: float = 0.0
+    skew: float = 0.0
+    kurtosis: float = 0.0
+    best: float = 0.0
+    worst: float = 0.0
+
+
+@dataclass
+class LookbackReturns:
+    """Trailing period returns as of the end date."""
+    mtd: float | None = None
+    three_month: float | None = None
+    six_month: float | None = None
+    ytd: float | None = None
+    one_year: float | None = None
+    three_year: float | None = None
+    five_year: float | None = None
+    ten_year: float | None = None
 
 
 @dataclass
@@ -28,7 +87,7 @@ class BacktestStats:
     wins: int = 0
     losses: int = 0
     win_pct: float = 0.0
-    profit_factor: float = 0.0  # FIXED: dollar gross_profit / gross_loss
+    profit_factor: float = 0.0
     largest_win: float = 0.0
     largest_loss: float = 0.0
     avg_win: float = 0.0
@@ -44,9 +103,23 @@ class BacktestStats:
 
     # Risk stats
     max_drawdown: float = 0.0
-    max_drawdown_duration: int = 0  # in trading days
+    max_drawdown_duration: int = 0
+    avg_drawdown: float = 0.0
+    avg_drawdown_duration: int = 0
     volatility: float = 0.0
     tail_ratio: float = 0.0
+
+    # Period stats
+    daily: PeriodStats = field(default_factory=PeriodStats)
+    monthly: PeriodStats = field(default_factory=PeriodStats)
+    yearly: PeriodStats = field(default_factory=PeriodStats)
+
+    # Lookback
+    lookback: LookbackReturns = field(default_factory=LookbackReturns)
+
+    # Portfolio metrics
+    turnover: float = 0.0
+    herfindahl: float = 0.0
 
     @classmethod
     def from_balance(
@@ -55,13 +128,7 @@ class BacktestStats:
         trade_pnls: np.ndarray | None = None,
         risk_free_rate: float = 0.0,
     ) -> "BacktestStats":
-        """Compute stats from a balance DataFrame and optional trade P&Ls.
-
-        Args:
-            balance: DataFrame with 'total capital' and '% change' columns.
-            trade_pnls: Array of per-trade net P&L values.
-            risk_free_rate: Annual risk-free rate for Sharpe/Sortino.
-        """
+        """Compute stats from a balance DataFrame and optional trade P&Ls."""
         stats = cls()
 
         if balance.empty:
@@ -78,44 +145,74 @@ class BacktestStats:
                 (1 + stats.total_return) ** (TRADING_DAYS_PER_YEAR / n_days) - 1
             )
             stats.volatility = float(returns.std() * np.sqrt(TRADING_DAYS_PER_YEAR))
-
-            # Sharpe
-            daily_rf = (1 + risk_free_rate) ** (1 / TRADING_DAYS_PER_YEAR) - 1
-            excess = returns - daily_rf
-            if excess.std() > 0:
-                stats.sharpe_ratio = float(
-                    excess.mean() / excess.std() * np.sqrt(TRADING_DAYS_PER_YEAR)
-                )
-
-            # Sortino (only downside deviation)
-            downside = excess[excess < 0]
-            if len(downside) > 0 and downside.std() > 0:
-                stats.sortino_ratio = float(
-                    excess.mean() / downside.std() * np.sqrt(TRADING_DAYS_PER_YEAR)
-                )
+            stats.sharpe_ratio = _sharpe(returns, risk_free_rate, TRADING_DAYS_PER_YEAR)
+            stats.sortino_ratio = _sortino(returns, risk_free_rate, TRADING_DAYS_PER_YEAR)
 
         # -- Drawdown --
         cummax = total_capital.cummax()
         drawdown = (total_capital - cummax) / cummax
         stats.max_drawdown = float(abs(drawdown.min()))
 
-        # Max drawdown duration
         in_drawdown = drawdown < 0
         if in_drawdown.any():
             groups = (~in_drawdown).cumsum()
             dd_lengths = in_drawdown.groupby(groups).sum()
+            dd_lengths_pos = dd_lengths[dd_lengths > 0]
             stats.max_drawdown_duration = int(dd_lengths.max())
+            if len(dd_lengths_pos) > 0:
+                stats.avg_drawdown_duration = int(dd_lengths_pos.mean())
+            # Average drawdown depth (of each drawdown episode)
+            dd_depths = drawdown.groupby(groups).min()
+            dd_depths_neg = dd_depths[dd_depths < 0]
+            if len(dd_depths_neg) > 0:
+                stats.avg_drawdown = float(abs(dd_depths_neg.mean()))
 
         # Calmar
         if stats.max_drawdown > 0:
             stats.calmar_ratio = stats.annualized_return / stats.max_drawdown
 
-        # Tail ratio (95th percentile / abs(5th percentile))
+        # Tail ratio
         if len(returns) > 20:
             p95 = np.percentile(returns, 95)
             p5 = abs(np.percentile(returns, 5))
             if p5 > 0:
                 stats.tail_ratio = float(p95 / p5)
+
+        # -- Daily period stats --
+        if n_days > 0:
+            stats.daily = _compute_period_stats(
+                returns, risk_free_rate, TRADING_DAYS_PER_YEAR,
+            )
+
+        # -- Monthly period stats --
+        if hasattr(total_capital.index, 'to_period'):
+            monthly_cap = total_capital.resample("ME").last().dropna()
+            if len(monthly_cap) > 1:
+                monthly_returns = monthly_cap.pct_change().dropna()
+                if len(monthly_returns) > 0:
+                    stats.monthly = _compute_period_stats(
+                        monthly_returns, risk_free_rate, MONTHS_PER_YEAR,
+                    )
+
+        # -- Yearly period stats --
+        if hasattr(total_capital.index, 'to_period'):
+            yearly_cap = total_capital.resample("YE").last().dropna()
+            if len(yearly_cap) > 1:
+                yearly_returns = yearly_cap.pct_change().dropna()
+                if len(yearly_returns) > 0:
+                    stats.yearly = _compute_period_stats(
+                        yearly_returns, risk_free_rate, 1,
+                    )
+
+        # -- Lookback returns --
+        if hasattr(total_capital.index, 'month'):
+            stats.lookback = _compute_lookback(total_capital)
+
+        # -- Turnover --
+        stats.turnover = _compute_turnover(balance)
+
+        # -- Herfindahl --
+        stats.herfindahl = _compute_herfindahl(balance)
 
         # -- Trade stats --
         if trade_pnls is not None and len(trade_pnls) > 0:
@@ -126,7 +223,6 @@ class BacktestStats:
             stats.losses = len(losing)
             stats.win_pct = (stats.wins / stats.total_trades * 100) if stats.total_trades > 0 else 0
 
-            # FIXED profit_factor: dollar ratio, not count ratio
             gross_profit = winning.sum() if len(winning) > 0 else 0
             gross_loss = abs(losing.sum()) if len(losing) > 0 else 0
             stats.profit_factor = (gross_profit / gross_loss) if gross_loss > 0 else float("inf")
@@ -159,9 +255,50 @@ class BacktestStats:
             "Calmar ratio": self.calmar_ratio,
             "Max drawdown": self.max_drawdown,
             "Max DD duration (days)": self.max_drawdown_duration,
+            "Avg drawdown": self.avg_drawdown,
+            "Avg DD duration (days)": self.avg_drawdown_duration,
             "Volatility": self.volatility,
             "Tail ratio": self.tail_ratio,
+            # Daily
+            "Daily mean": self.daily.mean,
+            "Daily vol": self.daily.vol,
+            "Daily Sharpe": self.daily.sharpe,
+            "Daily Sortino": self.daily.sortino,
+            "Daily skew": self.daily.skew,
+            "Daily kurtosis": self.daily.kurtosis,
+            "Best day": self.daily.best,
+            "Worst day": self.daily.worst,
+            # Monthly
+            "Monthly mean": self.monthly.mean,
+            "Monthly vol": self.monthly.vol,
+            "Monthly Sharpe": self.monthly.sharpe,
+            "Monthly Sortino": self.monthly.sortino,
+            "Monthly skew": self.monthly.skew,
+            "Monthly kurtosis": self.monthly.kurtosis,
+            "Best month": self.monthly.best,
+            "Worst month": self.monthly.worst,
+            # Yearly
+            "Yearly mean": self.yearly.mean,
+            "Yearly vol": self.yearly.vol,
+            "Yearly Sharpe": self.yearly.sharpe,
+            "Yearly Sortino": self.yearly.sortino,
+            "Best year": self.yearly.best,
+            "Worst year": self.yearly.worst,
+            # Portfolio
+            "Turnover": self.turnover,
+            "Herfindahl index": self.herfindahl,
         }
+        # Add lookback returns (skip None values)
+        lb = self.lookback
+        for label, val in [
+            ("MTD", lb.mtd), ("3M return", lb.three_month),
+            ("6M return", lb.six_month), ("YTD", lb.ytd),
+            ("1Y return", lb.one_year), ("3Y return", lb.three_year),
+            ("5Y return", lb.five_year), ("10Y return", lb.ten_year),
+        ]:
+            if val is not None:
+                data[label] = val
+
         return pd.DataFrame(
             list(data.values()), index=list(data.keys()), columns=["Value"]
         )
@@ -180,4 +317,110 @@ class BacktestStats:
             f"Win Rate:          {self.win_pct:>10.1f}%",
             f"Total Trades:      {self.total_trades:>10d}",
         ]
+        if self.monthly.sharpe != 0:
+            lines.append(f"Monthly Sharpe:    {self.monthly.sharpe:>10.2f}")
+        if self.monthly.best != 0:
+            lines.append(f"Best Month:        {self.monthly.best:>10.2%}")
+            lines.append(f"Worst Month:       {self.monthly.worst:>10.2%}")
+        if self.turnover != 0:
+            lines.append(f"Turnover:          {self.turnover:>10.2%}")
         return "\n".join(lines)
+
+    def lookback_table(self) -> pd.DataFrame:
+        """Lookback returns as a single-row DataFrame."""
+        lb = self.lookback
+        data = {}
+        for label, val in [
+            ("MTD", lb.mtd), ("3M", lb.three_month), ("6M", lb.six_month),
+            ("YTD", lb.ytd), ("1Y", lb.one_year), ("3Y", lb.three_year),
+            ("5Y", lb.five_year), ("10Y", lb.ten_year),
+        ]:
+            if val is not None:
+                data[label] = val
+        if not data:
+            return pd.DataFrame()
+        return pd.DataFrame([data])
+
+
+def _compute_period_stats(
+    returns: pd.Series, risk_free_rate: float, periods_per_year: int,
+) -> PeriodStats:
+    ps = PeriodStats()
+    if len(returns) == 0:
+        return ps
+    ps.mean = float(returns.mean())
+    ps.vol = float(returns.std())
+    ps.sharpe = _sharpe(returns, risk_free_rate, periods_per_year)
+    ps.sortino = _sortino(returns, risk_free_rate, periods_per_year)
+    if len(returns) >= 8:
+        ps.skew = float(returns.skew())
+        ps.kurtosis = float(returns.kurtosis())
+    ps.best = float(returns.max())
+    ps.worst = float(returns.min())
+    return ps
+
+
+def _compute_lookback(total_capital: pd.Series) -> LookbackReturns:
+    """Compute trailing-period returns as of the last date."""
+    lb = LookbackReturns()
+    if len(total_capital) < 2:
+        return lb
+    end_date = total_capital.index[-1]
+    end_val = total_capital.iloc[-1]
+
+    def _return_since(dt: pd.Timestamp) -> float | None:
+        mask = total_capital.index >= dt
+        if not mask.any():
+            return None
+        start_val = total_capital.loc[mask].iloc[0]
+        if start_val == 0:
+            return None
+        return float(end_val / start_val - 1)
+
+    # MTD: start of current month
+    lb.mtd = _return_since(end_date.replace(day=1))
+
+    # YTD: start of current year
+    lb.ytd = _return_since(pd.Timestamp(year=end_date.year, month=1, day=1))
+
+    # Fixed offsets
+    for attr, months in [
+        ("three_month", 3), ("six_month", 6), ("one_year", 12),
+        ("three_year", 36), ("five_year", 60), ("ten_year", 120),
+    ]:
+        offset = pd.DateOffset(months=months)
+        target = end_date - offset
+        setattr(lb, attr, _return_since(target))
+
+    return lb
+
+
+def _compute_turnover(balance: pd.DataFrame) -> float:
+    """Portfolio turnover: average of |weight changes| per period."""
+    # Find stock value columns (columns that have a matching "X qty" column)
+    stock_cols = [c for c in balance.columns if f"{c} qty" in balance.columns]
+    if not stock_cols:
+        return 0.0
+    total = balance.get("total capital")
+    if total is None or (total == 0).all():
+        return 0.0
+    weights = balance[stock_cols].div(total, axis=0).fillna(0)
+    changes = weights.diff().abs()
+    if len(changes) < 2:
+        return 0.0
+    # Turnover = average per-period sum of absolute weight changes / 2
+    per_period = changes.sum(axis=1).iloc[1:]
+    return float(per_period.mean() / 2)
+
+
+def _compute_herfindahl(balance: pd.DataFrame) -> float:
+    """Herfindahl-Hirschman Index: average portfolio concentration."""
+    stock_cols = [c for c in balance.columns if f"{c} qty" in balance.columns]
+    if not stock_cols:
+        return 0.0
+    total = balance.get("total capital")
+    if total is None or (total == 0).all():
+        return 0.0
+    weights = balance[stock_cols].div(total, axis=0).fillna(0)
+    hhi = (weights ** 2).sum(axis=1)
+    return float(hhi.mean())

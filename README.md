@@ -5,6 +5,7 @@ Backtester for evaluating options strategies over historical data. Includes tool
 
 **v0.3** — Modular pluggable framework with Rust performance core (2.4x faster than Python, 6x faster than bt).
 
+- [Comparison with bt](#comparison-with-bt)
 - [Setup](#setup)
 - [Architecture](#architecture)
 - [Usage](#usage)
@@ -14,6 +15,174 @@ Backtester for evaluating options strategies over historical data. Includes tool
 - [Tail-Risk Hedge Research](#tail-risk-hedge-research)
 - [Data](#data)
 - [Recommended Reading](#recommended-reading)
+
+## Comparison with bt
+
+Head-to-head feature comparison against [bt](https://github.com/pmorissette/bt) (the most popular algo-style Python backtester). Both libraries use composable algo pipelines. bt targets equity/fixed-income portfolios; options_backtester targets equity + options with Rust acceleration.
+
+### Performance
+
+Measured on SPY data (2008-2025), Apple M-series:
+
+| Benchmark | options_backtester | bt | Speedup |
+|-----------|-------------------|-----|---------|
+| Stock-only monthly rebalance | 0.6s | 3.7s | **6x** |
+| Full options backtest (24.7M rows) | 4.2s (Rust) | N/A | bt cannot run options |
+| Parallel grid sweep (100 configs) | Rust + Rayon | N/A | **5-8x** vs Python multiprocessing |
+
+### Scheduling Algos
+
+| Algo | options_backtester | bt |
+|------|-------------------|-----|
+| RunDaily | `RunDaily` | `RunDaily` |
+| RunWeekly | `RunWeekly` | `RunWeekly` |
+| RunMonthly | `RunMonthly` | `RunMonthly` |
+| RunQuarterly | `RunQuarterly` | `RunQuarterly` |
+| RunYearly | `RunYearly` | `RunYearly` |
+| RunOnce | `RunOnce` | `RunOnce` |
+| RunOnDate | `RunOnDate` | `RunOnDate` |
+| RunAfterDate | `RunAfterDate` | `RunAfterDate` |
+| RunAfterDays (warmup gate) | `RunAfterDays` | `RunAfterDays` |
+| RunEveryNPeriods | `RunEveryNPeriods` | `RunEveryNPeriods` |
+| RunIfOutOfBounds (drift trigger) | `RunIfOutOfBounds` | `RunIfOutOfBounds` |
+| OR combinator | `Or` | `Or` |
+| NOT combinator | `Not` | `Not` |
+| Require (predicate guard) | `Require` | `Require` |
+
+### Selection Algos
+
+| Algo | options_backtester | bt |
+|------|-------------------|-----|
+| SelectAll | `SelectAll` | `SelectAll` |
+| SelectThese | `SelectThese` | `SelectThese` |
+| SelectHasData | `SelectHasData` | `SelectHasData` |
+| SelectN (top/bottom N by stat) | `SelectN` | `SelectN` |
+| SelectMomentum | `SelectMomentum` | `SelectMomentum` |
+| SelectWhere (boolean filter) | `SelectWhere` (accepts callable) | `SelectWhere` (DataFrame-based) |
+| SelectRandomly | `SelectRandomly` | `SelectRandomly` |
+| SelectActive | `SelectActive` | `SelectActive` |
+| SelectRegex | `SelectRegex` | `SelectRegex` |
+
+### Weighting Algos
+
+| Algo | options_backtester | bt |
+|------|-------------------|-----|
+| WeighEqually | `WeighEqually` | `WeighEqually` |
+| WeighSpecified | `WeighSpecified` | `WeighSpecified` |
+| WeighTarget (date-indexed DataFrame) | `WeighTarget` | `WeighTarget` |
+| WeighInvVol (inverse volatility) | `WeighInvVol` | `WeighInvVol` |
+| WeighMeanVar (Markowitz) | `WeighMeanVar` | `WeighMeanVar` |
+| WeighERC (equal risk contribution) | `WeighERC` | `WeighERC` |
+| TargetVol (volatility scaling) | `TargetVol` | `TargetVol` |
+| WeighRandomly | `WeighRandomly` | `WeighRandomly` |
+
+### Weight Limits and Adjustments
+
+| Algo | options_backtester | bt |
+|------|-------------------|-----|
+| LimitWeights (max per security) | `LimitWeights` | `LimitWeights` |
+| LimitDeltas (turnover control) | `LimitDeltas` | `LimitDeltas` |
+| ScaleWeights (leverage/deleverage) | `ScaleWeights` | `ScaleWeights` |
+
+### Rebalancing and Capital Flows
+
+| Algo | options_backtester | bt |
+|------|-------------------|-----|
+| Rebalance | `Rebalance` | `Rebalance` |
+| RebalanceOverTime (gradual) | `RebalanceOverTime` | `RebalanceOverTime` |
+| CapitalFlow (inflows/outflows) | `CapitalFlow` (callable or dict) | `CapitalFlow` (fixed scalar) |
+| CloseDead (zero-price positions) | `CloseDead` | `CloseDead` |
+| ClosePositionsAfterDates | `ClosePositionsAfterDates` | `ClosePositionsAfterDates` |
+| Random benchmark (Monte Carlo) | `benchmark_random()` | `benchmark_random()` |
+
+### Analytics
+
+| Feature | options_backtester | bt (via ffn) |
+|---------|-------------------|--------------|
+| Total return, CAGR, max drawdown | Yes | Yes |
+| Sharpe, Sortino, Calmar ratios | Yes (daily, monthly, yearly) | Yes (daily, monthly, yearly) |
+| Profit factor | Yes | No |
+| Tail ratio | Yes | No |
+| Win rate | Yes | No |
+| Max drawdown duration | Yes | Yes |
+| Avg drawdown depth and duration | Yes | Yes |
+| Skew, kurtosis | Yes (daily, monthly) | Yes |
+| Best/worst day/month/year | Yes | Yes |
+| MTD/YTD/3M/6M/1Y/3Y/5Y/10Y lookback | Yes | Yes |
+| Turnover metric | Yes | Yes |
+| Herfindahl concentration index | Yes | Yes |
+| Monthly returns heatmap | Yes (Altair) | No |
+| Equity curve plot | Yes (Altair, interactive) | Yes (matplotlib) |
+| Returns histogram | Yes (Altair) | Yes (matplotlib) |
+| Weights evolution plot | No | Yes |
+| Tearsheet CSV/Markdown/HTML export | Yes | No |
+| Round-trip trade P&L tracking | Yes (entry/exit dates, gross/net PnL) | No (transaction list only) |
+| Property-based fuzz testing | Yes (hypothesis) | No |
+
+### Options Support
+
+This is where the two libraries diverge completely. bt has zero options support.
+
+| Feature | options_backtester | bt |
+|---------|-------------------|-----|
+| Multi-leg options strategies | Full (strangle, iron condor, butterfly, collar, covered call, cash-secured put) | None |
+| Options Greeks tracking | Per-position delta, gamma, theta, vega | None |
+| Strike/DTE/delta/IV filtering | Schema DSL with composable filters | None |
+| Profit/loss exit thresholds | Per-strategy configurable | None |
+| Per-contract position tracking | Full contract-level inventory | None |
+| Options chain data handling | `HistoricalOptionsData` with date/monthly iteration | None |
+| Dynamic options budget | Callable `(date, capital) -> budget` | None |
+
+### Execution Modeling
+
+| Feature | options_backtester | bt |
+|---------|-------------------|-----|
+| Cost models | `NoCosts`, `PerContractCommission`, `TieredCommission` (volume discounts), `SpreadSlippage` | Single `commissions` function |
+| Fill models | `MarketAtBidAsk`, `MidPrice`, `VolumeAwareFill` | None |
+| Signal selectors | `FirstMatch`, `NearestDelta`, `MaxOpenInterest` | None |
+| Position sizers | `CapitalBased`, `FixedQuantity`, `FixedDollar`, `PercentOfPortfolio` | Weight-based only |
+| Per-leg execution overrides | Per-leg fill model and signal selector | None |
+
+### Risk Management
+
+| Feature | options_backtester | bt |
+|---------|-------------------|-----|
+| Pre-trade risk gating | `RiskManager` with composable constraints | None |
+| MaxDelta constraint | Blocks entries if portfolio delta exceeds limit | None |
+| MaxVega constraint | Blocks entries if portfolio vega exceeds limit | None |
+| MaxDrawdown constraint | Blocks new entries during drawdowns | None |
+| MaxDrawdownGuard (pipeline) | Circuit breaker that halts the pipeline | None |
+| Greeks aggregation | `aggregate_greeks()` across all positions | None |
+| HedgeRisks (auto-hedging) | None | Jacobian-based hedge ratio solver |
+| Margin simulation | None | `Margin` algo with interest + maintenance |
+
+### Infrastructure
+
+| Feature | options_backtester | bt |
+|---------|-------------------|-----|
+| Rust acceleration | Full backtest loop in Rust (PyO3/Polars/Rayon) | Cython for core loop |
+| Parallel parameter sweeps | `parallel_sweep()` via Rayon, `grid_sweep()` via multiprocessing | None |
+| Walk-forward optimization | In-sample/out-of-sample with parallel grid | None |
+| Structured event log | `events_dataframe()` with every algo step, risk check, entry, exit | None |
+| Run metadata | Git SHA, config hash, data snapshot hash, dispatch mode, timestamp | None |
+| Strategy tree with budget caps | `StrategyTreeEngine` with `max_share` per leaf | Nested `Strategy` children (no caps) |
+| Schema-based data access | `Schema` + `Field` + `Filter` DSL with type-safe column mapping | Raw column names |
+
+### What bt Has That We Don't
+
+These are the remaining features in bt that we have not implemented:
+
+| Feature | Category | Notes |
+|---------|----------|-------|
+| `HedgeRisks` | Risk | Automatic hedge ratio computation via matrix inversion |
+| `Margin` | Risk | Leveraged portfolio simulation with interest charges |
+| Weights evolution plot | Analytics | Portfolio weight chart over time |
+| `FixedIncomeSecurity` | Security types | Bond/coupon modeling |
+| `ReplayTransactions` | Position mgmt | Replay actual trade blotter |
+| `to_dot()` | Visualization | Graphviz export of strategy tree |
+| `set_date_range()` | Analytics | Post-hoc date range filtering on results |
+
+The gaps are limited to hedging automation, fixed-income features (not our target domain), and a weights chart. The core pipeline algo coverage and analytics are at full parity or better.
 
 ## Setup
 

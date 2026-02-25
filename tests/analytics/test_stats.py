@@ -4,7 +4,10 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from options_backtester.analytics.stats import BacktestStats
+from options_backtester.analytics.stats import (
+    BacktestStats, PeriodStats, LookbackReturns,
+    _compute_period_stats, _compute_lookback, _compute_turnover, _compute_herfindahl,
+)
 
 
 def _make_balance(returns: list[float], initial: float = 100_000.0) -> pd.DataFrame:
@@ -129,7 +132,7 @@ class TestToDataframe:
         balance = _make_balance([0.01] * 10)
         stats = BacktestStats.from_balance(balance, trade_pnls)
         df = stats.to_dataframe()
-        assert df.shape[0] == 19  # 19 stats
+        assert df.shape[0] >= 30  # expanded stats (period, lookback, portfolio)
         assert df.shape[1] == 1
 
     def test_summary_string(self):
@@ -138,3 +141,141 @@ class TestToDataframe:
         s = stats.summary()
         assert "Sharpe" in s
         assert "Max Drawdown" in s
+
+
+class TestPeriodStats:
+    def test_daily_stats_computed(self):
+        rng = np.random.RandomState(42)
+        returns = list(rng.normal(0.001, 0.01, 252))
+        balance = _make_balance(returns)
+        stats = BacktestStats.from_balance(balance)
+        assert stats.daily.mean != 0
+        assert stats.daily.vol != 0
+        assert stats.daily.sharpe != 0
+        assert stats.daily.best > 0
+        assert stats.daily.worst < 0
+
+    def test_monthly_stats_computed(self):
+        rng = np.random.RandomState(42)
+        returns = list(rng.normal(0.001, 0.01, 504))  # 2 years
+        balance = _make_balance(returns)
+        stats = BacktestStats.from_balance(balance)
+        assert stats.monthly.mean != 0
+        assert stats.monthly.vol != 0
+        assert stats.monthly.sharpe != 0
+
+    def test_yearly_stats_computed(self):
+        rng = np.random.RandomState(42)
+        returns = list(rng.normal(0.001, 0.01, 756))  # 3 years
+        balance = _make_balance(returns)
+        stats = BacktestStats.from_balance(balance)
+        assert stats.yearly.mean != 0
+        assert stats.yearly.best > 0
+        assert stats.yearly.worst != 0
+
+    def test_skew_kurtosis_with_enough_data(self):
+        rng = np.random.RandomState(42)
+        returns = list(rng.normal(0.001, 0.01, 252))
+        balance = _make_balance(returns)
+        stats = BacktestStats.from_balance(balance)
+        assert stats.daily.skew != 0
+        assert stats.daily.kurtosis != 0
+
+    def test_skew_kurtosis_not_computed_with_few_points(self):
+        returns = pd.Series([0.01, 0.02, -0.01])
+        ps = _compute_period_stats(returns, 0.0, 252)
+        assert ps.skew == 0  # not enough data (< 8)
+
+
+class TestAvgDrawdown:
+    def test_avg_drawdown_depth(self):
+        returns = [0.10, -0.15, -0.05, 0.30, 0.05, -0.10, 0.20]
+        balance = _make_balance(returns)
+        stats = BacktestStats.from_balance(balance)
+        assert stats.avg_drawdown > 0
+        assert stats.avg_drawdown <= stats.max_drawdown
+
+    def test_avg_drawdown_duration(self):
+        returns = [0.10, -0.15, -0.05, 0.30, 0.05, -0.10, 0.20]
+        balance = _make_balance(returns)
+        stats = BacktestStats.from_balance(balance)
+        assert stats.avg_drawdown_duration > 0
+        assert stats.avg_drawdown_duration <= stats.max_drawdown_duration
+
+
+class TestLookbackReturns:
+    def test_mtd_and_ytd(self):
+        rng = np.random.RandomState(42)
+        returns = list(rng.normal(0.001, 0.01, 504))
+        balance = _make_balance(returns)
+        stats = BacktestStats.from_balance(balance)
+        assert stats.lookback.mtd is not None
+        assert stats.lookback.ytd is not None
+
+    def test_one_year_return(self):
+        rng = np.random.RandomState(42)
+        returns = list(rng.normal(0.001, 0.01, 504))
+        balance = _make_balance(returns)
+        stats = BacktestStats.from_balance(balance)
+        assert stats.lookback.one_year is not None
+
+    def test_lookback_table(self):
+        rng = np.random.RandomState(42)
+        returns = list(rng.normal(0.001, 0.01, 504))
+        balance = _make_balance(returns)
+        stats = BacktestStats.from_balance(balance)
+        table = stats.lookback_table()
+        assert not table.empty
+        assert "MTD" in table.columns
+
+    def test_short_series_lookback_equals_total(self):
+        returns = [0.01] * 10
+        balance = _make_balance(returns)
+        stats = BacktestStats.from_balance(balance)
+        # For periods longer than the data, lookback == total return
+        assert stats.lookback.ten_year is not None
+        assert abs(stats.lookback.ten_year - stats.total_return) < 1e-6
+
+
+class TestTurnover:
+    def test_turnover_zero_for_no_stocks(self):
+        balance = _make_balance([0.01] * 10)
+        assert _compute_turnover(balance) == 0.0
+
+    def test_turnover_computed_with_stocks(self):
+        rng = np.random.RandomState(42)
+        dates = pd.date_range("2020-01-01", periods=20, freq="B")
+        total = 100_000 + np.cumsum(rng.normal(100, 500, 20))
+        spy = total * 0.6 + rng.normal(0, 500, 20)
+        balance = pd.DataFrame({
+            "total capital": total,
+            "SPY": spy,
+            "SPY qty": spy / 300,
+        }, index=dates)
+        turnover = _compute_turnover(balance)
+        assert turnover >= 0
+
+
+class TestHerfindahl:
+    def test_single_stock_hhi_is_one(self):
+        dates = pd.date_range("2020-01-01", periods=10, freq="B")
+        balance = pd.DataFrame({
+            "total capital": [100_000] * 10,
+            "SPY": [100_000] * 10,
+            "SPY qty": [300] * 10,
+        }, index=dates)
+        hhi = _compute_herfindahl(balance)
+        assert abs(hhi - 1.0) < 0.01
+
+    def test_two_equal_stocks_hhi(self):
+        dates = pd.date_range("2020-01-01", periods=10, freq="B")
+        balance = pd.DataFrame({
+            "total capital": [100_000] * 10,
+            "SPY": [50_000] * 10,
+            "SPY qty": [150] * 10,
+            "QQQ": [50_000] * 10,
+            "QQQ qty": [200] * 10,
+        }, index=dates)
+        hhi = _compute_herfindahl(balance)
+        # 0.5^2 + 0.5^2 = 0.5
+        assert abs(hhi - 0.5) < 0.01

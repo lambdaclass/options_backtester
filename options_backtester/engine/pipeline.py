@@ -5,6 +5,7 @@ Provides bt-compatible scheduling, selection, weighting, and rebalancing algos.
 
 from __future__ import annotations
 
+import re as _re
 import random as _random
 from dataclasses import dataclass, field
 from typing import Callable, Literal, Protocol, Sequence
@@ -407,6 +408,21 @@ class SelectActive:
         ctx.selected_symbols = active
         if not active:
             return StepDecision(status="skip_day", message="no active symbols")
+        return StepDecision()
+
+
+class SelectRegex:
+    """Select symbols whose name matches a regex pattern."""
+
+    def __init__(self, pattern: str) -> None:
+        self._pattern = _re.compile(pattern)
+
+    def __call__(self, ctx: PipelineContext) -> StepDecision:
+        candidates = ctx.selected_symbols or list(ctx.prices.index)
+        matched = [s for s in candidates if self._pattern.search(s)]
+        ctx.selected_symbols = matched
+        if not matched:
+            return StepDecision(status="skip_day", message=f"no symbols match {self._pattern.pattern!r}")
         return StepDecision()
 
 

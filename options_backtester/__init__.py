@@ -52,7 +52,7 @@ from options_backtester.engine.pipeline import (
     Or, Not,
     # Selection
     SelectThese, SelectAll, SelectHasData, SelectMomentum, SelectN, SelectWhere,
-    SelectRandomly, SelectActive,
+    SelectRandomly, SelectActive, SelectRegex,
     # Weighting
     WeighSpecified, WeighEqually, WeighInvVol, WeighMeanVar, WeighERC, TargetVol,
     WeighRandomly, WeighTarget,
@@ -85,7 +85,7 @@ from options_backtester.engine.algo_adapters import (
 from options_backtester.engine.strategy_tree import StrategyTreeNode, StrategyTreeEngine
 
 # Analytics
-from options_backtester.analytics.stats import BacktestStats
+from options_backtester.analytics.stats import BacktestStats, PeriodStats, LookbackReturns
 from options_backtester.analytics.trade_log import TradeLog
 from options_backtester.analytics.tearsheet import TearsheetReport, build_tearsheet
 
@@ -113,7 +113,7 @@ __all__ = [
     "RunIfOutOfBounds",
     "Or", "Not",
     "SelectThese", "SelectAll", "SelectHasData", "SelectMomentum", "SelectN", "SelectWhere",
-    "SelectRandomly", "SelectActive",
+    "SelectRandomly", "SelectActive", "SelectRegex",
     "WeighSpecified", "WeighEqually", "WeighInvVol", "WeighMeanVar", "WeighERC", "TargetVol",
     "WeighRandomly", "WeighTarget",
     "LimitWeights", "LimitDeltas", "ScaleWeights",
@@ -127,5 +127,6 @@ __all__ = [
     "MaxGreekExposure", "ExitOnThreshold",
     "StrategyTreeNode", "StrategyTreeEngine",
     # Analytics
-    "BacktestStats", "TradeLog", "TearsheetReport", "build_tearsheet",
+    "BacktestStats", "PeriodStats", "LookbackReturns",
+    "TradeLog", "TearsheetReport", "build_tearsheet",
 ]

@@ -36,6 +36,7 @@ from options_backtester.engine.pipeline import (
     SelectMomentum,
     SelectN,
     SelectRandomly,
+    SelectRegex,
     SelectThese,
     SelectWhere,
     StepDecision,
@@ -1890,3 +1891,47 @@ def test_pipeline_weigh_target_from_df():
     spy_val = bal.iloc[0]["SPY qty"] * 100.0
     total = bal.iloc[0]["total capital"]
     assert spy_val / total > 0.55  # roughly 60%
+
+
+# ---------------------------------------------------------------------------
+# SelectRegex
+# ---------------------------------------------------------------------------
+
+def test_select_regex_matches():
+    ctx = _ctx()
+    ctx.prices = pd.Series({"SPY": 100, "SPXL": 50, "QQQ": 200, "IWM": 80})
+    algo = SelectRegex(r"^SP")
+    algo(ctx)
+    assert sorted(ctx.selected_symbols) == ["SPXL", "SPY"]
+
+
+def test_select_regex_no_match_skips():
+    ctx = _ctx()
+    algo = SelectRegex(r"^ZZZZZ")
+    decision = algo(ctx)
+    assert decision.status == "skip_day"
+
+
+def test_select_regex_case_insensitive():
+    ctx = _ctx()
+    ctx.prices = pd.Series({"spy": 100, "SPY": 100, "QQQ": 200})
+    algo = SelectRegex(r"(?i)spy")
+    algo(ctx)
+    assert set(ctx.selected_symbols) == {"spy", "SPY"}
+
+
+def test_select_regex_in_pipeline():
+    prices = pd.DataFrame(
+        {"SPY": [100, 102], "SPXL": [50, 51], "QQQ": [200, 202]},
+        index=pd.date_range("2024-01-01", periods=2, freq="B"),
+    )
+    bt = AlgoPipelineBacktester(
+        prices=prices,
+        initial_capital=1000.0,
+        algos=[RunDaily(), SelectRegex(r"^SP"), WeighEqually(), Rebalance()],
+    )
+    bal = bt.run()
+    # Should only hold SPY and SPXL, not QQQ
+    assert bal.iloc[-1].get("QQQ qty", 0) == 0
+    assert bal.iloc[-1]["SPY qty"] > 0
+    assert bal.iloc[-1]["SPXL qty"] > 0
