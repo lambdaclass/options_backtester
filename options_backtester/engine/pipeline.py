@@ -1,9 +1,12 @@
-"""Composable algo pipeline for stock portfolio workflows."""
+"""Composable algo pipeline for stock portfolio workflows.
+
+Provides bt-compatible scheduling, selection, weighting, and rebalancing algos.
+"""
 
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Literal, Protocol
+from typing import Callable, Literal, Protocol, Sequence
 
 import numpy as np
 import pandas as pd
@@ -31,6 +34,8 @@ class PipelineContext:
     positions: dict[str, float]
     selected_symbols: list[str] = field(default_factory=list)
     target_weights: dict[str, float] = field(default_factory=dict)
+    # Price history up to current date (set by AlgoPipelineBacktester).
+    price_history: pd.DataFrame | None = None
 
 
 @dataclass(frozen=True)
@@ -47,6 +52,10 @@ class Algo(Protocol):
     def __call__(self, ctx: PipelineContext) -> StepDecision:
         ...
 
+
+# ---------------------------------------------------------------------------
+# Scheduling algos
+# ---------------------------------------------------------------------------
 
 class RunMonthly:
     """Gate pipeline execution to month starts."""
@@ -65,6 +74,160 @@ class RunMonthly:
         return StepDecision()
 
 
+class RunWeekly:
+    """Gate pipeline execution to week starts (Monday)."""
+
+    def __init__(self) -> None:
+        self._last_week: tuple[int, int] | None = None
+
+    def reset(self) -> None:
+        self._last_week = None
+
+    def __call__(self, ctx: PipelineContext) -> StepDecision:
+        key = (ctx.date.isocalendar()[0], ctx.date.isocalendar()[1])
+        if self._last_week == key:
+            return StepDecision(status="skip_day", message="not week-start")
+        self._last_week = key
+        return StepDecision()
+
+
+class RunQuarterly:
+    """Gate pipeline execution to quarter starts."""
+
+    def __init__(self) -> None:
+        self._last_quarter: tuple[int, int] | None = None
+
+    def reset(self) -> None:
+        self._last_quarter = None
+
+    def __call__(self, ctx: PipelineContext) -> StepDecision:
+        key = (ctx.date.year, (ctx.date.month - 1) // 3)
+        if self._last_quarter == key:
+            return StepDecision(status="skip_day", message="not quarter-start")
+        self._last_quarter = key
+        return StepDecision()
+
+
+class RunYearly:
+    """Gate pipeline execution to year starts."""
+
+    def __init__(self) -> None:
+        self._last_year: int | None = None
+
+    def reset(self) -> None:
+        self._last_year = None
+
+    def __call__(self, ctx: PipelineContext) -> StepDecision:
+        if self._last_year == ctx.date.year:
+            return StepDecision(status="skip_day", message="not year-start")
+        self._last_year = ctx.date.year
+        return StepDecision()
+
+
+class RunDaily:
+    """Allow pipeline execution on every date (no gating)."""
+
+    def __call__(self, ctx: PipelineContext) -> StepDecision:
+        return StepDecision()
+
+
+class RunOnce:
+    """Execute pipeline only on the first date, skip all subsequent dates."""
+
+    def __init__(self) -> None:
+        self._ran = False
+
+    def reset(self) -> None:
+        self._ran = False
+
+    def __call__(self, ctx: PipelineContext) -> StepDecision:
+        if self._ran:
+            return StepDecision(status="skip_day", message="already ran")
+        self._ran = True
+        return StepDecision()
+
+
+class RunOnDate:
+    """Execute pipeline only on specific dates."""
+
+    def __init__(self, dates: Sequence[str | pd.Timestamp]) -> None:
+        self._dates = {pd.Timestamp(d).normalize() for d in dates}
+
+    def __call__(self, ctx: PipelineContext) -> StepDecision:
+        if ctx.date.normalize() not in self._dates:
+            return StepDecision(status="skip_day", message="not a target date")
+        return StepDecision()
+
+
+class RunAfterDate:
+    """Execute pipeline only after a specific date (inclusive)."""
+
+    def __init__(self, date: str | pd.Timestamp) -> None:
+        self._date = pd.Timestamp(date).normalize()
+
+    def __call__(self, ctx: PipelineContext) -> StepDecision:
+        if ctx.date.normalize() < self._date:
+            return StepDecision(status="skip_day", message="before start date")
+        return StepDecision()
+
+
+class RunEveryNPeriods:
+    """Execute pipeline every N trading days."""
+
+    def __init__(self, n: int) -> None:
+        self._n = int(n)
+        self._count = 0
+
+    def reset(self) -> None:
+        self._count = 0
+
+    def __call__(self, ctx: PipelineContext) -> StepDecision:
+        self._count += 1
+        if self._count % self._n != 1 and self._count != 1:
+            return StepDecision(status="skip_day", message=f"period {self._count}, not every {self._n}")
+        return StepDecision()
+
+
+class Or:
+    """Logical OR combinator: pass if any child algo passes."""
+
+    def __init__(self, *algos: Algo) -> None:
+        self._algos = algos
+
+    def reset(self) -> None:
+        for algo in self._algos:
+            if hasattr(algo, "reset"):
+                algo.reset()
+
+    def __call__(self, ctx: PipelineContext) -> StepDecision:
+        for algo in self._algos:
+            decision = algo(ctx)
+            if decision.status == "continue":
+                return StepDecision()
+        return StepDecision(status="skip_day", message="all sub-algos skipped")
+
+
+class Not:
+    """Logical NOT combinator: invert the child algo's decision."""
+
+    def __init__(self, algo: Algo) -> None:
+        self._algo = algo
+
+    def reset(self) -> None:
+        if hasattr(self._algo, "reset"):
+            self._algo.reset()
+
+    def __call__(self, ctx: PipelineContext) -> StepDecision:
+        decision = self._algo(ctx)
+        if decision.status == "skip_day":
+            return StepDecision()
+        return StepDecision(status="skip_day", message="inverted")
+
+
+# ---------------------------------------------------------------------------
+# Selection algos
+# ---------------------------------------------------------------------------
+
 class SelectThese:
     """Select a fixed list of symbols if priced on current date."""
 
@@ -78,6 +241,103 @@ class SelectThese:
             return StepDecision(status="skip_day", message="no selected symbols with valid prices")
         return StepDecision()
 
+
+class SelectAll:
+    """Select all symbols with valid prices on current date."""
+
+    def __call__(self, ctx: PipelineContext) -> StepDecision:
+        available = [s for s in ctx.prices.index if pd.notna(ctx.prices[s]) and float(ctx.prices[s]) > 0]
+        ctx.selected_symbols = sorted(available)
+        if not available:
+            return StepDecision(status="skip_day", message="no symbols with valid prices")
+        return StepDecision()
+
+
+class SelectHasData:
+    """Select symbols that have at least *min_days* of price history."""
+
+    def __init__(self, min_days: int = 1) -> None:
+        self._min_days = int(min_days)
+
+    def __call__(self, ctx: PipelineContext) -> StepDecision:
+        if ctx.price_history is None or ctx.price_history.empty:
+            return StepDecision(status="skip_day", message="no price history")
+        keep = []
+        for s in ctx.selected_symbols or list(ctx.prices.index):
+            if s in ctx.price_history.columns:
+                valid = ctx.price_history[s].dropna()
+                if len(valid) >= self._min_days:
+                    keep.append(s)
+        ctx.selected_symbols = keep
+        if not keep:
+            return StepDecision(status="skip_day", message=f"no symbols with {self._min_days}+ days")
+        return StepDecision()
+
+
+class SelectMomentum:
+    """Select top *n* symbols by trailing momentum (total return over *lookback* days)."""
+
+    def __init__(self, n: int, lookback: int = 252, sort_descending: bool = True) -> None:
+        self._n = int(n)
+        self._lookback = int(lookback)
+        self._sort_desc = sort_descending
+
+    def __call__(self, ctx: PipelineContext) -> StepDecision:
+        if ctx.price_history is None or ctx.price_history.empty:
+            return StepDecision(status="skip_day", message="no price history for momentum")
+        candidates = ctx.selected_symbols or [
+            s for s in ctx.prices.index if pd.notna(ctx.prices[s])
+        ]
+        scores: dict[str, float] = {}
+        for s in candidates:
+            if s not in ctx.price_history.columns:
+                continue
+            series = ctx.price_history[s].dropna()
+            if len(series) < 2:
+                continue
+            window = series.iloc[-self._lookback:]
+            if len(window) < 2 or float(window.iloc[0]) <= 0:
+                continue
+            scores[s] = float(window.iloc[-1] / window.iloc[0] - 1)
+        ranked = sorted(scores, key=scores.get, reverse=self._sort_desc)  # type: ignore[arg-type]
+        ctx.selected_symbols = ranked[: self._n]
+        if not ctx.selected_symbols:
+            return StepDecision(status="skip_day", message="no symbols with enough momentum data")
+        return StepDecision()
+
+
+class SelectN:
+    """Keep the first *n* symbols from current selection (stable order)."""
+
+    def __init__(self, n: int) -> None:
+        self._n = int(n)
+
+    def __call__(self, ctx: PipelineContext) -> StepDecision:
+        ctx.selected_symbols = ctx.selected_symbols[: self._n]
+        if not ctx.selected_symbols:
+            return StepDecision(status="skip_day", message="no symbols after SelectN")
+        return StepDecision()
+
+
+class SelectWhere:
+    """Select symbols where a user-defined function returns True."""
+
+    def __init__(self, fn: Callable[[str, PipelineContext], bool]) -> None:
+        self._fn = fn
+
+    def __call__(self, ctx: PipelineContext) -> StepDecision:
+        candidates = ctx.selected_symbols or [
+            s for s in ctx.prices.index if pd.notna(ctx.prices[s])
+        ]
+        ctx.selected_symbols = [s for s in candidates if self._fn(s, ctx)]
+        if not ctx.selected_symbols:
+            return StepDecision(status="skip_day", message="no symbols passed filter")
+        return StepDecision()
+
+
+# ---------------------------------------------------------------------------
+# Weighting algos
+# ---------------------------------------------------------------------------
 
 class WeighSpecified:
     """Set fixed target weights, normalized over selected symbols."""
@@ -95,6 +355,247 @@ class WeighSpecified:
         ctx.target_weights = {s: w / total for s, w in raw.items()}
         return StepDecision()
 
+
+class WeighEqually:
+    """Equal-weight all selected symbols."""
+
+    def __call__(self, ctx: PipelineContext) -> StepDecision:
+        if not ctx.selected_symbols:
+            return StepDecision(status="skip_day", message="no selected symbols")
+        w = 1.0 / len(ctx.selected_symbols)
+        ctx.target_weights = {s: w for s in ctx.selected_symbols}
+        return StepDecision()
+
+
+class WeighInvVol:
+    """Inverse-volatility weighting (risk parity lite).
+
+    Weight_i = (1/vol_i) / sum(1/vol_j).
+    Uses trailing *lookback*-day returns standard deviation.
+    """
+
+    def __init__(self, lookback: int = 252) -> None:
+        self._lookback = int(lookback)
+
+    def __call__(self, ctx: PipelineContext) -> StepDecision:
+        if not ctx.selected_symbols:
+            return StepDecision(status="skip_day", message="no selected symbols")
+        if ctx.price_history is None or ctx.price_history.empty:
+            return StepDecision(status="skip_day", message="no price history for inv-vol")
+        inv_vols: dict[str, float] = {}
+        for s in ctx.selected_symbols:
+            if s not in ctx.price_history.columns:
+                continue
+            series = ctx.price_history[s].dropna()
+            window = series.iloc[-self._lookback:]
+            if len(window) < 3:
+                continue
+            rets = window.pct_change().dropna()
+            vol = float(rets.std())
+            if vol > 0:
+                inv_vols[s] = 1.0 / vol
+        if not inv_vols:
+            return StepDecision(status="skip_day", message="no valid vol data")
+        total = sum(inv_vols.values())
+        ctx.target_weights = {s: v / total for s, v in inv_vols.items()}
+        return StepDecision()
+
+
+class WeighMeanVar:
+    """Mean-variance optimization (max Sharpe ratio portfolio).
+
+    Uses trailing *lookback*-day returns. Falls back to equal weight
+    if optimization fails (singular covariance, etc.).
+    """
+
+    def __init__(self, lookback: int = 252, risk_free_rate: float = 0.0) -> None:
+        self._lookback = int(lookback)
+        self._rf = float(risk_free_rate)
+
+    def __call__(self, ctx: PipelineContext) -> StepDecision:
+        if not ctx.selected_symbols:
+            return StepDecision(status="skip_day", message="no selected symbols")
+        if ctx.price_history is None or ctx.price_history.empty:
+            return StepDecision(status="skip_day", message="no price history for mean-var")
+        syms = [s for s in ctx.selected_symbols if s in ctx.price_history.columns]
+        if len(syms) < 1:
+            return StepDecision(status="skip_day", message="no price history columns match")
+        prices = ctx.price_history[syms].dropna()
+        if len(prices) < 3:
+            return StepDecision(status="skip_day", message="insufficient data for mean-var")
+        rets = prices.iloc[-self._lookback:].pct_change().dropna()
+        if len(rets) < 3:
+            return StepDecision(status="skip_day", message="insufficient returns for mean-var")
+        mu = rets.mean().values
+        cov = rets.cov().values
+        n = len(syms)
+        try:
+            cov_inv = np.linalg.inv(cov)
+        except np.linalg.LinAlgError:
+            # Singular covariance — fall back to equal weight
+            w = 1.0 / n
+            ctx.target_weights = {s: w for s in syms}
+            return StepDecision()
+        excess = mu - self._rf / 252
+        raw_w = cov_inv @ excess
+        # Normalize to sum to 1, allow short positions only if naturally arising
+        total = float(np.sum(np.abs(raw_w)))
+        if total <= 0:
+            w = 1.0 / n
+            ctx.target_weights = {s: w for s in syms}
+            return StepDecision()
+        # Long-only: clip negatives, renormalize
+        clipped = np.maximum(raw_w, 0.0)
+        clip_sum = float(np.sum(clipped))
+        if clip_sum <= 0:
+            w = 1.0 / n
+            ctx.target_weights = {s: w for s in syms}
+            return StepDecision()
+        weights = clipped / clip_sum
+        ctx.target_weights = {s: float(weights[i]) for i, s in enumerate(syms)}
+        return StepDecision()
+
+
+class WeighERC:
+    """Equal Risk Contribution weighting.
+
+    Each asset contributes equally to portfolio risk.
+    Uses iterative bisection approximation.
+    """
+
+    def __init__(self, lookback: int = 252, max_iter: int = 100) -> None:
+        self._lookback = int(lookback)
+        self._max_iter = int(max_iter)
+
+    def __call__(self, ctx: PipelineContext) -> StepDecision:
+        if not ctx.selected_symbols:
+            return StepDecision(status="skip_day", message="no selected symbols")
+        if ctx.price_history is None or ctx.price_history.empty:
+            return StepDecision(status="skip_day", message="no price history for ERC")
+        syms = [s for s in ctx.selected_symbols if s in ctx.price_history.columns]
+        if len(syms) < 1:
+            return StepDecision(status="skip_day", message="no matching columns")
+        prices = ctx.price_history[syms].dropna()
+        rets = prices.iloc[-self._lookback:].pct_change().dropna()
+        if len(rets) < 3:
+            return StepDecision(status="skip_day", message="insufficient data for ERC")
+        cov = rets.cov().values
+        n = len(syms)
+        # Start with equal weights
+        w = np.ones(n) / n
+        for _ in range(self._max_iter):
+            sigma = np.sqrt(float(w @ cov @ w))
+            if sigma <= 0:
+                break
+            mrc = (cov @ w) / sigma  # marginal risk contribution
+            rc = w * mrc  # risk contribution
+            target_rc = sigma / n
+            # Adjust: increase weight of under-contributing, decrease over-contributing
+            adj = target_rc / np.maximum(rc, 1e-12)
+            w = w * adj
+            w = np.maximum(w, 0.0)
+            w_sum = float(np.sum(w))
+            if w_sum > 0:
+                w = w / w_sum
+        ctx.target_weights = {s: float(w[i]) for i, s in enumerate(syms)}
+        return StepDecision()
+
+
+class TargetVol:
+    """Scale weights to target a specific annualized portfolio volatility.
+
+    Scales the existing target_weights by (target_vol / realized_vol).
+    Excess weight goes to cash.
+    """
+
+    def __init__(self, target: float = 0.10, lookback: int = 252) -> None:
+        self._target = float(target)
+        self._lookback = int(lookback)
+
+    def __call__(self, ctx: PipelineContext) -> StepDecision:
+        if not ctx.target_weights:
+            return StepDecision(status="skip_day", message="no target weights to scale")
+        if ctx.price_history is None or ctx.price_history.empty:
+            return StepDecision(status="skip_day", message="no price history for vol scaling")
+        syms = list(ctx.target_weights.keys())
+        available = [s for s in syms if s in ctx.price_history.columns]
+        if not available:
+            return StepDecision(status="skip_day", message="no price data for vol scaling")
+        prices = ctx.price_history[available].dropna()
+        rets = prices.iloc[-self._lookback:].pct_change().dropna()
+        if len(rets) < 3:
+            return StepDecision()  # not enough data, pass through unchanged
+        weights_arr = np.array([ctx.target_weights.get(s, 0.0) for s in available])
+        port_rets = rets.values @ weights_arr
+        realized_vol = float(np.std(port_rets) * np.sqrt(252))
+        if realized_vol <= 0:
+            return StepDecision()
+        scale = min(self._target / realized_vol, 1.0)  # never lever above 1.0
+        ctx.target_weights = {s: w * scale for s, w in ctx.target_weights.items()}
+        return StepDecision()
+
+
+# ---------------------------------------------------------------------------
+# Weight limits
+# ---------------------------------------------------------------------------
+
+class LimitWeights:
+    """Cap individual position weights and renormalize."""
+
+    def __init__(self, limit: float = 0.25) -> None:
+        self._limit = float(limit)
+
+    def __call__(self, ctx: PipelineContext) -> StepDecision:
+        if not ctx.target_weights:
+            return StepDecision()
+        # Iteratively clip and renormalize (may need multiple passes)
+        weights = dict(ctx.target_weights)
+        for _ in range(10):
+            over = {s: w for s, w in weights.items() if w > self._limit}
+            if not over:
+                break
+            under = {s: w for s, w in weights.items() if w <= self._limit}
+            for s in over:
+                weights[s] = self._limit
+            under_sum = sum(under.values())
+            over_excess = sum(w - self._limit for w in over.values())
+            if under_sum > 0:
+                scale = 1.0 + over_excess / under_sum
+                for s in under:
+                    weights[s] = weights[s] * scale
+        ctx.target_weights = weights
+        return StepDecision()
+
+
+# ---------------------------------------------------------------------------
+# Capital flows
+# ---------------------------------------------------------------------------
+
+class CapitalFlow:
+    """Model periodic capital additions (+) or withdrawals (-).
+
+    *flows* is a dict mapping dates to amounts, or a callable
+    ``(date: pd.Timestamp) -> float`` returning the flow amount.
+    """
+
+    def __init__(self, flows: dict[str | pd.Timestamp, float] | Callable[[pd.Timestamp], float]) -> None:
+        if callable(flows):
+            self._fn = flows
+        else:
+            mapping = {pd.Timestamp(k).normalize(): float(v) for k, v in flows.items()}
+            self._fn = lambda d: mapping.get(d.normalize(), 0.0)
+
+    def __call__(self, ctx: PipelineContext) -> StepDecision:
+        amount = self._fn(ctx.date)
+        if amount != 0.0:
+            ctx.cash = float(ctx.cash + amount)
+            ctx.total_capital = float(ctx.total_capital + amount)
+        return StepDecision()
+
+
+# ---------------------------------------------------------------------------
+# Risk guards
+# ---------------------------------------------------------------------------
 
 class MaxDrawdownGuard:
     """Block new rebalances while drawdown exceeds threshold."""
@@ -116,13 +617,14 @@ class MaxDrawdownGuard:
         return StepDecision()
 
 
+# ---------------------------------------------------------------------------
+# Rebalancing algos
+# ---------------------------------------------------------------------------
+
 class Rebalance:
     """Rebalance positions to target weights at current prices.
 
-    Note: this performs a full liquidate-and-rebuy on each rebalance date.
-    Under a zero-cost model this is equivalent to delta-rebalancing, but if
-    transaction costs are added later, consider a delta-only mode that trades
-    only the difference between current and target positions.
+    Performs a full liquidate-and-rebuy on each rebalance date.
     """
 
     def __call__(self, ctx: PipelineContext) -> StepDecision:
@@ -142,6 +644,75 @@ class Rebalance:
         ctx.positions.clear()
         ctx.positions.update(new_positions)
         ctx.cash = float(ctx.total_capital - spent)
+        return StepDecision()
+
+
+class RebalanceOverTime:
+    """Spread rebalancing over *n* periods to reduce market impact.
+
+    On each trigger, moves 1/n of the way from current to target weights.
+    Must be preceded by a scheduling algo and a weighting algo.
+    """
+
+    def __init__(self, n: int = 5) -> None:
+        self._n = int(n)
+        self._target: dict[str, float] = {}
+        self._remaining = 0
+
+    def reset(self) -> None:
+        self._target = {}
+        self._remaining = 0
+
+    def __call__(self, ctx: PipelineContext) -> StepDecision:
+        # If new target weights are set, start a new gradual rebalance
+        if ctx.target_weights and ctx.target_weights != self._target:
+            self._target = dict(ctx.target_weights)
+            self._remaining = self._n
+
+        if self._remaining <= 0 or not self._target:
+            return StepDecision(status="skip_day", message="no gradual rebalance in progress")
+
+        # Compute current weights from positions
+        total = float(ctx.total_capital)
+        if total <= 0:
+            return StepDecision(status="skip_day", message="no capital")
+
+        current_weights: dict[str, float] = {}
+        all_syms = set(self._target.keys()) | set(ctx.positions.keys())
+        for sym in all_syms:
+            qty = ctx.positions.get(sym, 0.0)
+            if sym in ctx.prices.index and pd.notna(ctx.prices[sym]):
+                current_weights[sym] = float(qty) * float(ctx.prices[sym]) / total
+            else:
+                current_weights[sym] = 0.0
+
+        # Move fraction of the way toward target
+        frac = 1.0 / self._remaining
+        blended: dict[str, float] = {}
+        for sym in all_syms:
+            cur = current_weights.get(sym, 0.0)
+            tgt = self._target.get(sym, 0.0)
+            blended[sym] = cur + frac * (tgt - cur)
+
+        # Apply blended weights
+        new_positions: dict[str, float] = {}
+        spent = 0.0
+        for sym, w in blended.items():
+            if sym not in ctx.prices.index or pd.isna(ctx.prices[sym]):
+                continue
+            price = float(ctx.prices[sym])
+            if price <= 0:
+                continue
+            target_value = total * w
+            qty = float(np.floor(target_value / price))
+            if qty > 0:
+                new_positions[sym] = qty
+                spent += qty * price
+
+        ctx.positions.clear()
+        ctx.positions.update(new_positions)
+        ctx.cash = float(total - spent)
+        self._remaining -= 1
         return StepDecision()
 
 
@@ -168,17 +739,21 @@ class AlgoPipelineBacktester:
         positions: dict[str, float] = {}
         rows: list[dict[str, float | pd.Timestamp]] = []
 
-        for date, price_row in self.prices.iterrows():
+        all_dates = list(self.prices.index)
+        for i, (date, price_row) in enumerate(self.prices.iterrows()):
             stocks_cap = float(sum(float(qty) * float(price_row[sym])
                                    for sym, qty in positions.items()
                                    if sym in price_row.index and pd.notna(price_row[sym])))
             total_cap = cash + stocks_cap
+            # Price history up to current date (for algos that need lookback)
+            history = self.prices.iloc[:i + 1] if i > 0 else self.prices.iloc[:1]
             ctx = PipelineContext(
                 date=pd.Timestamp(date),
                 prices=price_row,
                 total_capital=total_cap,
                 cash=cash,
                 positions=dict(positions),
+                price_history=history,
             )
 
             stop_all = False
