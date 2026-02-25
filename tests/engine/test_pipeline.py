@@ -6,26 +6,36 @@ import numpy as np
 from options_backtester.engine.pipeline import (
     AlgoPipelineBacktester,
     CapitalFlow,
+    CloseDead,
+    ClosePositionsAfterDates,
+    LimitDeltas,
     LimitWeights,
     MaxDrawdownGuard,
     Not,
     Or,
     PipelineContext,
+    RandomBenchmarkResult,
     Rebalance,
     RebalanceOverTime,
+    Require,
     RunAfterDate,
+    RunAfterDays,
     RunDaily,
     RunEveryNPeriods,
+    RunIfOutOfBounds,
     RunMonthly,
     RunOnce,
     RunOnDate,
     RunQuarterly,
     RunWeekly,
     RunYearly,
+    ScaleWeights,
+    SelectActive,
     SelectAll,
     SelectHasData,
     SelectMomentum,
     SelectN,
+    SelectRandomly,
     SelectThese,
     SelectWhere,
     StepDecision,
@@ -34,7 +44,10 @@ from options_backtester.engine.pipeline import (
     WeighEqually,
     WeighInvVol,
     WeighMeanVar,
+    WeighRandomly,
     WeighSpecified,
+    WeighTarget,
+    benchmark_random,
 )
 
 
@@ -1331,3 +1344,549 @@ def test_pipeline_inv_vol_with_limit_weights():
             price = prices[sym].iloc[-1]
             weight = row[qty_col] * price / total
             assert weight <= 0.55  # tolerance for floor rounding
+
+
+# ===========================================================================
+# NEW ALGOS (round 2)
+# ===========================================================================
+
+
+# ---------------------------------------------------------------------------
+# RunAfterDays
+# ---------------------------------------------------------------------------
+
+def test_run_after_days_skips_warmup():
+    algo = RunAfterDays(3)
+    results = []
+    for i in range(6):
+        d = algo(_ctx(date=pd.Timestamp("2024-01-02") + pd.Timedelta(days=i)))
+        results.append(d.status)
+    assert results == ["skip_day", "skip_day", "skip_day", "continue", "continue", "continue"]
+
+
+def test_run_after_days_reset():
+    algo = RunAfterDays(2)
+    algo(_ctx())
+    algo(_ctx())
+    algo.reset()
+    assert algo._count == 0
+    d = algo(_ctx())
+    assert d.status == "skip_day"  # back to warmup
+
+
+def test_run_after_days_in_pipeline():
+    idx = pd.bdate_range("2024-01-02", periods=10)
+    prices = pd.DataFrame({"SPY": [100.0] * 10}, index=idx)
+    bt = AlgoPipelineBacktester(
+        prices=prices, initial_capital=1000.0,
+        algos=[RunAfterDays(5), SelectThese(["SPY"]), WeighSpecified({"SPY": 1.0}), Rebalance()],
+    )
+    bal = bt.run()
+    # First 5 days skipped, rebalance on days 6-10
+    logs = bt.logs_dataframe()
+    rebalance_count = len(logs[(logs["step"] == "Rebalance") & (logs["status"] == "continue")])
+    assert rebalance_count == 5
+
+
+# ---------------------------------------------------------------------------
+# RunIfOutOfBounds
+# ---------------------------------------------------------------------------
+
+def test_run_if_out_of_bounds_skips_when_in_bounds():
+    algo = RunIfOutOfBounds(tolerance=0.10)
+    algo.update_target({"SPY": 0.60, "TLT": 0.40})
+    # Positions match target closely
+    ctx = _ctx(
+        prices=pd.Series({"SPY": 100.0, "TLT": 50.0}),
+        total_capital=10000.0,
+        positions={"SPY": 60.0, "TLT": 80.0},  # SPY=60%, TLT=40%
+    )
+    d = algo(ctx)
+    assert d.status == "skip_day"
+
+
+def test_run_if_out_of_bounds_triggers_when_drifted():
+    algo = RunIfOutOfBounds(tolerance=0.05)
+    algo.update_target({"SPY": 0.50, "TLT": 0.50})
+    # SPY drifted to 70%, TLT to 30%
+    ctx = _ctx(
+        prices=pd.Series({"SPY": 100.0, "TLT": 50.0}),
+        total_capital=10000.0,
+        positions={"SPY": 70.0, "TLT": 60.0},  # SPY=70%, TLT=30%
+    )
+    d = algo(ctx)
+    assert d.status == "continue"
+
+
+def test_run_if_out_of_bounds_no_prior_target():
+    algo = RunIfOutOfBounds(tolerance=0.05)
+    d = algo(_ctx())
+    assert d.status == "skip_day"
+
+
+def test_run_if_out_of_bounds_reset():
+    algo = RunIfOutOfBounds(tolerance=0.05)
+    algo.update_target({"SPY": 1.0})
+    algo.reset()
+    assert algo._last_target == {}
+
+
+# ---------------------------------------------------------------------------
+# LimitDeltas
+# ---------------------------------------------------------------------------
+
+def test_limit_deltas_clips_large_change():
+    ctx = _ctx(
+        prices=pd.Series({"SPY": 100.0, "TLT": 50.0}),
+        total_capital=10000.0,
+        positions={"SPY": 50.0, "TLT": 100.0},  # SPY=50%, TLT=50%
+        target_weights={"SPY": 0.80, "TLT": 0.20},  # want to move 30%
+    )
+    LimitDeltas(limit=0.10)(ctx)
+    # SPY delta capped: 0.50 + 0.10 = 0.60 max
+    assert ctx.target_weights["SPY"] <= 0.65  # after renorm
+
+
+def test_limit_deltas_no_change_needed():
+    ctx = _ctx(
+        prices=pd.Series({"SPY": 100.0}),
+        total_capital=10000.0,
+        positions={"SPY": 98.0},  # ~98%
+        target_weights={"SPY": 1.0},
+    )
+    LimitDeltas(limit=0.10)(ctx)
+    # Small delta, should pass through mostly unchanged
+    assert ctx.target_weights["SPY"] > 0.9
+
+
+def test_limit_deltas_empty():
+    ctx = _ctx(target_weights={})
+    d = LimitDeltas(limit=0.10)(ctx)
+    assert d.status == "continue"
+
+
+# ---------------------------------------------------------------------------
+# ScaleWeights
+# ---------------------------------------------------------------------------
+
+def test_scale_weights_half():
+    ctx = _ctx(target_weights={"SPY": 0.60, "TLT": 0.40})
+    ScaleWeights(scale=0.5)(ctx)
+    assert abs(ctx.target_weights["SPY"] - 0.30) < 1e-10
+    assert abs(ctx.target_weights["TLT"] - 0.20) < 1e-10
+
+
+def test_scale_weights_double():
+    ctx = _ctx(target_weights={"SPY": 0.30, "TLT": 0.20})
+    ScaleWeights(scale=2.0)(ctx)
+    assert abs(ctx.target_weights["SPY"] - 0.60) < 1e-10
+    assert abs(ctx.target_weights["TLT"] - 0.40) < 1e-10
+
+
+def test_scale_weights_empty():
+    ctx = _ctx(target_weights={})
+    d = ScaleWeights(scale=0.5)(ctx)
+    assert d.status == "continue"
+
+
+# ---------------------------------------------------------------------------
+# SelectRandomly
+# ---------------------------------------------------------------------------
+
+def test_select_randomly_picks_n():
+    ctx = _ctx(
+        prices=pd.Series({"SPY": 100.0, "TLT": 50.0, "GLD": 200.0, "QQQ": 300.0}),
+        selected_symbols=["SPY", "TLT", "GLD", "QQQ"],
+    )
+    algo = SelectRandomly(n=2, seed=42)
+    d = algo(ctx)
+    assert d.status == "continue"
+    assert len(ctx.selected_symbols) == 2
+    assert all(s in ["SPY", "TLT", "GLD", "QQQ"] for s in ctx.selected_symbols)
+
+
+def test_select_randomly_deterministic():
+    ctx1 = _ctx(
+        prices=pd.Series({"SPY": 100.0, "TLT": 50.0, "GLD": 200.0}),
+        selected_symbols=["SPY", "TLT", "GLD"],
+    )
+    ctx2 = _ctx(
+        prices=pd.Series({"SPY": 100.0, "TLT": 50.0, "GLD": 200.0}),
+        selected_symbols=["SPY", "TLT", "GLD"],
+    )
+    algo1 = SelectRandomly(n=2, seed=42)
+    algo2 = SelectRandomly(n=2, seed=42)
+    algo1(ctx1)
+    algo2(ctx2)
+    assert ctx1.selected_symbols == ctx2.selected_symbols
+
+
+def test_select_randomly_n_exceeds_candidates():
+    ctx = _ctx(
+        prices=pd.Series({"SPY": 100.0}),
+        selected_symbols=["SPY"],
+    )
+    algo = SelectRandomly(n=5, seed=1)
+    d = algo(ctx)
+    assert d.status == "continue"
+    assert ctx.selected_symbols == ["SPY"]
+
+
+def test_select_randomly_no_candidates():
+    ctx = _ctx(
+        prices=pd.Series({"SPY": np.nan}),
+        selected_symbols=[],
+    )
+    algo = SelectRandomly(n=2, seed=1)
+    d = algo(ctx)
+    assert d.status == "skip_day"
+
+
+# ---------------------------------------------------------------------------
+# SelectActive
+# ---------------------------------------------------------------------------
+
+def test_select_active_filters_dead():
+    ctx = _ctx(
+        prices=pd.Series({"SPY": 100.0, "TLT": 0.0, "GLD": np.nan}),
+        selected_symbols=["SPY", "TLT", "GLD"],
+    )
+    d = SelectActive()(ctx)
+    assert d.status == "continue"
+    assert ctx.selected_symbols == ["SPY"]
+
+
+def test_select_active_all_dead():
+    ctx = _ctx(
+        prices=pd.Series({"SPY": 0.0, "TLT": np.nan}),
+        selected_symbols=["SPY", "TLT"],
+    )
+    d = SelectActive()(ctx)
+    assert d.status == "skip_day"
+
+
+# ---------------------------------------------------------------------------
+# WeighRandomly
+# ---------------------------------------------------------------------------
+
+def test_weigh_randomly_sums_to_one():
+    ctx = _ctx(selected_symbols=["SPY", "TLT", "GLD"])
+    WeighRandomly(seed=42)(ctx)
+    assert abs(sum(ctx.target_weights.values()) - 1.0) < 1e-10
+    assert all(w > 0 for w in ctx.target_weights.values())
+
+
+def test_weigh_randomly_deterministic():
+    ctx1 = _ctx(selected_symbols=["SPY", "TLT"])
+    ctx2 = _ctx(selected_symbols=["SPY", "TLT"])
+    WeighRandomly(seed=99)(ctx1)
+    WeighRandomly(seed=99)(ctx2)
+    assert abs(ctx1.target_weights["SPY"] - ctx2.target_weights["SPY"]) < 1e-10
+
+
+def test_weigh_randomly_empty():
+    ctx = _ctx(selected_symbols=[])
+    d = WeighRandomly(seed=1)(ctx)
+    assert d.status == "skip_day"
+
+
+# ---------------------------------------------------------------------------
+# WeighTarget
+# ---------------------------------------------------------------------------
+
+def test_weigh_target_basic():
+    weights_df = pd.DataFrame(
+        {"SPY": [0.60, 0.70], "TLT": [0.40, 0.30]},
+        index=pd.to_datetime(["2024-01-01", "2024-02-01"]),
+    )
+    algo = WeighTarget(weights_df)
+    ctx = _ctx(
+        date=pd.Timestamp("2024-01-15"),
+        selected_symbols=["SPY", "TLT"],
+    )
+    d = algo(ctx)
+    assert d.status == "continue"
+    # Should pick Jan 1 row (most recent before Jan 15)
+    assert abs(ctx.target_weights["SPY"] - 0.60) < 1e-10
+    assert abs(ctx.target_weights["TLT"] - 0.40) < 1e-10
+
+
+def test_weigh_target_uses_latest_row():
+    weights_df = pd.DataFrame(
+        {"SPY": [0.50, 0.80]},
+        index=pd.to_datetime(["2024-01-01", "2024-02-01"]),
+    )
+    algo = WeighTarget(weights_df)
+    ctx = _ctx(
+        date=pd.Timestamp("2024-03-01"),
+        selected_symbols=["SPY"],
+    )
+    algo(ctx)
+    assert abs(ctx.target_weights["SPY"] - 1.0) < 1e-10  # normalized from 0.80
+
+
+def test_weigh_target_no_data_before_date():
+    weights_df = pd.DataFrame(
+        {"SPY": [1.0]},
+        index=pd.to_datetime(["2024-06-01"]),
+    )
+    algo = WeighTarget(weights_df)
+    ctx = _ctx(
+        date=pd.Timestamp("2024-01-01"),
+        selected_symbols=["SPY"],
+    )
+    d = algo(ctx)
+    assert d.status == "skip_day"
+
+
+def test_weigh_target_empty_selected():
+    weights_df = pd.DataFrame(
+        {"SPY": [1.0]},
+        index=pd.to_datetime(["2024-01-01"]),
+    )
+    ctx = _ctx(date=pd.Timestamp("2024-01-15"), selected_symbols=[])
+    d = WeighTarget(weights_df)(ctx)
+    assert d.status == "skip_day"
+
+
+# ---------------------------------------------------------------------------
+# CloseDead
+# ---------------------------------------------------------------------------
+
+def test_close_dead_removes_zero_price():
+    ctx = _ctx(
+        prices=pd.Series({"SPY": 100.0, "TLT": 0.0}),
+        positions={"SPY": 10.0, "TLT": 20.0},
+    )
+    CloseDead()(ctx)
+    assert "SPY" in ctx.positions
+    assert "TLT" not in ctx.positions
+
+
+def test_close_dead_removes_nan_price():
+    ctx = _ctx(
+        prices=pd.Series({"SPY": 100.0, "TLT": np.nan}),
+        positions={"SPY": 10.0, "TLT": 20.0},
+    )
+    CloseDead()(ctx)
+    assert "TLT" not in ctx.positions
+
+
+def test_close_dead_no_dead():
+    ctx = _ctx(
+        prices=pd.Series({"SPY": 100.0, "TLT": 50.0}),
+        positions={"SPY": 10.0, "TLT": 20.0},
+    )
+    d = CloseDead()(ctx)
+    assert d.status == "continue"
+    assert len(ctx.positions) == 2
+
+
+def test_close_dead_missing_price():
+    ctx = _ctx(
+        prices=pd.Series({"SPY": 100.0}),
+        positions={"SPY": 10.0, "XYZ": 5.0},  # XYZ not in prices
+    )
+    CloseDead()(ctx)
+    assert "XYZ" not in ctx.positions
+
+
+# ---------------------------------------------------------------------------
+# ClosePositionsAfterDates
+# ---------------------------------------------------------------------------
+
+def test_close_positions_after_dates():
+    algo = ClosePositionsAfterDates({"TLT": "2024-02-01"})
+    ctx = _ctx(
+        date=pd.Timestamp("2024-02-15"),
+        positions={"SPY": 10.0, "TLT": 20.0},
+    )
+    d = algo(ctx)
+    assert "TLT" not in ctx.positions
+    assert "SPY" in ctx.positions
+    assert "closed after date" in d.message
+
+
+def test_close_positions_before_date():
+    algo = ClosePositionsAfterDates({"TLT": "2024-06-01"})
+    ctx = _ctx(
+        date=pd.Timestamp("2024-02-15"),
+        positions={"SPY": 10.0, "TLT": 20.0},
+    )
+    algo(ctx)
+    assert "TLT" in ctx.positions  # not yet
+
+
+def test_close_positions_on_exact_date():
+    algo = ClosePositionsAfterDates({"SPY": "2024-02-01"})
+    ctx = _ctx(
+        date=pd.Timestamp("2024-02-01"),
+        positions={"SPY": 10.0},
+    )
+    algo(ctx)
+    assert "SPY" not in ctx.positions
+
+
+# ---------------------------------------------------------------------------
+# Require
+# ---------------------------------------------------------------------------
+
+def test_require_passes_when_inner_passes():
+    inner = RunDaily()  # always passes
+    algo = Require(inner)
+    d = algo(_ctx())
+    assert d.status == "continue"
+
+
+def test_require_blocks_when_inner_skips():
+    inner = RunOnce()
+    inner._ran = True  # already ran → will skip
+    algo = Require(inner)
+    d = algo(_ctx())
+    assert d.status == "skip_day"
+
+
+def test_require_reset():
+    inner = RunOnce()
+    inner._ran = True
+    algo = Require(inner)
+    algo.reset()
+    assert inner._ran is False
+
+
+# ---------------------------------------------------------------------------
+# benchmark_random
+# ---------------------------------------------------------------------------
+
+def test_benchmark_random_basic():
+    prices = _daily_prices(symbols=("SPY", "TLT"), days=30)
+    strategy_algos = [
+        RunMonthly(),
+        SelectThese(["SPY"]),
+        WeighSpecified({"SPY": 1.0}),
+        Rebalance(),
+    ]
+    result = benchmark_random(
+        prices=prices,
+        strategy_algos=strategy_algos,
+        n_random=10,
+        initial_capital=10_000.0,
+        seed=42,
+    )
+    assert isinstance(result, RandomBenchmarkResult)
+    assert len(result.random_returns) == 10
+    assert 0 <= result.percentile <= 100
+    assert result.mean_random != 0.0 or all(r == 0 for r in result.random_returns)
+
+
+def test_benchmark_random_deterministic():
+    prices = _daily_prices(days=30)
+    algos = [RunMonthly(), SelectAll(), WeighEqually(), Rebalance()]
+    r1 = benchmark_random(prices, algos, n_random=5, seed=42)
+    r2 = benchmark_random(prices, algos, n_random=5, seed=42)
+    assert r1.random_returns == r2.random_returns
+    assert r1.percentile == r2.percentile
+
+
+def test_benchmark_random_result_properties():
+    result = RandomBenchmarkResult(
+        strategy_return=0.10,
+        random_returns=[0.05, 0.08, 0.12, 0.03],
+        percentile=50.0,
+    )
+    assert abs(result.mean_random - np.mean([0.05, 0.08, 0.12, 0.03])) < 1e-10
+    assert abs(result.std_random - np.std([0.05, 0.08, 0.12, 0.03])) < 1e-10
+
+
+# ===========================================================================
+# INTEGRATION: Round 2 algos in full pipelines
+# ===========================================================================
+
+
+def test_pipeline_or_run_if_out_of_bounds():
+    """Or(RunQuarterly(), RunIfOutOfBounds(0.05)) pattern."""
+    idx = pd.bdate_range("2024-01-02", periods=5)
+    prices = pd.DataFrame({"SPY": [100.0] * 5}, index=idx)
+    oob = RunIfOutOfBounds(tolerance=0.05)
+    bt = AlgoPipelineBacktester(
+        prices=prices, initial_capital=1000.0,
+        algos=[
+            Or(RunQuarterly(), oob),
+            SelectThese(["SPY"]),
+            WeighSpecified({"SPY": 1.0}),
+            Rebalance(),
+        ],
+    )
+    bal = bt.run()
+    assert not bal.empty
+
+
+def test_pipeline_close_dead_then_rebalance():
+    idx = pd.to_datetime(["2024-01-02", "2024-02-01"])
+    prices = pd.DataFrame({"SPY": [100.0, 100.0], "TLT": [50.0, 0.0]}, index=idx)
+    bt = AlgoPipelineBacktester(
+        prices=prices, initial_capital=10_000.0,
+        algos=[
+            RunMonthly(), CloseDead(),
+            SelectActive(), WeighEqually(), Rebalance(),
+        ],
+    )
+    bal = bt.run()
+    # On Feb 1, TLT is dead → should not hold any TLT
+    if "TLT qty" in bal.columns:
+        assert bal.loc[pd.Timestamp("2024-02-01"), "TLT qty"] == 0 or \
+               pd.isna(bal.loc[pd.Timestamp("2024-02-01"), "TLT qty"])
+
+
+def test_pipeline_scale_weights_deleverage():
+    idx = pd.to_datetime(["2024-01-02"])
+    prices = pd.DataFrame({"SPY": [100.0]}, index=idx)
+    bt = AlgoPipelineBacktester(
+        prices=prices, initial_capital=10_000.0,
+        algos=[
+            SelectThese(["SPY"]),
+            WeighSpecified({"SPY": 1.0}),
+            ScaleWeights(scale=0.5),
+            Rebalance(),
+        ],
+    )
+    bal = bt.run()
+    # 50% of 10000 = 5000, floor(5000/100) = 50 shares
+    assert bal.iloc[0]["SPY qty"] == 50
+
+
+def test_pipeline_select_randomly_weigh_randomly():
+    prices = _daily_prices(symbols=("SPY", "TLT", "GLD"), days=30)
+    bt = AlgoPipelineBacktester(
+        prices=prices, initial_capital=10_000.0,
+        algos=[
+            RunMonthly(),
+            SelectRandomly(n=2, seed=42),
+            WeighRandomly(seed=42),
+            Rebalance(),
+        ],
+    )
+    bal = bt.run()
+    assert not bal.empty
+
+
+def test_pipeline_weigh_target_from_df():
+    weights_df = pd.DataFrame(
+        {"SPY": [0.60, 0.40], "TLT": [0.40, 0.60]},
+        index=pd.to_datetime(["2024-01-01", "2024-02-01"]),
+    )
+    idx = pd.to_datetime(["2024-01-15", "2024-02-15"])
+    prices = pd.DataFrame({"SPY": [100.0, 100.0], "TLT": [50.0, 50.0]}, index=idx)
+    bt = AlgoPipelineBacktester(
+        prices=prices, initial_capital=10_000.0,
+        algos=[
+            SelectThese(["SPY", "TLT"]),
+            WeighTarget(weights_df),
+            Rebalance(),
+        ],
+    )
+    bal = bt.run()
+    # Jan 15 → uses Jan 1 weights (60/40)
+    spy_val = bal.iloc[0]["SPY qty"] * 100.0
+    total = bal.iloc[0]["total capital"]
+    assert spy_val / total > 0.55  # roughly 60%

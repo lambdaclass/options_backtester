@@ -47,20 +47,27 @@ from options_backtester.engine.pipeline import (
     AlgoPipelineBacktester, PipelineContext, PipelineLogRow, StepDecision,
     # Scheduling
     RunMonthly, RunWeekly, RunQuarterly, RunYearly, RunDaily,
-    RunOnce, RunOnDate, RunAfterDate, RunEveryNPeriods,
+    RunOnce, RunOnDate, RunAfterDate, RunAfterDays, RunEveryNPeriods,
+    RunIfOutOfBounds,
     Or, Not,
     # Selection
     SelectThese, SelectAll, SelectHasData, SelectMomentum, SelectN, SelectWhere,
+    SelectRandomly, SelectActive,
     # Weighting
     WeighSpecified, WeighEqually, WeighInvVol, WeighMeanVar, WeighERC, TargetVol,
+    WeighRandomly, WeighTarget,
     # Weight limits
-    LimitWeights,
+    LimitWeights, LimitDeltas, ScaleWeights,
     # Capital flows
     CapitalFlow,
     # Risk
     MaxDrawdownGuard,
+    # Position management
+    CloseDead, ClosePositionsAfterDates, Require,
     # Rebalancing
     Rebalance, RebalanceOverTime,
+    # Random benchmarking
+    RandomBenchmarkResult, benchmark_random,
 )
 from options_backtester.engine.algo_adapters import (
     EngineAlgo,
@@ -102,12 +109,19 @@ __all__ = [
     "BacktestEngine", "TradingClock",
     "AlgoPipelineBacktester", "PipelineContext", "PipelineLogRow", "StepDecision",
     "RunMonthly", "RunWeekly", "RunQuarterly", "RunYearly", "RunDaily",
-    "RunOnce", "RunOnDate", "RunAfterDate", "RunEveryNPeriods",
+    "RunOnce", "RunOnDate", "RunAfterDate", "RunAfterDays", "RunEveryNPeriods",
+    "RunIfOutOfBounds",
     "Or", "Not",
     "SelectThese", "SelectAll", "SelectHasData", "SelectMomentum", "SelectN", "SelectWhere",
+    "SelectRandomly", "SelectActive",
     "WeighSpecified", "WeighEqually", "WeighInvVol", "WeighMeanVar", "WeighERC", "TargetVol",
-    "LimitWeights", "CapitalFlow",
-    "MaxDrawdownGuard", "Rebalance", "RebalanceOverTime",
+    "WeighRandomly", "WeighTarget",
+    "LimitWeights", "LimitDeltas", "ScaleWeights",
+    "CapitalFlow",
+    "MaxDrawdownGuard",
+    "CloseDead", "ClosePositionsAfterDates", "Require",
+    "Rebalance", "RebalanceOverTime",
+    "RandomBenchmarkResult", "benchmark_random",
     "EngineAlgo", "EngineStepDecision", "EnginePipelineContext", "EngineRunMonthly",
     "BudgetPercent", "RangeFilter", "SelectByDelta", "SelectByDTE", "IVRankFilter",
     "MaxGreekExposure", "ExitOnThreshold",
