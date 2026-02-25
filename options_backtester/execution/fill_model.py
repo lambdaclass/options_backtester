@@ -24,6 +24,9 @@ class MarketAtBidAsk(FillModel):
     def get_fill_price(self, row: pd.Series, direction: Direction) -> float:
         return float(row[direction.price_column])
 
+    def to_rust_config(self) -> dict:
+        return {"type": "MarketAtBidAsk"}
+
 
 class MidPrice(FillModel):
     """Fill at the midpoint of bid and ask."""
@@ -32,6 +35,9 @@ class MidPrice(FillModel):
         bid = float(row["bid"])
         ask = float(row["ask"])
         return (bid + ask) / 2.0
+
+    def to_rust_config(self) -> dict:
+        return {"type": "MidPrice"}
 
 
 class VolumeAwareFill(FillModel):
@@ -57,3 +63,6 @@ class VolumeAwareFill(FillModel):
         # Linear interpolation: at volume=0 fill at mid, at threshold fill at target
         ratio = volume / self.full_volume_threshold
         return mid + ratio * (target - mid)
+
+    def to_rust_config(self) -> dict:
+        return {"type": "VolumeAware", "full_volume_threshold": self.full_volume_threshold}

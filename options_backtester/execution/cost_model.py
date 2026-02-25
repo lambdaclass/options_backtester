@@ -28,6 +28,9 @@ class NoCosts(TransactionCostModel):
     def stock_cost(self, price: float, quantity: float) -> float:
         return 0.0
 
+    def to_rust_config(self) -> dict:
+        return {"type": "NoCosts"}
+
 
 class PerContractCommission(TransactionCostModel):
     """Fixed per-contract commission (e.g., $0.65/contract for IBKR)."""
@@ -41,6 +44,9 @@ class PerContractCommission(TransactionCostModel):
 
     def stock_cost(self, price: float, quantity: float) -> float:
         return self.stock_rate * abs(quantity)
+
+    def to_rust_config(self) -> dict:
+        return {"type": "PerContract", "rate": self.rate, "stock_rate": self.stock_rate}
 
 
 class TieredCommission(TransactionCostModel):
@@ -81,6 +87,13 @@ class TieredCommission(TransactionCostModel):
 
     def stock_cost(self, price: float, quantity: float) -> float:
         return self.stock_rate * abs(quantity)
+
+    def to_rust_config(self) -> dict:
+        return {
+            "type": "Tiered",
+            "tiers": [(max_qty, rate) for max_qty, rate in self.tiers],
+            "stock_rate": self.stock_rate,
+        }
 
 
 class SpreadSlippage(TransactionCostModel):

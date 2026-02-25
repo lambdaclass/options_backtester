@@ -10,18 +10,30 @@ use pyo3_polars::PyDataFrame;
 use rayon::prelude::*;
 
 use ob_core::backtest::{run_backtest, BacktestConfig, SchemaMapping};
+use ob_core::cost_model::CostModel;
+use ob_core::fill_model::FillModel;
+use ob_core::risk::RiskConstraint;
+use ob_core::signal_selector::SignalSelector;
 
 use crate::arrow_bridge::py_to_polars;
-use crate::py_backtest::{parse_config_from_dict, parse_schema};
+use crate::py_backtest::{
+    parse_config_from_dict, parse_cost_model, parse_fill_model,
+    parse_risk_constraint, parse_schema, parse_signal_selector,
+};
 
 /// Overrides parsed from each param dict (on GIL thread).
 struct SweepOverrides {
     label: String,
     profit_pct: Option<Option<f64>>,   // None=use base, Some(None)=clear, Some(Some(v))=override
     loss_pct: Option<Option<f64>>,
-    rebalance_dates: Option<Vec<String>>,
+    rebalance_dates: Option<Vec<i64>>,
     leg_entry_filters: Option<Vec<Option<String>>>,
     leg_exit_filters: Option<Vec<Option<String>>>,
+    cost_model: Option<CostModel>,
+    fill_model: Option<FillModel>,
+    signal_selector: Option<SignalSelector>,
+    risk_constraints: Option<Vec<RiskConstraint>>,
+    sma_days: Option<Option<usize>>,
 }
 
 struct SweepResult {
@@ -59,6 +71,21 @@ fn merge_config(base: &BacktestConfig, overrides: &SweepOverrides) -> BacktestCo
             }
         }
     }
+    if let Some(ref cm) = overrides.cost_model {
+        cfg.cost_model = cm.clone();
+    }
+    if let Some(ref fm) = overrides.fill_model {
+        cfg.fill_model = fm.clone();
+    }
+    if let Some(ref ss) = overrides.signal_selector {
+        cfg.signal_selector = ss.clone();
+    }
+    if let Some(ref rc) = overrides.risk_constraints {
+        cfg.risk_constraints = rc.clone();
+    }
+    if let Some(ref sma) = overrides.sma_days {
+        cfg.sma_days = *sma;
+    }
 
     cfg
 }
@@ -93,7 +120,7 @@ fn run_single_sweep(
 }
 
 /// Parse an optional f64 that may be absent, null, or a float.
-/// None  → key missing (use base), Some(None) → explicit null (clear), Some(Some(v)) → override.
+/// None  -> key missing (use base), Some(None) -> explicit null (clear), Some(Some(v)) -> override.
 fn parse_opt_f64(dict: &Bound<'_, PyDict>, key: &str) -> PyResult<Option<Option<f64>>> {
     match dict.get_item(key)? {
         None => Ok(None),
@@ -110,13 +137,12 @@ fn parse_overrides(dict: &Bound<'_, PyDict>) -> PyResult<SweepOverrides> {
         .transpose()?
         .unwrap_or_default();
 
-    // profit_pct/loss_pct: missing key → None (use base), None value → Some(None) (clear), float → Some(Some(v))
     let profit_pct = parse_opt_f64(dict, "profit_pct")?;
     let loss_pct = parse_opt_f64(dict, "loss_pct")?;
 
-    let rebalance_dates: Option<Vec<String>> = dict
+    let rebalance_dates: Option<Vec<i64>> = dict
         .get_item("rebalance_dates")?
-        .map(|v| v.extract::<Vec<String>>())
+        .map(|v| v.extract::<Vec<i64>>())
         .transpose()?;
 
     let leg_entry_filters: Option<Vec<Option<String>>> = dict
@@ -129,6 +155,54 @@ fn parse_overrides(dict: &Bound<'_, PyDict>) -> PyResult<SweepOverrides> {
         .map(|v| v.extract::<Vec<Option<String>>>())
         .transpose()?;
 
+    let cost_model = match dict.get_item("cost_model")? {
+        Some(v) if !v.is_none() => {
+            let d = v.downcast::<PyDict>()
+                .map_err(|e| pyo3::exceptions::PyTypeError::new_err(e.to_string()))?;
+            Some(parse_cost_model(d)?)
+        }
+        _ => None,
+    };
+
+    let fill_model = match dict.get_item("fill_model")? {
+        Some(v) if !v.is_none() => {
+            let d = v.downcast::<PyDict>()
+                .map_err(|e| pyo3::exceptions::PyTypeError::new_err(e.to_string()))?;
+            Some(parse_fill_model(d)?)
+        }
+        _ => None,
+    };
+
+    let signal_selector = match dict.get_item("signal_selector")? {
+        Some(v) if !v.is_none() => {
+            let d = v.downcast::<PyDict>()
+                .map_err(|e| pyo3::exceptions::PyTypeError::new_err(e.to_string()))?;
+            Some(parse_signal_selector(d)?)
+        }
+        _ => None,
+    };
+
+    let risk_constraints: Option<Vec<RiskConstraint>> = match dict.get_item("risk_constraints")? {
+        Some(v) if !v.is_none() => {
+            let list = v.downcast::<PyList>()
+                .map_err(|e| pyo3::exceptions::PyTypeError::new_err(e.to_string()))?;
+            Some(list.iter()
+                .map(|item| {
+                    let d = item.downcast::<PyDict>()
+                        .map_err(|e| pyo3::exceptions::PyTypeError::new_err(e.to_string()))?;
+                    parse_risk_constraint(d)
+                })
+                .collect::<PyResult<Vec<_>>>()?)
+        }
+        _ => None,
+    };
+
+    let sma_days: Option<Option<usize>> = match dict.get_item("sma_days")? {
+        None => None,
+        Some(v) if v.is_none() => Some(None),
+        Some(v) => Some(Some(v.extract::<usize>()?)),
+    };
+
     Ok(SweepOverrides {
         label,
         profit_pct,
@@ -136,6 +210,11 @@ fn parse_overrides(dict: &Bound<'_, PyDict>) -> PyResult<SweepOverrides> {
         rebalance_dates,
         leg_entry_filters,
         leg_exit_filters,
+        cost_model,
+        fill_model,
+        signal_selector,
+        risk_constraints,
+        sma_days,
     })
 }
 
@@ -144,23 +223,6 @@ fn parse_overrides(dict: &Bound<'_, PyDict>) -> PyResult<SweepOverrides> {
 /// For each param dict, merges overrides into the base config and runs
 /// a full backtest. All CPU-bound work runs on Rayon threads; only the
 /// result collection touches the GIL.
-///
-/// Args:
-///     options_data: Options DataFrame (shared across all workers)
-///     stocks_data: Stocks DataFrame (shared across all workers)
-///     base_config: Base backtest config dict
-///     schema_mapping: Schema column name mappings dict
-///     param_grid: List of override dicts, each with optional keys:
-///         - "label": str (for identification)
-///         - "profit_pct": Optional[float]
-///         - "loss_pct": Optional[float]
-///         - "rebalance_dates": Optional[list[str]]
-///         - "leg_entry_filters": Optional[list[Optional[str]]]
-///         - "leg_exit_filters": Optional[list[Optional[str]]]
-///     n_workers: Number of Rayon threads (default: all cores)
-///
-/// Returns:
-///     List of result dicts with stats for each parameter combination.
 #[pyfunction]
 #[pyo3(signature = (options_data, stocks_data, base_config, schema_mapping, param_grid, n_workers = None))]
 pub fn parallel_sweep(

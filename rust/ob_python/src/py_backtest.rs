@@ -1,15 +1,19 @@
 /// PyO3 bindings for full backtest loop.
 
 use pyo3::prelude::*;
-use pyo3::types::PyDict;
+use pyo3::types::{PyDict, PyList};
 use pyo3_polars::PyDataFrame;
 
 use ob_core::backtest::{run_backtest, BacktestConfig, SchemaMapping};
+use ob_core::cost_model::CostModel;
+use ob_core::fill_model::FillModel;
+use ob_core::risk::RiskConstraint;
+use ob_core::signal_selector::SignalSelector;
 use ob_core::types::{Direction, LegConfig, OptionType};
 
 use crate::arrow_bridge::{polars_to_py, py_to_polars};
 
-/// Parse schema dict → SchemaMapping.
+/// Parse schema dict -> SchemaMapping.
 pub fn parse_schema(schema: &Bound<'_, PyDict>) -> PyResult<SchemaMapping> {
     Ok(SchemaMapping {
         contract: get_str(schema, "contract", "optionroot")?,
@@ -24,7 +28,110 @@ pub fn parse_schema(schema: &Bound<'_, PyDict>) -> PyResult<SchemaMapping> {
     })
 }
 
-/// Parse config dict → BacktestConfig.
+/// Parse a CostModel from a Python dict.
+///
+/// Expected formats:
+///   {"type": "NoCosts"}
+///   {"type": "PerContract", "rate": 0.65, "stock_rate": 0.005}
+///   {"type": "Tiered", "tiers": [[10000, 0.65], [50000, 0.50]], "stock_rate": 0.005}
+pub fn parse_cost_model(d: &Bound<'_, PyDict>) -> PyResult<CostModel> {
+    let model_type = get_str(d, "type", "NoCosts")?;
+    match model_type.as_str() {
+        "NoCosts" => Ok(CostModel::NoCosts),
+        "PerContract" => {
+            let rate = get_f64(d, "rate", 0.65)?;
+            let stock_rate = get_f64(d, "stock_rate", 0.005)?;
+            Ok(CostModel::PerContract { rate, stock_rate })
+        }
+        "Tiered" => {
+            let tiers_raw: Vec<(i64, f64)> = d
+                .get_item("tiers")?
+                .map(|v| v.extract::<Vec<(i64, f64)>>())
+                .transpose()?
+                .unwrap_or_default();
+            let stock_rate = get_f64(d, "stock_rate", 0.005)?;
+            Ok(CostModel::Tiered { tiers: tiers_raw, stock_rate })
+        }
+        other => Err(pyo3::exceptions::PyValueError::new_err(
+            format!("unknown cost model type: {other}"),
+        )),
+    }
+}
+
+/// Parse a FillModel from a Python dict.
+///
+/// Expected formats:
+///   {"type": "MarketAtBidAsk"}
+///   {"type": "MidPrice"}
+///   {"type": "VolumeAware", "full_volume_threshold": 100}
+pub fn parse_fill_model(d: &Bound<'_, PyDict>) -> PyResult<FillModel> {
+    let model_type = get_str(d, "type", "MarketAtBidAsk")?;
+    match model_type.as_str() {
+        "MarketAtBidAsk" => Ok(FillModel::MarketAtBidAsk),
+        "MidPrice" => Ok(FillModel::MidPrice),
+        "VolumeAware" => {
+            let threshold = get_i64(d, "full_volume_threshold", 100)?;
+            Ok(FillModel::VolumeAware { full_volume_threshold: threshold })
+        }
+        other => Err(pyo3::exceptions::PyValueError::new_err(
+            format!("unknown fill model type: {other}"),
+        )),
+    }
+}
+
+/// Parse a SignalSelector from a Python dict.
+///
+/// Expected formats:
+///   {"type": "FirstMatch"}
+///   {"type": "NearestDelta", "target": -0.30, "column": "delta"}
+///   {"type": "MaxOpenInterest", "column": "openinterest"}
+pub fn parse_signal_selector(d: &Bound<'_, PyDict>) -> PyResult<SignalSelector> {
+    let sel_type = get_str(d, "type", "FirstMatch")?;
+    match sel_type.as_str() {
+        "FirstMatch" => Ok(SignalSelector::FirstMatch),
+        "NearestDelta" => {
+            let target = get_f64(d, "target", -0.30)?;
+            let column = get_str(d, "column", "delta")?;
+            Ok(SignalSelector::NearestDelta { target, column })
+        }
+        "MaxOpenInterest" => {
+            let column = get_str(d, "column", "openinterest")?;
+            Ok(SignalSelector::MaxOpenInterest { column })
+        }
+        other => Err(pyo3::exceptions::PyValueError::new_err(
+            format!("unknown signal selector type: {other}"),
+        )),
+    }
+}
+
+/// Parse a single RiskConstraint from a Python dict.
+///
+/// Expected formats:
+///   {"type": "MaxDelta", "limit": 100.0}
+///   {"type": "MaxVega", "limit": 50.0}
+///   {"type": "MaxDrawdown", "max_dd_pct": 0.20}
+pub fn parse_risk_constraint(d: &Bound<'_, PyDict>) -> PyResult<RiskConstraint> {
+    let c_type = get_str(d, "type", "")?;
+    match c_type.as_str() {
+        "MaxDelta" => {
+            let limit = get_f64(d, "limit", 100.0)?;
+            Ok(RiskConstraint::MaxDelta { limit })
+        }
+        "MaxVega" => {
+            let limit = get_f64(d, "limit", 50.0)?;
+            Ok(RiskConstraint::MaxVega { limit })
+        }
+        "MaxDrawdown" => {
+            let max_dd_pct = get_f64(d, "max_dd_pct", 0.20)?;
+            Ok(RiskConstraint::MaxDrawdown { max_dd_pct })
+        }
+        other => Err(pyo3::exceptions::PyValueError::new_err(
+            format!("unknown risk constraint type: {other}"),
+        )),
+    }
+}
+
+/// Parse config dict -> BacktestConfig.
 pub fn parse_config_from_dict(config: &Bound<'_, PyDict>) -> PyResult<BacktestConfig> {
     let alloc_obj = config
         .get_item("allocation")?
@@ -47,9 +154,9 @@ pub fn parse_config_from_dict(config: &Bound<'_, PyDict>) -> PyResult<BacktestCo
         .get_item("loss_pct")?
         .and_then(|v| v.extract::<f64>().ok());
 
-    let rebalance_dates: Vec<String> = config
+    let rebalance_dates: Vec<i64> = config
         .get_item("rebalance_dates")?
-        .map(|v| v.extract::<Vec<String>>())
+        .map(|v| v.extract::<Vec<i64>>())
         .transpose()?
         .unwrap_or_default();
 
@@ -72,6 +179,53 @@ pub fn parse_config_from_dict(config: &Bound<'_, PyDict>) -> PyResult<BacktestCo
     let stock_symbols: Vec<String> = stocks_list.iter().map(|(s, _)| s.clone()).collect();
     let stock_percentages: Vec<f64> = stocks_list.iter().map(|(_, p)| *p).collect();
 
+    // Parse new execution model configs (optional — defaults to NoCosts/MarketAtBidAsk/FirstMatch/empty)
+    let cost_model = match config.get_item("cost_model")? {
+        Some(v) if !v.is_none() => {
+            let d = v.downcast::<PyDict>()
+                .map_err(|e| pyo3::exceptions::PyTypeError::new_err(e.to_string()))?;
+            parse_cost_model(d)?
+        }
+        _ => CostModel::NoCosts,
+    };
+
+    let fill_model = match config.get_item("fill_model")? {
+        Some(v) if !v.is_none() => {
+            let d = v.downcast::<PyDict>()
+                .map_err(|e| pyo3::exceptions::PyTypeError::new_err(e.to_string()))?;
+            parse_fill_model(d)?
+        }
+        _ => FillModel::MarketAtBidAsk,
+    };
+
+    let signal_selector = match config.get_item("signal_selector")? {
+        Some(v) if !v.is_none() => {
+            let d = v.downcast::<PyDict>()
+                .map_err(|e| pyo3::exceptions::PyTypeError::new_err(e.to_string()))?;
+            parse_signal_selector(d)?
+        }
+        _ => SignalSelector::FirstMatch,
+    };
+
+    let risk_constraints: Vec<RiskConstraint> = match config.get_item("risk_constraints")? {
+        Some(v) if !v.is_none() => {
+            let list = v.downcast::<PyList>()
+                .map_err(|e| pyo3::exceptions::PyTypeError::new_err(e.to_string()))?;
+            list.iter()
+                .map(|item| {
+                    let d = item.downcast::<PyDict>()
+                        .map_err(|e| pyo3::exceptions::PyTypeError::new_err(e.to_string()))?;
+                    parse_risk_constraint(d)
+                })
+                .collect::<PyResult<Vec<_>>>()?
+        }
+        _ => Vec::new(),
+    };
+
+    let sma_days: Option<usize> = config
+        .get_item("sma_days")?
+        .and_then(|v| v.extract::<usize>().ok());
+
     Ok(BacktestConfig {
         allocation_stocks: alloc_stocks,
         allocation_options: alloc_options,
@@ -84,6 +238,11 @@ pub fn parse_config_from_dict(config: &Bound<'_, PyDict>) -> PyResult<BacktestCo
         stock_symbols,
         stock_percentages,
         rebalance_dates,
+        cost_model,
+        fill_model,
+        signal_selector,
+        risk_constraints,
+        sma_days,
     })
 }
 
@@ -142,6 +301,24 @@ pub fn parse_leg_config(d: &Bound<'_, PyDict>) -> PyResult<LegConfig> {
     let entry_sort_asc: bool = d.get_item("entry_sort_asc")?
         .map(|v| v.extract::<bool>()).transpose()?.unwrap_or(true);
 
+    // Per-leg overrides (optional)
+    let signal_selector = match d.get_item("signal_selector")? {
+        Some(v) if !v.is_none() => {
+            let sd = v.downcast::<PyDict>()
+                .map_err(|e| pyo3::exceptions::PyTypeError::new_err(e.to_string()))?;
+            Some(parse_signal_selector(sd)?)
+        }
+        _ => None,
+    };
+    let fill_model = match d.get_item("fill_model")? {
+        Some(v) if !v.is_none() => {
+            let fd = v.downcast::<PyDict>()
+                .map_err(|e| pyo3::exceptions::PyTypeError::new_err(e.to_string()))?;
+            Some(parse_fill_model(fd)?)
+        }
+        _ => None,
+    };
+
     Ok(LegConfig {
         name,
         option_type: if type_str == "put" { OptionType::Put } else { OptionType::Call },
@@ -150,6 +327,8 @@ pub fn parse_leg_config(d: &Bound<'_, PyDict>) -> PyResult<LegConfig> {
         exit_filter_query: exit_filter,
         entry_sort_col,
         entry_sort_asc,
+        signal_selector,
+        fill_model,
     })
 }
 

@@ -34,6 +34,9 @@ class FirstMatch(SignalSelector):
     def select(self, candidates: pd.DataFrame) -> pd.Series:
         return candidates.iloc[0]
 
+    def to_rust_config(self) -> dict:
+        return {"type": "FirstMatch"}
+
 
 class NearestDelta(SignalSelector):
     """Pick the contract whose delta is closest to `target_delta`.
@@ -55,6 +58,9 @@ class NearestDelta(SignalSelector):
         diffs = (candidates[self.delta_column] - self.target_delta).abs()
         return candidates.loc[diffs.idxmin()]
 
+    def to_rust_config(self) -> dict:
+        return {"type": "NearestDelta", "target": self.target_delta, "column": self.delta_column}
+
 
 class MaxOpenInterest(SignalSelector):
     """Pick the contract with the highest open interest (proxy for liquidity).
@@ -73,3 +79,6 @@ class MaxOpenInterest(SignalSelector):
         if self.oi_column not in candidates.columns:
             return candidates.iloc[0]
         return candidates.loc[candidates[self.oi_column].idxmax()]
+
+    def to_rust_config(self) -> dict:
+        return {"type": "MaxOpenInterest", "column": self.oi_column}

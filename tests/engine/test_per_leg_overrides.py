@@ -176,5 +176,9 @@ class TestPerLegFillModel:
 
         if len(market_costs) > 0 and len(mid_costs) > 0:
             # MidPrice for BUY should be cheaper than MarketAtBidAsk (which uses ask)
-            assert not np.allclose(market_costs, mid_costs, rtol=1e-6), \
-                "MidPrice should produce different costs than MarketAtBidAsk"
+            # Different fill models may produce different numbers of trades
+            if len(market_costs) != len(mid_costs):
+                pass  # Different lengths means different results
+            else:
+                assert not np.allclose(market_costs, mid_costs, rtol=1e-6), \
+                    "MidPrice should produce different costs than MarketAtBidAsk"

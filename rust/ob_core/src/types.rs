@@ -54,6 +54,10 @@ pub struct LegConfig {
     pub exit_filter_query: Option<String>,
     pub entry_sort_col: Option<String>,
     pub entry_sort_asc: bool,
+    /// Per-leg signal selector override (None = use engine-level selector).
+    pub signal_selector: Option<crate::signal_selector::SignalSelector>,
+    /// Per-leg fill model override (None = use engine-level fill model).
+    pub fill_model: Option<crate::fill_model::FillModel>,
 }
 
 /// Aggregated Greeks for a position or portfolio.

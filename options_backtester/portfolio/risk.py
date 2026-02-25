@@ -37,6 +37,9 @@ class MaxDelta(RiskConstraint):
     def describe(self) -> str:
         return f"MaxDelta(limit={self.limit})"
 
+    def to_rust_config(self) -> dict:
+        return {"type": "MaxDelta", "limit": self.limit}
+
 
 class MaxVega(RiskConstraint):
     """Reject trades that would push portfolio vega beyond a limit."""
@@ -51,6 +54,9 @@ class MaxVega(RiskConstraint):
 
     def describe(self) -> str:
         return f"MaxVega(limit={self.limit})"
+
+    def to_rust_config(self) -> dict:
+        return {"type": "MaxVega", "limit": self.limit}
 
 
 class MaxDrawdown(RiskConstraint):
@@ -68,6 +74,9 @@ class MaxDrawdown(RiskConstraint):
 
     def describe(self) -> str:
         return f"MaxDrawdown(max_dd_pct={self.max_dd_pct})"
+
+    def to_rust_config(self) -> dict:
+        return {"type": "MaxDrawdown", "max_dd_pct": self.max_dd_pct}
 
 
 class RiskManager:

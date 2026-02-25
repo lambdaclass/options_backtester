@@ -62,7 +62,9 @@ def parse_args() -> argparse.Namespace:
     return p.parse_args()
 
 
-def _stocks():
+def _stocks(use_prod: bool = False):
+    if use_prod:
+        return [Stock("SPY", 1.0)]
     return [Stock("VTI", 0.2), Stock("VEU", 0.2), Stock("BND", 0.2),
             Stock("VNQ", 0.2), Stock("DBC", 0.2)]
 
@@ -258,8 +260,10 @@ def run_bt_stock_only(stocks_file, symbols, weights, initial_capital, runs) -> B
 
     assert last_res is not None
     series = last_res.prices.iloc[:, 0]
+    # bt normalizes NAV to start at initial_capital
     final = float(series.iloc[-1])
-    total_ret = (final / initial_capital - 1) * 100
+    start = float(series.iloc[0])
+    total_ret = (final / start - 1) * 100
     return BenchResult(
         name="bt library",
         runtime_s=float(np.mean(times)),
@@ -327,7 +331,7 @@ def print_comparison(a: BenchResult, b: BenchResult) -> None:
 def main() -> None:
     args = parse_args()
     stocks_data, options_data, stocks_file = _load_data(args.use_prod_data)
-    stocks = _stocks()
+    stocks = _stocks(use_prod=args.use_prod_data)
 
     print(f"\n{'='*60}")
     print("Benchmark: Rust vs Python vs Legacy")

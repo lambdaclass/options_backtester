@@ -6,6 +6,7 @@ edition = "2021"
 [dependencies]
 polars = { version = "0.48", features = ["lazy", "parquet", "dtype-struct", "semi_anti_join"] }
 arrow = { version = "55", features = ["ffi"] }
+chrono = "0.4"
 rayon = "1.10"
 thiserror = "2"
 

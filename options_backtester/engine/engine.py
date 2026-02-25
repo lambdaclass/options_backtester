@@ -164,21 +164,28 @@ class BacktestEngine:
         stock_dates = self.stocks_data["date"].unique()
         assert np.array_equal(stock_dates, option_dates)
 
-        # Dispatch to Rust full-loop when available and all features are default.
-        # Skip if any leg has per-leg overrides (Rust doesn't support them).
-        has_per_leg_overrides = any(
-            getattr(leg, 'signal_selector', None) is not None
-            or getattr(leg, 'fill_model', None) is not None
-            for leg in self._options_strategy.legs
+        # Dispatch to Rust full-loop when available.
+        # Requires: no monthly mode, no algos, no custom options_budget,
+        # and all execution models (engine-level AND per-leg) must have to_rust_config().
+        def _has_rust_config(obj):
+            return obj is None or hasattr(obj, 'to_rust_config')
+
+        _rust_compatible = (
+            use_rust()
+            and not monthly
+            and not self.algos
+            and self.options_budget is None
+            and hasattr(self.cost_model, 'to_rust_config')
+            and hasattr(self.fill_model, 'to_rust_config')
+            and hasattr(self.signal_selector, 'to_rust_config')
+            and all(hasattr(c, 'to_rust_config') for c in self.risk_manager.constraints)
+            and all(
+                _has_rust_config(getattr(leg, 'signal_selector', None))
+                and _has_rust_config(getattr(leg, 'fill_model', None))
+                for leg in self._options_strategy.legs
+            )
         )
-        if (use_rust() and not monthly and not sma_days
-                and not self.algos
-                and not has_per_leg_overrides
-                and isinstance(self.cost_model, NoCosts)
-                and isinstance(self.fill_model, MarketAtBidAsk)
-                and isinstance(self.signal_selector, FirstMatch)
-                and not self.risk_manager.constraints
-                and self.options_budget is None):
+        if _rust_compatible:
             try:
                 return self._run_rust(
                     rebalance_freq,
@@ -186,8 +193,6 @@ class BacktestEngine:
                     sma_days=sma_days,
                 )
             except Exception:
-                # Keep run alive when Rust extension is installed but incompatible
-                # with the active pandas/polars runtime.
                 pass
 
         self._initialize_inventories()
@@ -337,6 +342,7 @@ class BacktestEngine:
     ) -> pd.DataFrame:
         """Run the backtest using the Rust full-loop implementation."""
         import math
+        import pyarrow as pa
         import polars as pl
 
         strategy = self._options_strategy
@@ -354,34 +360,34 @@ class BacktestEngine:
                 .apply(lambda x: x.index.min())
                 .values
             )
-            date_fmt = "%Y-%m-%d %H:%M:%S"
-            rb_date_strs = [d.strftime(date_fmt) for d in rebalancing_days]
+            # Pass rebalance dates as i64 nanoseconds (matching Polars Datetime(ns))
+            rb_date_ns = [int(d.value) for d in rebalancing_days if not pd.isna(d)]
         else:
-            rb_date_strs = []
-            date_fmt = "%Y-%m-%d %H:%M:%S"
+            rb_date_ns = []
 
-        # Convert datetime columns to strings for Rust Polars compat.
-        # Polars Datetime columns can't be compared with string literals
-        # in the Rust filter, so we normalize to string format here.
         opts_date_col = self._options_schema["date"]
         stocks_date_col = self._stocks_schema["date"]
         exp_col = self._options_schema["expiration"]
 
-        opts_copy = self._options_data._data.copy()
-        for c in [opts_date_col, exp_col]:
-            if c in opts_copy.columns and pd.api.types.is_datetime64_any_dtype(opts_copy[c]):
-                opts_copy[c] = opts_copy[c].dt.strftime(date_fmt)
+        # Drop columns Rust never accesses to reduce Arrow conversion cost.
+        _drop_cols = {"underlying_last", "last", "optionalias", "impliedvol"}
+        # Also drop openinterest unless MaxOpenInterest selector is in use
+        if not (hasattr(self.signal_selector, '__class__')
+                and self.signal_selector.__class__.__name__ == 'MaxOpenInterest'):
+            _drop_cols.add("openinterest")
+        opts_df = self._options_data._data
+        to_drop = [c for c in _drop_cols if c in opts_df.columns]
+        opts_src = opts_df.drop(columns=to_drop) if to_drop else opts_df
 
-        stocks_copy = self._stocks_data._data.copy()
-        if stocks_date_col in stocks_copy.columns and pd.api.types.is_datetime64_any_dtype(stocks_copy[stocks_date_col]):
-            stocks_copy[stocks_date_col] = stocks_copy[stocks_date_col].dt.strftime(date_fmt)
+        # Convert pandas → PyArrow → Polars (avoids intermediate copies).
+        opts_pl = pl.from_arrow(pa.Table.from_pandas(opts_src, preserve_index=False))
+        stocks_pl = pl.from_arrow(
+            pa.Table.from_pandas(self._stocks_data._data, preserve_index=False)
+        )
 
-        config = {
-            "allocation": self.allocation,
-            "initial_capital": float(self.initial_capital),
-            "shares_per_contract": self.shares_per_contract,
-            "rebalance_dates": rb_date_strs,
-            "legs": [{
+        leg_configs = []
+        for leg in strategy.legs:
+            lc = {
                 "name": leg.name,
                 "entry_filter": leg.entry_filter.query,
                 "exit_filter": leg.exit_filter.query,
@@ -389,7 +395,22 @@ class BacktestEngine:
                 "type": leg.type.value,
                 "entry_sort_col": leg.entry_sort[0] if leg.entry_sort else None,
                 "entry_sort_asc": leg.entry_sort[1] if leg.entry_sort else True,
-            } for leg in strategy.legs],
+            }
+            # Per-leg overrides
+            leg_sel = getattr(leg, 'signal_selector', None)
+            if leg_sel is not None and hasattr(leg_sel, 'to_rust_config'):
+                lc["signal_selector"] = leg_sel.to_rust_config()
+            leg_fill = getattr(leg, 'fill_model', None)
+            if leg_fill is not None and hasattr(leg_fill, 'to_rust_config'):
+                lc["fill_model"] = leg_fill.to_rust_config()
+            leg_configs.append(lc)
+
+        config = {
+            "allocation": self.allocation,
+            "initial_capital": float(self.initial_capital),
+            "shares_per_contract": self.shares_per_contract,
+            "rebalance_dates": rb_date_ns,
+            "legs": leg_configs,
             "profit_pct": (
                 strategy.exit_thresholds[0]
                 if strategy.exit_thresholds[0] != math.inf else None
@@ -399,6 +420,11 @@ class BacktestEngine:
                 if strategy.exit_thresholds[1] != math.inf else None
             ),
             "stocks": [(s.symbol, s.percentage) for s in self._stocks],
+            "cost_model": self.cost_model.to_rust_config(),
+            "fill_model": self.fill_model.to_rust_config(),
+            "signal_selector": self.signal_selector.to_rust_config(),
+            "risk_constraints": [c.to_rust_config() for c in self.risk_manager.constraints],
+            "sma_days": sma_days,
         }
 
         schema_mapping = {
@@ -412,9 +438,6 @@ class BacktestEngine:
             "type": self._options_schema["type"],
             "strike": self._options_schema["strike"],
         }
-
-        opts_pl = pl.from_pandas(opts_copy)
-        stocks_pl = pl.from_pandas(stocks_copy)
 
         balance_pl, trade_log_pl, stats = rust.run_backtest_py(
             opts_pl, stocks_pl, config, schema_mapping,
