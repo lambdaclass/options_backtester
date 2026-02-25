@@ -1,4 +1,4 @@
-/// PyO3 bindings for filter compilation and evaluation.
+//! PyO3 bindings for filter compilation and evaluation.
 
 use pyo3::prelude::*;
 use pyo3_polars::PyDataFrame;

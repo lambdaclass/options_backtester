@@ -1,4 +1,4 @@
-/// PyO3 bindings for full backtest loop.
+//! PyO3 bindings for full backtest loop.
 
 use pyo3::prelude::*;
 use pyo3::types::{PyDict, PyList};
@@ -226,6 +226,10 @@ pub fn parse_config_from_dict(config: &Bound<'_, PyDict>) -> PyResult<BacktestCo
         .get_item("sma_days")?
         .and_then(|v| v.extract::<usize>().ok());
 
+    let options_budget_fixed: Option<f64> = config
+        .get_item("options_budget_fixed")?
+        .and_then(|v| v.extract::<f64>().ok());
+
     Ok(BacktestConfig {
         allocation_stocks: alloc_stocks,
         allocation_options: alloc_options,
@@ -243,6 +247,7 @@ pub fn parse_config_from_dict(config: &Bound<'_, PyDict>) -> PyResult<BacktestCo
         signal_selector,
         risk_constraints,
         sma_days,
+        options_budget_fixed,
     })
 }
 

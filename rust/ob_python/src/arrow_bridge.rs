@@ -1,7 +1,7 @@
-/// Arrow C Data Interface bridge: pyarrow <-> Polars zero-copy.
-///
-/// Uses pyo3-polars for direct DataFrame conversions between
-/// Python (pandas/pyarrow) and Rust (Polars).
+//! Arrow C Data Interface bridge: pyarrow <-> Polars zero-copy.
+//!
+//! Uses pyo3-polars for direct DataFrame conversions between
+//! Python (pandas/pyarrow) and Rust (Polars).
 
 use pyo3_polars::PyDataFrame;
 use polars::prelude::DataFrame;

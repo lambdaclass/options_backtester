@@ -1,8 +1,8 @@
-/// Parallel grid sweep using Rayon with real run_backtest() per config.
-///
-/// Receives options+stocks data as DataFrames once, shares via Arc,
-/// runs a full backtest per param override set in parallel.
-/// No pickle overhead — data stays in shared memory.
+//! Parallel grid sweep using Rayon with real run_backtest() per config.
+//!
+//! Receives options+stocks data as DataFrames once, shares via Arc,
+//! runs a full backtest per param override set in parallel.
+//! No pickle overhead — data stays in shared memory.
 
 use pyo3::prelude::*;
 use pyo3::types::{PyDict, PyList};

@@ -1,15 +1,15 @@
-/// Full backtest loop — mirrors BacktestEngine.run() for parity.
-///
-/// Pre-partitions all data by date at startup for O(1) lookups instead of
-/// O(n) DataFrame scans on each access. Uses i64 nanosecond timestamps as
-/// HashMap keys to avoid string conversion overhead entirely.
-///
-/// Key optimizations:
-///   - filter_by_date()         → HashMap::get()          O(n) → O(1)
-///   - get_contract_field_f64() → DayOptions::get_f64()   O(n) → O(1)
-///   - get_contract_field_str() → DayOptions::get_str()   O(n) → O(1)
-///   - get_symbol_price()       → DayStocks::get_price()  O(n) → O(1)
-///   - Date keys are i64 (nanoseconds) — no string allocation or comparison.
+//! Full backtest loop — mirrors BacktestEngine.run() for parity.
+//!
+//! Pre-partitions all data by date at startup for O(1) lookups instead of
+//! O(n) DataFrame scans on each access. Uses i64 nanosecond timestamps as
+//! HashMap keys to avoid string conversion overhead entirely.
+//!
+//! Key optimizations:
+//!   - filter_by_date()         → HashMap::get()          O(n) → O(1)
+//!   - get_contract_field_f64() → DayOptions::get_f64()   O(n) → O(1)
+//!   - get_contract_field_str() → DayOptions::get_str()   O(n) → O(1)
+//!   - get_symbol_price()       → DayStocks::get_price()  O(n) → O(1)
+//!   - Date keys are i64 (nanoseconds) — no string allocation or comparison.
 
 use std::collections::HashMap;
 
@@ -49,6 +49,8 @@ pub struct BacktestConfig {
     pub risk_constraints: Vec<RiskConstraint>,
     /// SMA days for stock gating (None = no SMA gate).
     pub sma_days: Option<usize>,
+    /// Fixed options budget in dollars (overrides allocation_options * total_capital).
+    pub options_budget_fixed: Option<f64>,
 }
 
 pub struct BacktestResult {
@@ -292,11 +294,8 @@ pub fn run_backtest(
     let partitioned = prepartition_data(options_data, stocks_data, schema)?;
 
     // Pre-compute SMA per stock symbol if sma_days is set
-    let sma_map_by_date = if let Some(sma_days) = config.sma_days {
-        Some(compute_sma_map(&partitioned, &config.stock_symbols, sma_days))
-    } else {
-        None
-    };
+    let sma_map_by_date = config.sma_days
+        .map(|sma_days| compute_sma_map(&partitioned, &config.stock_symbols, sma_days));
 
     let rb_dates = &config.rebalance_dates;
     if rb_dates.is_empty() {
@@ -364,7 +363,8 @@ pub fn run_backtest(
         );
 
         // Options rebalance
-        let options_alloc = config.allocation_options * total_capital;
+        let options_alloc = config.options_budget_fixed
+            .unwrap_or(config.allocation_options * total_capital);
         if options_alloc >= options_cap {
             let budget = options_alloc - options_cap;
             cash += budget;
@@ -574,8 +574,8 @@ fn execute_exits(
             let entry = pos.entry_cost;
             if entry != 0.0 {
                 let excess_return = (curr / entry + 1.0) * -entry.signum();
-                if profit_pct.map_or(false, |p| excess_return >= p)
-                    || loss_pct.map_or(false, |l| excess_return <= -l)
+                if profit_pct.is_some_and(|p| excess_return >= p)
+                    || loss_pct.is_some_and(|l| excess_return <= -l)
                 {
                     should_exit = true;
                 }
@@ -664,10 +664,8 @@ fn sell_some_options(
 
         if (to_sell - sold > -exit_cost) && (to_sell - sold > 0.0) {
             let mut qty_to_sell = ((to_sell - sold) / exit_cost).floor();
-            if -qty_to_sell > pos.quantity {
-                if qty_to_sell != 0.0 {
-                    qty_to_sell = -pos.quantity;
-                }
+            if -qty_to_sell > pos.quantity && qty_to_sell != 0.0 {
+                qty_to_sell = -pos.quantity;
             }
 
             if qty_to_sell != 0.0 {
@@ -866,10 +864,10 @@ fn execute_entries(
     let scaled_greeks = entry_greeks.scale(qty);
 
     // Risk check: reject entry if any constraint fails
-    if !risk_constraints.is_empty() {
-        if !risk::check_all(risk_constraints, portfolio_greeks, &scaled_greeks, total_capital, peak_value) {
-            return Ok(None);
-        }
+    if !risk_constraints.is_empty()
+        && !risk::check_all(risk_constraints, portfolio_greeks, &scaled_greeks, total_capital, peak_value)
+    {
+        return Ok(None);
     }
 
     trade_rows.push(TradeRow {

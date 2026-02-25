@@ -1,22 +1,17 @@
-/// Transaction cost models for options and stocks.
-///
-/// Mirrors Python's `options_backtester.execution.cost_model`.
+//! Transaction cost models for options and stocks.
+//!
+//! Mirrors Python's `options_backtester.execution.cost_model`.
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub enum CostModel {
     /// Zero transaction costs.
+    #[default]
     NoCosts,
     /// Fixed per-contract commission (e.g., $0.65/contract for IBKR).
     PerContract { rate: f64, stock_rate: f64 },
     /// Tiered commission schedule with volume discounts.
     /// Tiers are (max_contracts, rate) pairs sorted by max_contracts ascending.
     Tiered { tiers: Vec<(i64, f64)>, stock_rate: f64 },
-}
-
-impl Default for CostModel {
-    fn default() -> Self {
-        CostModel::NoCosts
-    }
 }
 
 impl CostModel {

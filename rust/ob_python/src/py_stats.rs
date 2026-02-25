@@ -1,4 +1,4 @@
-/// PyO3 bindings for stats computation.
+//! PyO3 bindings for stats computation.
 
 use pyo3::prelude::*;
 

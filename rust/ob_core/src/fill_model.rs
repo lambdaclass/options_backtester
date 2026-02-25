@@ -1,21 +1,16 @@
-/// Fill models — determine the execution price for trades.
-///
-/// Mirrors Python's `options_backtester.execution.fill_model`.
+//! Fill models — determine the execution price for trades.
+//!
+//! Mirrors Python's `options_backtester.execution.fill_model`.
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub enum FillModel {
     /// Fill at bid (sell) or ask (buy) — matches original behavior.
+    #[default]
     MarketAtBidAsk,
     /// Fill at the midpoint of bid and ask.
     MidPrice,
     /// Fill price adjusts for volume impact. Low volume pushes toward mid.
     VolumeAware { full_volume_threshold: i64 },
-}
-
-impl Default for FillModel {
-    fn default() -> Self {
-        FillModel::MarketAtBidAsk
-    }
 }
 
 impl FillModel {

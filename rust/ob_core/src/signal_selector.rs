@@ -1,23 +1,18 @@
-/// Signal selectors — choose which contract to trade from candidates.
-///
-/// Mirrors Python's `options_backtester.execution.signal_selector`.
+//! Signal selectors — choose which contract to trade from candidates.
+//!
+//! Mirrors Python's `options_backtester.execution.signal_selector`.
 
 use polars::prelude::*;
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub enum SignalSelector {
     /// Pick the first row (default — matches original iloc[0] behavior).
+    #[default]
     FirstMatch,
     /// Pick the contract whose column value is closest to `target`.
     NearestDelta { target: f64, column: String },
     /// Pick the contract with the highest value in `column`.
     MaxOpenInterest { column: String },
-}
-
-impl Default for SignalSelector {
-    fn default() -> Self {
-        SignalSelector::FirstMatch
-    }
 }
 
 impl SignalSelector {

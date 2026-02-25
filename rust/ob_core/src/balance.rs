@@ -1,8 +1,8 @@
-/// Full _update_balance orchestration in Rust.
-///
-/// Mirrors Python's BacktestEngine._update_balance: for a date range,
-/// join inventory to market data, compute calls/puts capital, stock values,
-/// and assemble balance rows.
+//! Full _update_balance orchestration in Rust.
+//!
+//! Mirrors Python's BacktestEngine._update_balance: for a date range,
+//! join inventory to market data, compute calls/puts capital, stock values,
+//! and assemble balance rows.
 
 use polars::prelude::*;
 

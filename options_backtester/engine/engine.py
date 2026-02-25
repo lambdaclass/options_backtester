@@ -165,16 +165,16 @@ class BacktestEngine:
         assert np.array_equal(stock_dates, option_dates)
 
         # Dispatch to Rust full-loop when available.
-        # Requires: no monthly mode, no algos, no custom options_budget,
+        # Requires: no algos, no custom options_budget,
         # and all execution models (engine-level AND per-leg) must have to_rust_config().
+        # monthly is OK — rebalance dates are pre-computed in Python either way.
         def _has_rust_config(obj):
             return obj is None or hasattr(obj, 'to_rust_config')
 
         _rust_compatible = (
             use_rust()
-            and not monthly
             and not self.algos
-            and self.options_budget is None
+            and (self.options_budget is None or isinstance(self.options_budget, (int, float)))
             and hasattr(self.cost_model, 'to_rust_config')
             and hasattr(self.fill_model, 'to_rust_config')
             and hasattr(self.signal_selector, 'to_rust_config')
@@ -425,6 +425,11 @@ class BacktestEngine:
             "signal_selector": self.signal_selector.to_rust_config(),
             "risk_constraints": [c.to_rust_config() for c in self.risk_manager.constraints],
             "sma_days": sma_days,
+            "options_budget_fixed": (
+                float(self.options_budget)
+                if isinstance(self.options_budget, (int, float))
+                else None
+            ),
         }
 
         schema_mapping = {

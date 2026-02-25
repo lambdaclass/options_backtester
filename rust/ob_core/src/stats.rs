@@ -1,6 +1,6 @@
-/// Performance statistics computation.
-///
-/// Sharpe, Sortino, Calmar ratios, max drawdown, profit factor — all vectorized.
+//! Performance statistics computation.
+//!
+//! Sharpe, Sortino, Calmar ratios, max drawdown, profit factor — all vectorized.
 
 use crate::types::Stats;
 

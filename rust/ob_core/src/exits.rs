@@ -1,10 +1,10 @@
-/// Exit mask computation in Rust.
-///
-/// Mirrors Python's _execute_option_exits:
-/// 1. Compute current option quotes for each leg
-/// 2. Apply exit filters to get filter masks
-/// 3. Apply threshold exits (profit/loss targets)
-/// 4. Combine masks with OR
+//! Exit mask computation in Rust.
+//!
+//! Mirrors Python's _execute_option_exits:
+//! 1. Compute current option quotes for each leg
+//! 2. Apply exit filters to get filter masks
+//! 3. Apply threshold exits (profit/loss targets)
+//! 4. Combine masks with OR
 
 use polars::prelude::*;
 

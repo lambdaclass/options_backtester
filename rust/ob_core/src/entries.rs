@@ -1,11 +1,11 @@
-/// Entry signal computation in Rust.
-///
-/// Mirrors Python's _execute_option_entries:
-/// 1. Anti-join to exclude held contracts
-/// 2. Apply entry filter
-/// 3. Sort by entry_sort
-/// 4. Select signal fields
-/// 5. Compute totals (cost, qty)
+//! Entry signal computation in Rust.
+//!
+//! Mirrors Python's _execute_option_entries:
+//! 1. Anti-join to exclude held contracts
+//! 2. Apply entry filter
+//! 3. Sort by entry_sort
+//! 4. Select signal fields
+//! 5. Compute totals (cost, qty)
 
 use polars::prelude::*;
 

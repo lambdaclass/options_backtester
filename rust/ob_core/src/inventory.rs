@@ -1,9 +1,9 @@
-/// Inventory join — THE hot path.
-///
-/// Mirrors the inner loop of Python's `_update_balance`:
-///   inv_info.merge(options_data, left_on="_contract", right_on=contract_col)
-///   then compute _value = sign * price * qty * shares_per_contract
-///   then groupby(date).sum() split by call/put.
+//! Inventory join — THE hot path.
+//!
+//! Mirrors the inner loop of Python's `_update_balance`:
+//!   inv_info.merge(options_data, left_on="_contract", right_on=contract_col)
+//!   then compute _value = sign * price * qty * shares_per_contract
+//!   then groupby(date).sum() split by call/put.
 
 use polars::prelude::*;
 

@@ -1,4 +1,4 @@
-/// PyO3 bindings for exit mask computation.
+//! PyO3 bindings for exit mask computation.
 
 use pyo3::prelude::*;
 use polars::prelude::{NamedFrom, Series};

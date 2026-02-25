@@ -1,4 +1,4 @@
-/// PyO3 bindings for balance update.
+//! PyO3 bindings for balance update.
 
 use pyo3::prelude::*;
 use pyo3_polars::PyDataFrame;
