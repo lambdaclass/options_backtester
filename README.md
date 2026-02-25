@@ -1,44 +1,137 @@
 Options Portfolio Backtester
 ============================
 
-Open-source backtesting framework for options, equities, and multi-asset portfolios. Run a full options backtest on 24.7M rows in 4 seconds. 444 tests.
+Most backtesting tools only handle equities. If you want to test options strategies — strangles, iron condors, tail-risk hedges — with realistic execution, Greeks-aware risk management, and contract-level inventory, you've had to build it yourself.
 
-- [Features](#features)
-- [Performance](#performance)
-- [Setup](#setup)
-- [Architecture](#architecture)
-- [Usage](#usage)
-- [Pipeline Algos](#pipeline-algos)
-- [Pluggable Components](#pluggable-components)
-- [Rust Performance Core](#rust-performance-core)
-- [Notebooks](#notebooks)
-- [Tail-Risk Hedge Research](#tail-risk-hedge-research)
-- [Data](#data)
-- [Recommended Reading](#recommended-reading)
+This is the open-source framework that does all of that, plus everything equity-only tools do, with an optional Rust core that processes 24.7M options rows in 4 seconds.
 
-## Features
+## At a glance
 
-**Options engine** — Multi-leg strategies (strangle, iron condor, butterfly, collar, covered call, cash-secured put) with per-position Greeks (delta, gamma, theta, vega), strike/DTE/delta/IV filtering via Schema DSL, profit/loss exit thresholds, per-contract inventory, and dynamic budget callable.
-
-**Composable algo pipeline** — 40+ pipeline algos following a simple protocol (`__call__(ctx) -> StepDecision`). Schedule with `RunMonthly`, `RunWeekly`, `RunEveryNPeriods`, or custom combinators. Select assets with momentum, regex, callable filters, or random sampling. Weight by inverse volatility, mean-variance, equal risk contribution, or target vol. Rebalance gradually over N periods. Inject capital flows, replay trade blotters, simulate coupon-paying positions, or auto-hedge portfolio Greeks.
-
-**Execution modeling** — 4 cost models (per-contract, tiered volume, spread slippage, zero), 3 fill models (bid/ask, mid, volume-aware), 3 signal selectors (first match, nearest delta, max OI), 4 position sizers, all with per-leg overrides.
-
-**Risk management** — Pre-trade gating with composable constraints (`MaxDelta`, `MaxVega`, `MaxDrawdown`), margin simulation with interest charges and margin calls, circuit breakers, Greeks aggregation across the portfolio.
-
-**Analytics** — Sharpe, Sortino, Calmar, max drawdown, profit factor, tail ratio, win rate, skew/kurtosis, lookback returns, turnover, Herfindahl concentration, monthly heatmap (Altair), weights evolution chart, tearsheet export (CSV/Markdown/HTML), round-trip trade P&L, `benchmark_random()`, `set_date_range()` for post-hoc sub-period analysis.
-
-**Strategy tree** — Hierarchical capital allocation across sub-strategies with budget caps, weight normalization, and Graphviz DOT export via `to_dot()`.
-
-**Rust acceleration** — Optional PyO3/Polars/Rayon backend. Falls back transparently to Python when not installed. Parallel parameter sweeps bypass the GIL entirely.
-
-## Performance
+- **Options + equities + multi-asset** in one framework
+- **Multi-leg strategies**: strangle, iron condor, butterfly, collar, covered call, cash-secured put
+- **Per-position Greeks**: delta, gamma, theta, vega with portfolio-level aggregation
+- **40+ composable pipeline algos**: scheduling, selection, weighting, rebalancing, risk guards
+- **Realistic execution**: cost models, fill models, signal selectors, position sizers — all pluggable, all with per-leg overrides
+- **Risk management**: pre-trade gating (`MaxDelta`, `MaxVega`, `MaxDrawdown`), margin simulation, circuit breakers, auto-hedging
+- **Strategy tree**: hierarchical capital allocation with budget caps and Graphviz export
+- **Rust acceleration**: optional PyO3/Polars/Rayon backend, transparent fallback to Python, parallel parameter sweeps that bypass the GIL
+- **Walk-forward optimization**: in-sample/out-of-sample with parallel grid sweep
+- **Rich analytics**: Sharpe, Sortino, Calmar, profit factor, tail ratio, win rate, monthly heatmap, weights chart, tearsheet export, round-trip trade P&L
 
 | Benchmark | Time |
 |-----------|------|
 | Stock-only monthly rebalance | **0.6s** |
-| Full options backtest (24.7M rows) | **4.2s** (Rust) / 9.9s (Python) |
+| Full options backtest (24.7M rows) | **4.2s** |
 | Parallel grid sweep (100 configs) | **5-8x** faster via Rayon |
+
+## Quickstart
+
+### Options backtest
+
+```python
+from options_portfolio_backtester import (
+    BacktestEngine, Stock,
+    NearestDelta, PerContractCommission,
+    RiskManager, MaxDelta, MaxDrawdown,
+)
+from backtester.datahandler import HistoricalOptionsData, TiingoData
+from backtester.strategy import Strategy, StrategyLeg
+from backtester.enums import Type, Direction
+
+options_data = HistoricalOptionsData("data/processed/options.csv")
+stocks_data = TiingoData("data/processed/stocks.csv")
+schema = options_data.schema
+
+# Buy OTM puts on SPY, exit when DTE drops below 30
+strategy = Strategy(schema)
+leg = StrategyLeg("leg_1", schema, option_type=Type.PUT, direction=Direction.BUY)
+leg.entry_filter = (
+    (schema.underlying == "SPY")
+    & (schema.dte >= 60) & (schema.dte <= 120)
+    & (schema.delta >= -0.25) & (schema.delta <= -0.10)
+)
+leg.exit_filter = schema.dte <= 30
+strategy.add_leg(leg)
+
+engine = BacktestEngine(
+    allocation={"stocks": 0.97, "options": 0.03, "cash": 0.0},
+    initial_capital=1_000_000,
+    cost_model=PerContractCommission(rate=0.65),
+    signal_selector=NearestDelta(target_delta=-0.20),
+    risk_manager=RiskManager([MaxDelta(limit=100.0), MaxDrawdown(max_dd_pct=0.20)]),
+)
+engine.stocks = [Stock("SPY", 1.0)]
+engine.stocks_data = stocks_data
+engine.options_data = options_data
+engine.options_strategy = strategy
+engine.run(rebalance_freq=1)
+```
+
+### Stock portfolio with algo pipeline
+
+```python
+from options_portfolio_backtester import (
+    AlgoPipelineBacktester,
+    RunMonthly, SelectAll, WeighInvVol, LimitWeights, Rebalance,
+)
+import pandas as pd
+
+prices = pd.read_csv("prices.csv", index_col=0, parse_dates=True)
+
+bt = AlgoPipelineBacktester(
+    prices=prices,
+    initial_capital=1_000_000,
+    algos=[
+        RunMonthly(),
+        SelectAll(),
+        WeighInvVol(lookback=252),
+        LimitWeights(limit=0.25),
+        Rebalance(),
+    ],
+)
+bt.run()
+
+# Post-hoc analysis on a sub-period
+stats = bt.set_date_range(start="2020-01-01", end="2023-12-31")
+print(stats.summary())
+```
+
+### Strategy presets
+
+```python
+from backtester.strategy import Strangle
+
+strangle = Strangle(schema, "short", "SPY",
+                    dte_entry_range=(30, 60), dte_exit=7,
+                    otm_pct=5, pct_tolerance=1,
+                    exit_thresholds=(0.2, 0.2))
+```
+
+Presets: `strangle`, `iron_condor`, `covered_call`, `cash_secured_put`, `collar`, `butterfly`.
+
+## Tail-Risk Hedge Research
+
+**Can a small allocation to SPY puts improve risk-adjusted returns over buy-and-hold?** Inspired by Universa Investments' approach to tail-risk hedging.
+
+**The framing matters more than the strategy.** Same deep OTM puts, opposite conclusions:
+
+| Framing | Setup | Return | Max DD |
+|---------|-------|--------|--------|
+| AQR (reduce equity) | 99% SPY + 1% puts | +3.15% | -50.8% |
+| **Spitznagel (leverage)** | **100% SPY + 1% puts on top** | **+16.46%** | **-45.0%** |
+| SPY buy-and-hold | 100% SPY | +11.11% | -51.9% |
+
+Spitznagel's leveraged tail hedge works because crash protection allows full investment and the drawdown reduction is real:
+- +0.5% budget: 13.79%/yr, DD -48.1%
+- +1.0% budget: 16.46%/yr, DD -45.0%
+- +3.3% budget: 28.78%/yr, DD -31.9%
+
+Other findings:
+- Selling options (covered calls, put-writing, short strangles) harvests the Variance Risk Premium
+- Buying OTM calls adds ~0.8-1.4%/yr in the no-leverage framing
+- Macro signals (VIX, Buffett Indicator, Tobin's Q) don't improve put timing
+
+See the [notebooks](#notebooks) and [scripts](#scripts) for the full analysis.
 
 ## Setup
 
@@ -111,113 +204,12 @@ Data → Strategy (legs + filters) → Engine → Execution (cost, fill, sizer, 
                                   Risk Manager → Portfolio → Analytics
 ```
 
-## Usage
-
-### Options backtest
-
-```python
-from options_portfolio_backtester import (
-    BacktestEngine, Stock,
-    NearestDelta, PerContractCommission,
-    RiskManager, MaxDelta, MaxDrawdown,
-)
-from backtester.datahandler import HistoricalOptionsData, TiingoData
-from backtester.strategy import Strategy, StrategyLeg
-from backtester.enums import Type, Direction
-
-options_data = HistoricalOptionsData("data/processed/options.csv")
-stocks_data = TiingoData("data/processed/stocks.csv")
-schema = options_data.schema
-
-strategy = Strategy(schema)
-leg = StrategyLeg("leg_1", schema, option_type=Type.PUT, direction=Direction.BUY)
-leg.entry_filter = (
-    (schema.underlying == "SPY")
-    & (schema.dte >= 60) & (schema.dte <= 120)
-    & (schema.delta >= -0.25) & (schema.delta <= -0.10)
-)
-leg.entry_sort = ("delta", False)
-leg.exit_filter = schema.dte <= 30
-strategy.add_leg(leg)
-
-engine = BacktestEngine(
-    allocation={"stocks": 0.97, "options": 0.03, "cash": 0.0},
-    initial_capital=1_000_000,
-    cost_model=PerContractCommission(rate=0.65),
-    signal_selector=NearestDelta(target_delta=-0.20),
-    risk_manager=RiskManager([
-        MaxDelta(limit=100.0),
-        MaxDrawdown(max_dd_pct=0.20),
-    ]),
-)
-engine.stocks = [Stock("SPY", 1.0)]
-engine.stocks_data = stocks_data
-engine.options_data = options_data
-engine.options_strategy = strategy
-engine.run(rebalance_freq=1)
-```
-
-### Stock portfolio (algo pipeline)
-
-```python
-from options_portfolio_backtester import (
-    AlgoPipelineBacktester,
-    RunMonthly, SelectAll, WeighInvVol, LimitWeights, Rebalance,
-)
-import pandas as pd
-
-prices = pd.read_csv("prices.csv", index_col=0, parse_dates=True)
-
-bt = AlgoPipelineBacktester(
-    prices=prices,
-    initial_capital=1_000_000,
-    algos=[
-        RunMonthly(),
-        SelectAll(),
-        WeighInvVol(lookback=252),
-        LimitWeights(limit=0.25),
-        Rebalance(),
-    ],
-)
-balance = bt.run()
-
-# Post-hoc analysis on a sub-period
-stats = bt.set_date_range(start="2020-01-01", end="2023-12-31")
-print(stats.summary())
-```
-
-### Strategy tree (capital allocation)
-
-```python
-from options_portfolio_backtester import StrategyTreeNode, StrategyTreeEngine
-
-leaf_us = StrategyTreeNode(name="US", weight=2.0, max_share=0.60, engine=us_engine)
-leaf_intl = StrategyTreeNode(name="INTL", weight=1.0, engine=intl_engine)
-root = StrategyTreeNode(name="Global", children=[leaf_us, leaf_intl])
-
-tree = StrategyTreeEngine(root, initial_capital=1_000_000)
-tree.run(rebalance_freq=1)
-print(tree.to_dot())  # Graphviz export
-```
-
-### Strategy presets
-
-```python
-from backtester.strategy import Strangle
-
-strangle = Strangle(schema, "short", "SPY",
-                    dte_entry_range=(30, 60), dte_exit=7,
-                    otm_pct=5, pct_tolerance=1,
-                    exit_thresholds=(0.2, 0.2))
-```
-
-Presets: `strangle`, `iron_condor`, `covered_call`, `cash_secured_put`, `collar`, `butterfly`.
-
 ## Pipeline Algos
 
 40+ composable pipeline algos. All follow the `Algo` protocol: `__call__(ctx: PipelineContext) -> StepDecision`.
 
-### Scheduling
+<details>
+<summary><strong>Scheduling</strong> (14 algos)</summary>
 
 | Algo | Description |
 |------|-------------|
@@ -236,7 +228,10 @@ Presets: `strangle`, `iron_condor`, `covered_call`, `cash_secured_put`, `collar`
 | `Not(algo)` | Invert child decision |
 | `Require(algo)` | Guard: only continue if child passes |
 
-### Selection
+</details>
+
+<details>
+<summary><strong>Selection</strong> (9 algos)</summary>
 
 | Algo | Description |
 |------|-------------|
@@ -250,7 +245,10 @@ Presets: `strangle`, `iron_condor`, `covered_call`, `cash_secured_put`, `collar`
 | `SelectActive()` | Filter out zero/NaN prices |
 | `SelectRegex(pattern)` | Regex match on symbol name |
 
-### Weighting
+</details>
+
+<details>
+<summary><strong>Weighting</strong> (8 algos)</summary>
 
 | Algo | Description |
 |------|-------------|
@@ -263,7 +261,10 @@ Presets: `strangle`, `iron_condor`, `covered_call`, `cash_secured_put`, `collar`
 | `TargetVol(target, lookback)` | Scale to target annualized vol |
 | `WeighRandomly(seed)` | Random Dirichlet weights |
 
-### Weight Limits, Risk, and Rebalancing
+</details>
+
+<details>
+<summary><strong>Weight limits, risk, and rebalancing</strong> (13 algos)</summary>
 
 | Algo | Description |
 |------|-------------|
@@ -281,139 +282,52 @@ Presets: `strangle`, `iron_condor`, `covered_call`, `cash_secured_put`, `collar`
 | `ReplayTransactions(blotter)` | Replay a pre-recorded trade blotter |
 | `CouponPayingPosition(amount, frequency)` | Periodic coupon cash flows (fixed income) |
 
-## Pluggable Components
+</details>
 
-### Signal Selectors
+## Pluggable Execution
 
-| Selector | Description |
-|----------|-------------|
-| `FirstMatch()` | First matching contract (default) |
-| `NearestDelta(target)` | Closest delta to target |
-| `MaxOpenInterest()` | Highest open interest |
+Every component is swappable. Mix and match per strategy or per leg.
 
-### Risk Manager
+| Component | Options |
+|-----------|---------|
+| **Signal selectors** | `FirstMatch()`, `NearestDelta(target)`, `MaxOpenInterest()` |
+| **Cost models** | `NoCosts()`, `PerContractCommission(rate)`, `TieredCommission(tiers)`, `SpreadSlippage(pct)` |
+| **Fill models** | `MarketAtBidAsk()`, `MidPrice()`, `VolumeAwareFill(threshold)` |
+| **Position sizers** | `CapitalBased()`, `FixedQuantity(qty)`, `FixedDollar(amount)`, `PercentOfPortfolio(pct)` |
+| **Risk constraints** | `MaxDelta(limit)`, `MaxVega(limit)`, `MaxDrawdown(max_dd_pct)` |
 
-```python
-from options_portfolio_backtester import RiskManager, MaxDelta, MaxVega, MaxDrawdown
+## Rust Core
 
-rm = RiskManager([
-    MaxDelta(limit=50.0),
-    MaxVega(limit=30.0),
-    MaxDrawdown(max_dd_pct=0.15),
-])
-```
+Optional. Falls back transparently to Python when not installed.
 
-### Cost Models
+**4.2s** on a full options backtest (24.7M rows), **0.6s** stock-only, **5-8x faster** on parallel sweeps (Rayon bypasses the GIL). Pure Python fallback included — exact numerical parity.
 
-| Model | Description |
-|-------|-------------|
-| `NoCosts()` | Zero costs (default) |
-| `PerContractCommission(rate)` | Fixed per-contract fee |
-| `TieredCommission(tiers)` | Volume-based tiered pricing |
-| `SpreadSlippage(pct)` | Fraction of bid-ask spread |
+The data bridge is zero-copy where possible: `pandas.DataFrame` -> `pyarrow.Table` -> Arrow C Data Interface -> Rust `Polars DataFrame`.
 
-### Fill Models
-
-| Model | Description |
-|-------|-------------|
-| `MarketAtBidAsk()` | Bid for sells, ask for buys (default) |
-| `MidPrice()` | Midpoint of bid-ask |
-| `VolumeAwareFill(threshold)` | Interpolates based on volume |
-
-### Position Sizers
-
-| Sizer | Description |
-|-------|-------------|
-| `CapitalBased()` | qty = allocation // cost (default) |
-| `FixedQuantity(qty)` | Fixed number of contracts |
-| `FixedDollar(amount)` | Target dollar amount |
-| `PercentOfPortfolio(pct)` | Percent of total portfolio |
-
-## Rust Performance Core
-
-The optional Rust extension runs the full backtest loop via PyO3/Polars/Rayon. Falls back transparently to Python when not installed.
-
-| Engine | Options Backtest | Stock-Only |
-|--------|-----------------|------------|
-| **Rust** | **4.2s** | **0.6s** |
-| Python | 9.9s | -- |
-
-- **2.4x faster** than Python on full options backtest (24.7M rows)
-- Exact numerical parity with Python path
-- Parallel grid sweep: **5-8x faster** via Rayon (bypasses GIL)
-
-### How it's fast
-
-| Optimization | Impact |
-|--------------|--------|
-| Pre-partition by date | `HashMap<i64, DayOptions>` for O(1) lookups |
-| i64 nanosecond keys | Eliminates 21s of pandas strftime overhead |
-| PyArrow bridge | pandas -> PyArrow -> Polars (2x faster than direct) |
-| Column pruning | Drops 5 unused columns before conversion |
-| Skip-sort detection | Samples 8 points to detect pre-sorted data |
-| Compiled filter AST | Query strings compiled once, reused across all dates |
-| Rayon parallel sweep | Shared-memory, per-config timing, scoped thread pool |
-
-### Building
+Key optimizations: pre-partition by date into `HashMap<i64, DayOptions>` for O(1) lookups, i64 nanosecond keys (eliminates pandas strftime overhead), compiled filter AST reused across all dates, column pruning before conversion, skip-sort detection via 8-point sampling.
 
 ```shell
 make rust-build
-# or without nix:
-maturin develop --manifest-path rust/ob_python/Cargo.toml --release
-```
-
-Data flows: `pandas.DataFrame` -> `pyarrow.Table` -> Arrow C Data Interface -> Rust `Polars DataFrame`. Numeric columns are zero-copy.
-
-The engine automatically dispatches to Rust when available:
-
-```python
-from options_portfolio_backtester.engine._dispatch import use_rust, rust
-
-if use_rust():
-    result = rust.compute_stats(daily_returns, trade_pnls, risk_free_rate)
+# or: maturin develop --manifest-path rust/ob_python/Cargo.toml --release
 ```
 
 ## Notebooks
 
 | Notebook | Description |
 |----------|-------------|
-| [quickstart](notebooks/quickstart.ipynb) | Getting started: load data, define strategy, run backtest, plot results |
-| [paper_comparison](notebooks/paper_comparison.ipynb) | 10 strategies vs academic paper claims with VRP math, crash heatmap, risk/return scatter |
-| [findings](notebooks/findings.ipynb) | Full research: allocation sweep, puts vs calls, macro signals, crash-period analysis |
-| [volatility_premium](notebooks/volatility_premium.ipynb) | Sell vol vs buy vol deep dive (Carr & Wu 2009, Berman 2014) |
-| [strategies](notebooks/strategies.ipynb) | 4-strategy showcase: OTM puts, OTM calls, long straddle, short strangle |
-| [trade_analysis](notebooks/trade_analysis.ipynb) | Per-trade P&L: bar charts, cumulative P&L, crash breakdowns |
+| [quickstart](notebooks/quickstart.ipynb) | Load data, define strategy, run backtest, plot results |
+| [paper_comparison](notebooks/paper_comparison.ipynb) | 10 strategies vs academic paper claims, VRP math, crash heatmap |
+| [findings](notebooks/findings.ipynb) | Allocation sweep, puts vs calls, macro signals, crash-period analysis |
+| [volatility_premium](notebooks/volatility_premium.ipynb) | Sell vol vs buy vol (Carr & Wu 2009, Berman 2014) |
+| [strategies](notebooks/strategies.ipynb) | OTM puts, OTM calls, long straddle, short strangle |
+| [trade_analysis](notebooks/trade_analysis.ipynb) | Per-trade P&L, cumulative P&L, crash breakdowns |
 | [iron_condor](notebooks/iron_condor.ipynb) | 4-leg iron condor income strategy |
 | [ivy_portfolio](notebooks/ivy_portfolio.ipynb) | Endowment-style portfolio with straddle hedge overlay |
-| [gold_sp500](notebooks/gold_sp500.ipynb) | Multi-asset portfolio with cash/gold proxy + options overlay |
-| [comparison_with_bt](notebooks/comparison_with_bt.ipynb) | Side-by-side comparison with the bt library: runtime, return parity, feature gap |
-| [spitznagel_case](notebooks/spitznagel_case.ipynb) | AQR vs Spitznagel tested with real data. Multi-dimensional parameter sweep. |
+| [gold_sp500](notebooks/gold_sp500.ipynb) | Multi-asset portfolio with gold proxy + options overlay |
+| [comparison_with_bt](notebooks/comparison_with_bt.ipynb) | Side-by-side comparison with bt: runtime, return parity, feature gap |
+| [spitznagel_case](notebooks/spitznagel_case.ipynb) | AQR vs Spitznagel with real data, multi-dimensional parameter sweep |
 
-## Tail-Risk Hedge Research
-
-**Can a small allocation to SPY puts improve risk-adjusted returns over buy-and-hold?** Inspired by Universa Investments' approach to tail-risk hedging.
-
-### Key findings
-
-**The framing matters more than the strategy.** Same deep OTM puts, opposite conclusions:
-
-| Framing | Setup | Return | Max DD |
-|---------|-------|--------|--------|
-| AQR (reduce equity) | 99% SPY + 1% puts | +3.15% | -50.8% |
-| **Spitznagel (leverage)** | **100% SPY + 1% puts on top** | **+16.46%** | **-45.0%** |
-| SPY buy-and-hold | 100% SPY | +11.11% | -51.9% |
-
-Spitznagel's leveraged tail hedge works because crash protection allows full investment and the drawdown reduction is real:
-- +0.5% budget: 13.79%/yr, DD -48.1%
-- +1.0% budget: 16.46%/yr, DD -45.0%
-- +3.3% budget: 28.78%/yr, DD -31.9%
-
-Other findings:
-- Selling options (covered calls, put-writing, short strangles) harvests the Variance Risk Premium
-- Buying OTM calls adds ~0.8-1.4%/yr in the no-leverage framing
-- Macro signals (VIX, Buffett Indicator, Tobin's Q) don't improve put timing
-
-### Scripts
+## Scripts
 
 | Script | Purpose |
 |--------|---------|
