@@ -29,6 +29,29 @@ class StrategyTreeNode:
     def is_leaf(self) -> bool:
         return self.engine is not None
 
+    def to_dot(self) -> str:
+        """Generate Graphviz DOT string for this subtree."""
+        lines = [
+            "digraph StrategyTree {",
+            "  rankdir=TB;",
+            '  node [style=filled, fillcolor=lightyellow];',
+        ]
+        self._dot_recursive(lines, parent_id=None)
+        lines.append("}")
+        return "\n".join(lines)
+
+    def _dot_recursive(self, lines: list[str], parent_id: str | None) -> None:
+        node_id = f"n{id(self)}"
+        label = f"{self.name}\\nw={self.weight}"
+        if self.max_share is not None:
+            label += f"\\nmax={self.max_share}"
+        shape = "ellipse" if self.is_leaf() else "box"
+        lines.append(f'  {node_id} [label="{label}", shape={shape}];')
+        if parent_id:
+            lines.append(f"  {parent_id} -> {node_id};")
+        for child in self.children:
+            child._dot_recursive(lines, node_id)
+
 
 class StrategyTreeEngine:
     """Run leaf engines with capital shares implied by tree weights."""
@@ -37,6 +60,10 @@ class StrategyTreeEngine:
         self.root = root
         self.initial_capital = initial_capital
         self.throttles: dict[str, dict[str, float]] = {}
+
+    def to_dot(self) -> str:
+        """Generate Graphviz DOT string for the strategy tree."""
+        return self.root.to_dot()
 
     def _leaf_shares(self, node: StrategyTreeNode, parent_share: float) -> list[tuple[StrategyTreeNode, float]]:
         if node.is_leaf():

@@ -8,8 +8,11 @@ from options_backtester.engine.pipeline import (
     CapitalFlow,
     CloseDead,
     ClosePositionsAfterDates,
+    CouponPayingPosition,
+    HedgeRisks,
     LimitDeltas,
     LimitWeights,
+    Margin,
     MaxDrawdownGuard,
     Not,
     Or,
@@ -17,6 +20,7 @@ from options_backtester.engine.pipeline import (
     RandomBenchmarkResult,
     Rebalance,
     RebalanceOverTime,
+    ReplayTransactions,
     Require,
     RunAfterDate,
     RunAfterDays,
@@ -1935,3 +1939,291 @@ def test_select_regex_in_pipeline():
     assert bal.iloc[-1].get("QQQ qty", 0) == 0
     assert bal.iloc[-1]["SPY qty"] > 0
     assert bal.iloc[-1]["SPXL qty"] > 0
+
+
+# ===========================================================================
+# HEDGE RISKS
+# ===========================================================================
+
+
+def test_hedge_risks_adjusts_weights():
+    prices = _daily_prices(symbols=("SPY", "TLT"), days=30)
+    ctx = _ctx(
+        prices=prices.iloc[-1],
+        date=prices.index[-1],
+        selected_symbols=["SPY", "TLT"],
+        target_weights={"SPY": 0.80},
+        price_history=prices,
+    )
+    algo = HedgeRisks(target_delta=0.0, hedge_symbols=["TLT"])
+    d = algo(ctx)
+    assert d.status == "continue"
+    # TLT should now have a hedge weight assigned
+    assert "TLT" in ctx.target_weights
+
+
+def test_hedge_risks_no_target_weights():
+    ctx = _ctx(target_weights={})
+    d = HedgeRisks()(ctx)
+    assert d.status == "skip_day"
+
+
+def test_hedge_risks_no_history():
+    ctx = _ctx(
+        target_weights={"SPY": 1.0},
+        selected_symbols=["TLT"],
+        prices=pd.Series({"SPY": 100.0, "TLT": 50.0}),
+    )
+    d = HedgeRisks()(ctx)
+    assert d.status == "skip_day"
+
+
+def test_hedge_risks_in_pipeline():
+    prices = _daily_prices(symbols=("SPY", "TLT"), days=30)
+    bt = AlgoPipelineBacktester(
+        prices=prices, initial_capital=10_000.0,
+        algos=[
+            RunMonthly(),
+            SelectThese(["SPY", "TLT"]),
+            WeighSpecified({"SPY": 0.80, "TLT": 0.20}),
+            HedgeRisks(target_delta=0.0, hedge_symbols=["TLT"]),
+            Rebalance(),
+        ],
+    )
+    bal = bt.run()
+    assert not bal.empty
+
+
+# ===========================================================================
+# MARGIN
+# ===========================================================================
+
+
+def test_margin_scales_weights():
+    ctx = _ctx(
+        target_weights={"SPY": 0.50},
+        total_capital=10000.0,
+        cash=5000.0,
+    )
+    algo = Margin(leverage=2.0)
+    d = algo(ctx)
+    assert d.status == "continue"
+    assert abs(ctx.target_weights["SPY"] - 1.0) < 1e-10
+
+
+def test_margin_charges_interest():
+    ctx = _ctx(
+        total_capital=10000.0,
+        cash=3000.0,  # invested=7000, borrowed=max(0, 7000-3000)=4000
+        positions={"SPY": 70.0},
+        prices=pd.Series({"SPY": 100.0}),
+    )
+    algo = Margin(leverage=1.0, interest_rate=0.05)
+    original_capital = ctx.total_capital
+    algo(ctx)
+    # Should have charged interest: 0.05/252 * 4000 ≈ 0.79
+    assert ctx.total_capital < original_capital
+
+
+def test_margin_reset():
+    algo = Margin(leverage=2.0)
+    algo._borrowed = 5000.0
+    algo.reset()
+    assert algo._borrowed == 0.0
+
+
+def test_margin_call_stops():
+    # equity = cash + stock_value = -400 + 500 = 100
+    # exposure = stock_value = 500
+    # equity/exposure = 100/500 = 0.20 < 0.25 → margin call
+    ctx = _ctx(
+        total_capital=100.0,
+        cash=-400.0,
+        positions={"SPY": 5.0},
+        prices=pd.Series({"SPY": 100.0}),
+    )
+    algo = Margin(leverage=2.0, maintenance_pct=0.25)
+    d = algo(ctx)
+    assert d.status == "stop"
+
+
+# ===========================================================================
+# COUPON PAYING POSITION
+# ===========================================================================
+
+
+def test_coupon_pays_on_schedule():
+    algo = CouponPayingPosition(coupon_amount=500.0, frequency="monthly")
+    ctx1 = _ctx(date=pd.Timestamp("2024-01-15"), cash=10000.0, total_capital=10000.0)
+    d1 = algo(ctx1)
+    assert ctx1.cash == 10500.0
+    assert "coupon paid" in d1.message
+
+    # Same month → no second coupon
+    ctx2 = _ctx(date=pd.Timestamp("2024-01-20"), cash=10000.0, total_capital=10000.0)
+    d2 = algo(ctx2)
+    assert ctx2.cash == 10000.0
+
+
+def test_coupon_semi_annual_spacing():
+    algo = CouponPayingPosition(coupon_amount=250.0, frequency="semi-annual")
+    ctx1 = _ctx(date=pd.Timestamp("2024-01-15"), cash=10000.0, total_capital=10000.0)
+    algo(ctx1)
+    assert ctx1.cash == 10250.0  # first coupon
+
+    # 3 months later → too early
+    ctx2 = _ctx(date=pd.Timestamp("2024-04-15"), cash=10000.0, total_capital=10000.0)
+    algo(ctx2)
+    assert ctx2.cash == 10000.0
+
+    # 6 months later → pays
+    ctx3 = _ctx(date=pd.Timestamp("2024-07-15"), cash=10000.0, total_capital=10000.0)
+    algo(ctx3)
+    assert ctx3.cash == 10250.0
+
+
+def test_coupon_stops_at_maturity():
+    algo = CouponPayingPosition(
+        coupon_amount=100.0, frequency="monthly", maturity_date="2024-03-01",
+    )
+    ctx = _ctx(date=pd.Timestamp("2024-03-15"), cash=5000.0, total_capital=5000.0)
+    d = algo(ctx)
+    assert d.status == "stop"
+    assert ctx.cash == 5100.0  # final coupon paid
+
+
+def test_coupon_before_start_date():
+    algo = CouponPayingPosition(
+        coupon_amount=100.0, frequency="monthly", start_date="2024-06-01",
+    )
+    ctx = _ctx(date=pd.Timestamp("2024-01-15"), cash=5000.0, total_capital=5000.0)
+    algo(ctx)
+    assert ctx.cash == 5000.0  # no payment before start
+
+
+def test_coupon_invalid_frequency():
+    import pytest
+    with pytest.raises(ValueError, match="frequency must be one of"):
+        CouponPayingPosition(coupon_amount=100.0, frequency="bi-weekly")
+
+
+def test_coupon_reset():
+    algo = CouponPayingPosition(coupon_amount=100.0, frequency="monthly")
+    algo._last_coupon_month = (2024, 5)
+    algo.reset()
+    assert algo._last_coupon_month is None
+
+
+# ===========================================================================
+# REPLAY TRANSACTIONS
+# ===========================================================================
+
+
+def test_replay_buys_on_matching_date():
+    blotter = pd.DataFrame({
+        "date": ["2024-01-02", "2024-01-02"],
+        "symbol": ["SPY", "TLT"],
+        "quantity": [10, 20],
+    })
+    algo = ReplayTransactions(blotter)
+    ctx = _ctx(
+        date=pd.Timestamp("2024-01-02"),
+        prices=pd.Series({"SPY": 100.0, "TLT": 50.0}),
+        cash=5000.0,
+        positions={},
+    )
+    d = algo(ctx)
+    assert d.status == "continue"
+    assert ctx.positions["SPY"] == 10
+    assert ctx.positions["TLT"] == 20
+    # cash = 5000 - 10*100 - 20*50 = 5000 - 1000 - 1000 = 3000
+    assert abs(ctx.cash - 3000.0) < 1e-10
+
+
+def test_replay_sells():
+    blotter = pd.DataFrame({
+        "date": ["2024-01-02"],
+        "symbol": ["SPY"],
+        "quantity": [-5],
+    })
+    algo = ReplayTransactions(blotter)
+    ctx = _ctx(
+        date=pd.Timestamp("2024-01-02"),
+        prices=pd.Series({"SPY": 100.0}),
+        cash=0.0,
+        positions={"SPY": 10.0},
+    )
+    algo(ctx)
+    assert ctx.positions["SPY"] == 5.0
+    assert abs(ctx.cash - 500.0) < 1e-10  # received 5*100
+
+
+def test_replay_no_trades_on_date():
+    blotter = pd.DataFrame({
+        "date": ["2024-02-01"],
+        "symbol": ["SPY"],
+        "quantity": [10],
+    })
+    algo = ReplayTransactions(blotter)
+    ctx = _ctx(date=pd.Timestamp("2024-01-15"), cash=5000.0, positions={})
+    d = algo(ctx)
+    assert d.status == "continue"
+    assert ctx.positions == {}
+    assert ctx.cash == 5000.0
+
+
+def test_replay_closes_position_to_zero():
+    blotter = pd.DataFrame({
+        "date": ["2024-01-02"],
+        "symbol": ["SPY"],
+        "quantity": [-10],
+    })
+    algo = ReplayTransactions(blotter)
+    ctx = _ctx(
+        date=pd.Timestamp("2024-01-02"),
+        prices=pd.Series({"SPY": 100.0}),
+        cash=0.0,
+        positions={"SPY": 10.0},
+    )
+    algo(ctx)
+    assert "SPY" not in ctx.positions  # fully closed
+
+
+def test_replay_missing_columns_raises():
+    import pytest
+    bad_blotter = pd.DataFrame({"date": ["2024-01-02"], "symbol": ["SPY"]})
+    with pytest.raises(ValueError, match="missing columns"):
+        ReplayTransactions(bad_blotter)
+
+
+def test_replay_in_pipeline():
+    blotter = pd.DataFrame({
+        "date": ["2024-01-02"],
+        "symbol": ["SPY"],
+        "quantity": [5],
+    })
+    idx = pd.to_datetime(["2024-01-02", "2024-01-03"])
+    prices = pd.DataFrame({"SPY": [100.0, 105.0]}, index=idx)
+    bt = AlgoPipelineBacktester(
+        prices=prices, initial_capital=1000.0,
+        algos=[RunDaily(), ReplayTransactions(blotter)],
+    )
+    bal = bt.run()
+    assert bal.loc[pd.Timestamp("2024-01-02"), "SPY qty"] == 5
+
+
+# ===========================================================================
+# set_date_range on AlgoPipelineBacktester
+# ===========================================================================
+
+
+def test_set_date_range_returns_stats():
+    prices = _daily_prices(days=60)
+    bt = AlgoPipelineBacktester(
+        prices=prices, initial_capital=10_000.0,
+        algos=[RunMonthly(), SelectAll(), WeighEqually(), Rebalance()],
+    )
+    bt.run()
+    stats = bt.set_date_range(start="2024-02-01")
+    assert stats.total_return != 0.0 or stats.total_trades == 0
+    assert hasattr(stats, "sharpe_ratio")

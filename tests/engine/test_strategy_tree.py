@@ -128,3 +128,45 @@ def test_attribution_dict_structure():
     assert "weight" in tree.attribution["a"]
     assert "capital" in tree.attribution["a"]
     assert tree.attribution["a"]["weight"] == 1.0
+
+
+# ---------------------------------------------------------------------------
+# to_dot() — Graphviz DOT export
+# ---------------------------------------------------------------------------
+
+def test_to_dot_single_leaf():
+    leaf = StrategyTreeNode(name="leaf_a", weight=1.0, engine=_run_engine())
+    dot = leaf.to_dot()
+    assert "digraph StrategyTree" in dot
+    assert "leaf_a" in dot
+    assert "w=1.0" in dot
+    assert "ellipse" in dot  # leaf → ellipse shape
+
+
+def test_to_dot_nested_tree():
+    leaf_a = StrategyTreeNode(name="a", weight=2.0, engine=_run_engine())
+    leaf_b = StrategyTreeNode(name="b", weight=1.0, engine=_run_engine())
+    root = StrategyTreeNode(name="root", children=[leaf_a, leaf_b])
+    dot = root.to_dot()
+    assert "digraph StrategyTree" in dot
+    assert "root" in dot
+    assert "box" in dot  # branch → box shape
+    assert "->" in dot  # edges exist
+    assert "w=2.0" in dot
+    assert "w=1.0" in dot
+
+
+def test_to_dot_max_share_shown():
+    leaf = StrategyTreeNode(name="capped", weight=1.0, max_share=0.25, engine=_run_engine())
+    dot = leaf.to_dot()
+    assert "max=0.25" in dot
+
+
+def test_engine_to_dot_delegates_to_root():
+    leaf = StrategyTreeNode(name="x", weight=1.0, engine=_run_engine())
+    root = StrategyTreeNode(name="top", children=[leaf])
+    tree = StrategyTreeEngine(root, initial_capital=1_000_000)
+    dot = tree.to_dot()
+    assert "digraph StrategyTree" in dot
+    assert "top" in dot
+    assert "x" in dot

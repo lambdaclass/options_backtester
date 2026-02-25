@@ -122,6 +122,27 @@ class BacktestStats:
     herfindahl: float = 0.0
 
     @classmethod
+    def from_balance_range(
+        cls,
+        balance: pd.DataFrame,
+        start: str | pd.Timestamp | None = None,
+        end: str | pd.Timestamp | None = None,
+        **kwargs,
+    ) -> "BacktestStats":
+        """Slice balance to [start, end] and recompute all stats."""
+        if balance.empty:
+            return cls()
+        b = balance.copy()
+        if start:
+            b = b.loc[pd.Timestamp(start):]
+        if end:
+            b = b.loc[:pd.Timestamp(end)]
+        if b.empty:
+            return cls()
+        b["% change"] = b["total capital"].pct_change()
+        return cls.from_balance(b, **kwargs)
+
+    @classmethod
     def from_balance(
         cls,
         balance: pd.DataFrame,

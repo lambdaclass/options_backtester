@@ -279,3 +279,41 @@ class TestHerfindahl:
         hhi = _compute_herfindahl(balance)
         # 0.5^2 + 0.5^2 = 0.5
         assert abs(hhi - 0.5) < 0.01
+
+
+class TestFromBalanceRange:
+    def test_slice_start(self):
+        returns = [0.01] * 20
+        balance = _make_balance(returns)
+        mid_date = balance.index[10]
+        stats = BacktestStats.from_balance_range(balance, start=str(mid_date))
+        # Should compute stats on roughly half the data
+        assert stats.total_return > 0
+
+    def test_slice_end(self):
+        returns = [0.01] * 20
+        balance = _make_balance(returns)
+        mid_date = balance.index[10]
+        stats = BacktestStats.from_balance_range(balance, end=str(mid_date))
+        full_stats = BacktestStats.from_balance(balance)
+        assert stats.total_return < full_stats.total_return
+
+    def test_slice_both(self):
+        returns = [0.01] * 30
+        balance = _make_balance(returns)
+        start = str(balance.index[5])
+        end = str(balance.index[15])
+        stats = BacktestStats.from_balance_range(balance, start=start, end=end)
+        assert stats.total_return > 0
+
+    def test_empty_balance(self):
+        balance = pd.DataFrame()
+        stats = BacktestStats.from_balance_range(balance)
+        assert stats.total_return == 0.0
+
+    def test_no_slice(self):
+        returns = [0.01] * 10
+        balance = _make_balance(returns)
+        stats = BacktestStats.from_balance_range(balance)
+        full_stats = BacktestStats.from_balance(balance)
+        assert abs(stats.total_return - full_stats.total_return) < 1e-6

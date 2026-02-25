@@ -61,9 +61,11 @@ from options_backtester.engine.pipeline import (
     # Capital flows
     CapitalFlow,
     # Risk
-    MaxDrawdownGuard,
+    MaxDrawdownGuard, HedgeRisks, Margin,
+    # Fixed income
+    CouponPayingPosition,
     # Position management
-    CloseDead, ClosePositionsAfterDates, Require,
+    CloseDead, ClosePositionsAfterDates, Require, ReplayTransactions,
     # Rebalancing
     Rebalance, RebalanceOverTime,
     # Random benchmarking
@@ -118,8 +120,9 @@ __all__ = [
     "WeighRandomly", "WeighTarget",
     "LimitWeights", "LimitDeltas", "ScaleWeights",
     "CapitalFlow",
-    "MaxDrawdownGuard",
-    "CloseDead", "ClosePositionsAfterDates", "Require",
+    "MaxDrawdownGuard", "HedgeRisks", "Margin",
+    "CouponPayingPosition",
+    "CloseDead", "ClosePositionsAfterDates", "Require", "ReplayTransactions",
     "Rebalance", "RebalanceOverTime",
     "RandomBenchmarkResult", "benchmark_random",
     "EngineAlgo", "EngineStepDecision", "EnginePipelineContext", "EngineRunMonthly",

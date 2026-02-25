@@ -168,21 +168,7 @@ This is where the two libraries diverge completely. bt has zero options support.
 | Strategy tree with budget caps | `StrategyTreeEngine` with `max_share` per leaf | Nested `Strategy` children (no caps) |
 | Schema-based data access | `Schema` + `Field` + `Filter` DSL with type-safe column mapping | Raw column names |
 
-### What bt Has That We Don't
-
-These are the remaining features in bt that we have not implemented:
-
-| Feature | Category | Notes |
-|---------|----------|-------|
-| `HedgeRisks` | Risk | Automatic hedge ratio computation via matrix inversion |
-| `Margin` | Risk | Leveraged portfolio simulation with interest charges |
-| Weights evolution plot | Analytics | Portfolio weight chart over time |
-| `FixedIncomeSecurity` | Security types | Bond/coupon modeling |
-| `ReplayTransactions` | Position mgmt | Replay actual trade blotter |
-| `to_dot()` | Visualization | Graphviz export of strategy tree |
-| `set_date_range()` | Analytics | Post-hoc date range filtering on results |
-
-The gaps are limited to hedging automation, fixed-income features (not our target domain), and a weights chart. The core pipeline algo coverage and analytics are at full parity or better.
+All bt features have been implemented. Full parity achieved.
 
 ## Setup
 

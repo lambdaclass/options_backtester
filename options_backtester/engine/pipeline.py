@@ -835,6 +835,238 @@ class MaxDrawdownGuard:
         return StepDecision()
 
 
+class HedgeRisks:
+    """Adjust target weights to hedge portfolio Greeks toward targets.
+
+    Uses a Jacobian-based approach: for each hedge instrument, compute
+    partial derivatives (delta/vega per unit weight), then solve the
+    linear system to find weight adjustments that bring portfolio Greeks
+    closest to targets.
+
+    Expects ``ctx.prices`` to contain columns for hedge instruments and
+    ``ctx.price_history`` to be available for estimating betas (used as
+    a proxy for delta when true Greeks are unavailable).
+    """
+
+    def __init__(
+        self,
+        target_delta: float = 0.0,
+        target_vega: float = 0.0,
+        hedge_symbols: list[str] | None = None,
+    ) -> None:
+        self.target_delta = float(target_delta)
+        self.target_vega = float(target_vega)
+        self.hedge_symbols = hedge_symbols
+
+    def __call__(self, ctx: PipelineContext) -> StepDecision:
+        if not ctx.target_weights:
+            return StepDecision(status="skip_day", message="no target weights to hedge")
+
+        # Determine hedge instruments
+        hedgers = self.hedge_symbols or ctx.selected_symbols
+        if not hedgers:
+            return StepDecision(status="skip_day", message="no hedge symbols")
+
+        hedgers = [s for s in hedgers if s in ctx.prices.index and pd.notna(ctx.prices[s])]
+        if not hedgers:
+            return StepDecision(status="skip_day", message="no valid hedge symbols")
+
+        if ctx.price_history is None or len(ctx.price_history) < 3:
+            return StepDecision(status="skip_day", message="insufficient history for hedge")
+
+        # Estimate current portfolio delta/vega using trailing returns correlation
+        port_syms = [s for s in ctx.target_weights if s in ctx.price_history.columns]
+        if not port_syms:
+            return StepDecision()
+
+        rets = ctx.price_history[list(set(port_syms + hedgers))].pct_change().dropna()
+        if len(rets) < 3:
+            return StepDecision(status="skip_day", message="insufficient returns for hedge")
+
+        # Portfolio delta ~ sum(weight_i * beta_i), using beta = std_i as proxy
+        port_delta = 0.0
+        for s in port_syms:
+            if s in rets.columns:
+                port_delta += ctx.target_weights.get(s, 0.0) * float(rets[s].std())
+
+        delta_gap = self.target_delta - port_delta
+
+        # Build Jacobian: each hedger's marginal delta contribution
+        n = len(hedgers)
+        jacobian = np.zeros((1, n))
+        for j, h in enumerate(hedgers):
+            if h in rets.columns:
+                jacobian[0, j] = float(rets[h].std())
+
+        target_vec = np.array([delta_gap])
+        try:
+            adjustments, _, _, _ = np.linalg.lstsq(jacobian, target_vec, rcond=None)
+        except np.linalg.LinAlgError:
+            return StepDecision(message="hedge solve failed, weights unchanged")
+
+        for j, h in enumerate(hedgers):
+            current = ctx.target_weights.get(h, 0.0)
+            ctx.target_weights[h] = current + float(adjustments[j])
+
+        return StepDecision(message=f"hedged delta gap={delta_gap:.4f}")
+
+
+class Margin:
+    """Simulate margin/leverage with interest charges and margin calls.
+
+    Allows total exposure to exceed cash by borrowing. Charges daily
+    interest on borrowed amount. If equity drops below maintenance_pct
+    of total exposure, forces liquidation via "stop".
+    """
+
+    def __init__(
+        self,
+        leverage: float = 2.0,
+        interest_rate: float = 0.02,
+        maintenance_pct: float = 0.25,
+    ) -> None:
+        self.leverage = float(leverage)
+        self.interest_rate = float(interest_rate)
+        self.maintenance_pct = float(maintenance_pct)
+        self._borrowed = 0.0
+
+    def reset(self) -> None:
+        self._borrowed = 0.0
+
+    def __call__(self, ctx: PipelineContext) -> StepDecision:
+        # Compute current stock value from positions
+        stock_value = 0.0
+        for sym, qty in ctx.positions.items():
+            if sym in ctx.prices.index and pd.notna(ctx.prices[sym]):
+                stock_value += float(qty) * float(ctx.prices[sym])
+        self._borrowed = max(0.0, stock_value - float(ctx.cash))
+
+        # Charge daily interest on borrowed amount
+        if self._borrowed > 0:
+            daily_interest = self.interest_rate / 252.0 * self._borrowed
+            ctx.cash = float(ctx.cash) - daily_interest
+            ctx.total_capital = float(ctx.total_capital) - daily_interest
+
+        # Margin call check: equity vs total exposure
+        equity = float(ctx.cash) + stock_value
+        exposure = stock_value
+        if exposure > 0 and equity / exposure < self.maintenance_pct:
+            return StepDecision(status="stop", message=f"margin call: equity/exposure={equity / exposure:.2%}")
+
+        # Scale target weights by leverage factor
+        if ctx.target_weights:
+            ctx.target_weights = {s: w * self.leverage for s, w in ctx.target_weights.items()}
+
+        return StepDecision()
+
+
+class CouponPayingPosition:
+    """Inject periodic coupon cash flows into the portfolio.
+
+    Simulates a fixed-income position by adding coupon_amount to cash
+    at the specified frequency. Returns "stop" after maturity.
+    """
+
+    _FREQUENCY_MONTHS = {
+        "annual": 12,
+        "semi-annual": 6,
+        "quarterly": 3,
+        "monthly": 1,
+    }
+
+    def __init__(
+        self,
+        coupon_amount: float,
+        frequency: str = "semi-annual",
+        start_date: str | pd.Timestamp | None = None,
+        maturity_date: str | pd.Timestamp | None = None,
+    ) -> None:
+        self.coupon_amount = float(coupon_amount)
+        if frequency not in self._FREQUENCY_MONTHS:
+            raise ValueError(f"frequency must be one of {list(self._FREQUENCY_MONTHS)}")
+        self.frequency = frequency
+        self._months = self._FREQUENCY_MONTHS[frequency]
+        self.start_date = pd.Timestamp(start_date) if start_date else None
+        self.maturity_date = pd.Timestamp(maturity_date) if maturity_date else None
+        self._last_coupon_month: tuple[int, int] | None = None
+
+    def reset(self) -> None:
+        self._last_coupon_month = None
+
+    def __call__(self, ctx: PipelineContext) -> StepDecision:
+        # Check maturity
+        if self.maturity_date and ctx.date >= self.maturity_date:
+            ctx.cash = float(ctx.cash) + self.coupon_amount  # final coupon
+            ctx.total_capital = float(ctx.total_capital) + self.coupon_amount
+            return StepDecision(status="stop", message="bond matured")
+
+        # Check start date
+        if self.start_date and ctx.date < self.start_date:
+            return StepDecision()
+
+        # Check if this is a coupon month
+        month_key = (ctx.date.year, ctx.date.month)
+        if self._last_coupon_month == month_key:
+            return StepDecision()
+
+        # Determine if enough months have passed since last coupon
+        if self._last_coupon_month is not None:
+            last_y, last_m = self._last_coupon_month
+            months_elapsed = (ctx.date.year - last_y) * 12 + (ctx.date.month - last_m)
+            if months_elapsed < self._months:
+                return StepDecision()
+
+        # Pay coupon
+        self._last_coupon_month = month_key
+        ctx.cash = float(ctx.cash) + self.coupon_amount
+        ctx.total_capital = float(ctx.total_capital) + self.coupon_amount
+        return StepDecision(message=f"coupon paid: ${self.coupon_amount:.2f}")
+
+
+class ReplayTransactions:
+    """Replay a pre-recorded trade blotter through the pipeline.
+
+    Takes a DataFrame with columns: date, symbol, quantity
+    (positive=buy, negative=sell). On each matching date, executes
+    the recorded trades at current prices.
+    """
+
+    def __init__(self, blotter: pd.DataFrame) -> None:
+        required = {"date", "symbol", "quantity"}
+        missing = required - set(blotter.columns)
+        if missing:
+            raise ValueError(f"blotter missing columns: {missing}")
+        self._blotter = blotter.copy()
+        self._blotter["date"] = pd.to_datetime(self._blotter["date"]).dt.normalize()
+
+    def __call__(self, ctx: PipelineContext) -> StepDecision:
+        day_trades = self._blotter[self._blotter["date"] == ctx.date.normalize()]
+        if day_trades.empty:
+            return StepDecision()
+
+        executed = 0
+        for _, trade in day_trades.iterrows():
+            sym = str(trade["symbol"]).upper()
+            qty = float(trade["quantity"])
+            if sym not in ctx.prices.index or pd.isna(ctx.prices[sym]):
+                continue
+            price = float(ctx.prices[sym])
+            if price <= 0:
+                continue
+            cost = qty * price
+            ctx.cash = float(ctx.cash) - cost
+            ctx.total_capital = float(ctx.total_capital)  # recalc handled by backtester
+            current_qty = ctx.positions.get(sym, 0.0)
+            new_qty = current_qty + qty
+            if new_qty == 0:
+                ctx.positions.pop(sym, None)
+            else:
+                ctx.positions[sym] = new_qty
+            executed += 1
+
+        return StepDecision(message=f"replayed {executed} trades")
+
+
 # ---------------------------------------------------------------------------
 # Position management
 # ---------------------------------------------------------------------------
@@ -1084,6 +1316,11 @@ class AlgoPipelineBacktester:
             balance["accumulated return"] = (1.0 + balance["% change"]).cumprod()
         self.balance = balance
         return balance
+
+    def set_date_range(self, start=None, end=None):
+        """Filter results to date range, return new BacktestStats."""
+        from options_backtester.analytics.stats import BacktestStats
+        return BacktestStats.from_balance_range(self.balance, start, end)
 
     def logs_dataframe(self) -> pd.DataFrame:
         if not self.logs:
