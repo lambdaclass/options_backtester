@@ -386,7 +386,7 @@ if use_rust():
 | [iron_condor](notebooks/iron_condor.ipynb) | 4-leg iron condor income strategy |
 | [ivy_portfolio](notebooks/ivy_portfolio.ipynb) | Endowment-style portfolio with straddle hedge overlay |
 | [gold_sp500](notebooks/gold_sp500.ipynb) | Multi-asset portfolio with cash/gold proxy + options overlay |
-| [benchmark_vs_bt](notebooks/benchmark_vs_bt.ipynb) | Performance benchmark and return parity validation |
+| [comparison_with_bt](notebooks/comparison_with_bt.ipynb) | Side-by-side comparison with the bt library: runtime, return parity, feature gap |
 | [spitznagel_case](notebooks/spitznagel_case.ipynb) | AQR vs Spitznagel tested with real data. Multi-dimensional parameter sweep. |
 
 ## Tail-Risk Hedge Research
