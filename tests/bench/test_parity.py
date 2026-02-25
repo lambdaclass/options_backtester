@@ -12,7 +12,7 @@ import pytest
 
 try:
     import polars as pl
-    from options_backtester._ob_rust import (
+    from options_portfolio_backtester._ob_rust import (
         compute_stats as rust_compute_stats,
         compile_filter as rust_compile_filter,
         apply_filter as rust_apply_filter,

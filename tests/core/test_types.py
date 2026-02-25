@@ -1,6 +1,6 @@
 """Tests for core domain types."""
 
-from options_backtester.core.types import (
+from options_portfolio_backtester.core.types import (
     Direction, OptionType, Order, Signal, Greeks, Fill, OptionContract,
     StockAllocation, Stock, get_order,
 )

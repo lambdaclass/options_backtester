@@ -4,9 +4,9 @@ import os
 import pytest
 import numpy as np
 
-from options_backtester.engine.engine import BacktestEngine
-from options_backtester.execution.cost_model import NoCosts
-from options_backtester.portfolio.risk import RiskManager, MaxDelta, MaxDrawdown
+from options_portfolio_backtester.engine.engine import BacktestEngine
+from options_portfolio_backtester.execution.cost_model import NoCosts
+from options_portfolio_backtester.portfolio.risk import RiskManager, MaxDelta, MaxDrawdown
 
 from backtester.datahandler import HistoricalOptionsData, TiingoData
 from backtester.strategy import Strategy, StrategyLeg

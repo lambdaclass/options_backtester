@@ -18,10 +18,10 @@ test-bench: ## Run benchmark/property tests
 	$(RUNCMD) $(PYTHON) -m pytest -v -m bench tests/bench
 
 lint: ## Run ruff linter
-	$(RUNCMD) $(PYTHON) -m ruff check backtester options_backtester
+	$(RUNCMD) $(PYTHON) -m ruff check backtester options_portfolio_backtester
 
 typecheck: ## Run mypy type checker
-	$(RUNCMD) $(PYTHON) -m mypy backtester options_backtester --ignore-missing-imports
+	$(RUNCMD) $(PYTHON) -m mypy backtester options_portfolio_backtester --ignore-missing-imports
 
 notebooks: ## Execute all notebooks
 	@for nb in notebooks/*.ipynb; do \

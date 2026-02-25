@@ -8,7 +8,7 @@ import matplotlib
 
 matplotlib.use("Agg")  # non-interactive backend for testing
 
-from options_backtester.analytics.charts import weights_chart
+from options_portfolio_backtester.analytics.charts import weights_chart
 
 
 def _make_balance() -> pd.DataFrame:

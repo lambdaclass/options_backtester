@@ -8,7 +8,7 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-from options_backtester.analytics.stats import BacktestStats
+from options_portfolio_backtester.analytics.stats import BacktestStats
 
 
 @dataclass

@@ -3,7 +3,7 @@
 import numpy as np
 import pandas as pd
 
-from options_backtester.analytics.trade_log import Trade, TradeLog
+from options_portfolio_backtester.analytics.trade_log import Trade, TradeLog
 from backtester.enums import Order
 
 

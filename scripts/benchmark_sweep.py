@@ -32,10 +32,10 @@ from backtester.datahandler import HistoricalOptionsData, TiingoData
 from backtester.enums import Direction, Stock, Type
 from backtester.strategy import Strategy, StrategyLeg
 
-from options_backtester.engine.engine import BacktestEngine
-from options_backtester.engine._dispatch import use_rust, rust
-from options_backtester.engine import _dispatch as _rust_dispatch
-from options_backtester.execution.cost_model import NoCosts
+from options_portfolio_backtester.engine.engine import BacktestEngine
+from options_portfolio_backtester.engine._dispatch import use_rust, rust
+from options_portfolio_backtester.engine import _dispatch as _rust_dispatch
+from options_portfolio_backtester.execution.cost_model import NoCosts
 
 TEST_DIR = os.path.join(REPO_ROOT, "backtester", "test")
 STOCKS_FILE = os.path.join(TEST_DIR, "test_data", "ivy_5assets_data.csv")

@@ -9,9 +9,9 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any
 
-from options_backtester.core.types import Greeks
-from options_backtester.portfolio.position import OptionPosition
-from options_backtester.portfolio.greeks import aggregate_greeks
+from options_portfolio_backtester.core.types import Greeks
+from options_portfolio_backtester.portfolio.position import OptionPosition
+from options_portfolio_backtester.portfolio.greeks import aggregate_greeks
 
 
 @dataclass

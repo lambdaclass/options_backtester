@@ -1,7 +1,7 @@
-"""Head-to-head comparison: options_backtester stock-only mode vs bt.
+"""Head-to-head comparison: options_portfolio_backtester stock-only mode vs bt.
 
 This harness runs the same monthly stock-rebalance policy in both frameworks:
-- options_backtester (legacy Backtest with options allocation = 0)
+- options_portfolio_backtester (legacy Backtest with options allocation = 0)
 - bt (if installed)
 
 Outputs a small scorecard with performance and runtime metrics.
@@ -43,7 +43,7 @@ class RunResult:
 
 
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Compare options_backtester vs bt on stock-only allocation.")
+    parser = argparse.ArgumentParser(description="Compare options_portfolio_backtester vs bt on stock-only allocation.")
     parser.add_argument("--stocks-file", default="data/processed/stocks.csv")
     parser.add_argument("--options-file", default="data/processed/options.csv")
     parser.add_argument("--symbols", default="SPY", help="Comma-separated symbols. Example: SPY or SPY,TLT,GLD")
@@ -85,7 +85,7 @@ def compute_metrics(total_capital: pd.Series) -> tuple[float, float, float, floa
     return total_return, cagr, max_dd, vol, sharpe
 
 
-def run_options_backtester(
+def run_options_portfolio_backtester(
     stocks_file: str,
     symbols: list[str],
     weights: list[float],
@@ -112,7 +112,7 @@ def run_options_backtester(
     bal = bt_obj.balance["total capital"].dropna()
     tr, cagr, mdd, vol, sharpe = compute_metrics(bal)
     return RunResult(
-        name="options_backtester",
+        name="options_portfolio_backtester",
         total_return_pct=tr * 100.0,
         cagr_pct=cagr * 100.0,
         max_drawdown_pct=mdd * 100.0,
@@ -213,7 +213,7 @@ def main() -> None:
         if not Path(file_path).exists():
             raise FileNotFoundError(f"Missing file: {file_path}")
 
-    ob = run_options_backtester(
+    ob = run_options_portfolio_backtester(
         stocks_file=args.stocks_file,
         symbols=symbols,
         weights=weights,
@@ -241,13 +241,13 @@ def main() -> None:
         print_result(bt_res)
         speedup = bt_res.runtime_s / ob.runtime_s if ob.runtime_s > 0 else float("nan")
         print("\nsummary")
-        print(f"  speed ratio (bt / options_backtester): {speedup:0.2f}x")
+        print(f"  speed ratio (bt / options_portfolio_backtester): {speedup:0.2f}x")
         print(
-            f"  return delta (options_backtester - bt): "
+            f"  return delta (options_portfolio_backtester - bt): "
             f"{(ob.total_return_pct - bt_res.total_return_pct):0.2f} pct-pts"
         )
         print(
-            f"  maxDD delta (options_backtester - bt): "
+            f"  maxDD delta (options_portfolio_backtester - bt): "
             f"{(ob.max_drawdown_pct - bt_res.max_drawdown_pct):0.2f} pct-pts"
         )
         print("  overlap parity:")

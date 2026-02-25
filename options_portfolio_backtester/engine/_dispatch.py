@@ -5,7 +5,7 @@ dispatched to compiled Rust code via PyO3. When unavailable, falls back
 transparently to the pure-Python implementation. Zero API change for users.
 
 Usage in engine.py:
-    from options_backtester.engine._dispatch import use_rust, rust
+    from options_portfolio_backtester.engine._dispatch import use_rust, rust
 
     if use_rust():
         result = rust.update_balance(...)
@@ -19,7 +19,7 @@ RUST_AVAILABLE: bool = False
 _rust_module = None
 
 try:
-    from options_backtester import _ob_rust
+    from options_portfolio_backtester import _ob_rust
 
     _rust_module = _ob_rust
     RUST_AVAILABLE = True

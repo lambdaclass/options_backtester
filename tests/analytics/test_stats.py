@@ -4,7 +4,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from options_backtester.analytics.stats import (
+from options_portfolio_backtester.analytics.stats import (
     BacktestStats, PeriodStats, LookbackReturns,
     _compute_period_stats, _compute_lookback, _compute_turnover, _compute_herfindahl,
 )

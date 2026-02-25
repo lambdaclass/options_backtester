@@ -5,9 +5,9 @@ import pandas as pd
 import numpy as np
 import pytest
 
-from options_backtester.engine.engine import BacktestEngine
-from options_backtester.execution.cost_model import NoCosts
-from options_backtester.execution.signal_selector import FirstMatch, NearestDelta, SignalSelector
+from options_portfolio_backtester.engine.engine import BacktestEngine
+from options_portfolio_backtester.execution.cost_model import NoCosts
+from options_portfolio_backtester.execution.signal_selector import FirstMatch, NearestDelta, SignalSelector
 
 from backtester.datahandler import HistoricalOptionsData, TiingoData
 from backtester.strategy import Strategy, StrategyLeg

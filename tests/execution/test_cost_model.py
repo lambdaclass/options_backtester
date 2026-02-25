@@ -1,6 +1,6 @@
 """Tests for transaction cost models."""
 
-from options_backtester.execution.cost_model import (
+from options_portfolio_backtester.execution.cost_model import (
     NoCosts, PerContractCommission, TieredCommission, SpreadSlippage,
 )
 

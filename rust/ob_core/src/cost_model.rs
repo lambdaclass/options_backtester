@@ -1,6 +1,6 @@
 //! Transaction cost models for options and stocks.
 //!
-//! Mirrors Python's `options_backtester.execution.cost_model`.
+//! Mirrors Python's `options_portfolio_backtester.execution.cost_model`.
 
 #[derive(Debug, Clone, Default)]
 pub enum CostModel {

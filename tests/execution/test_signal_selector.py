@@ -2,7 +2,7 @@
 
 import pandas as pd
 
-from options_backtester.execution.signal_selector import (
+from options_portfolio_backtester.execution.signal_selector import (
     FirstMatch, NearestDelta, MaxOpenInterest,
 )
 

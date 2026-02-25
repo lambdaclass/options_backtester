@@ -6,7 +6,7 @@ from abc import ABC, abstractmethod
 
 import pandas as pd
 
-from options_backtester.core.types import Direction
+from options_portfolio_backtester.core.types import Direction
 
 
 class FillModel(ABC):

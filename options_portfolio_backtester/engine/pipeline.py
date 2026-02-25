@@ -1319,7 +1319,7 @@ class AlgoPipelineBacktester:
 
     def set_date_range(self, start=None, end=None):
         """Filter results to date range, return new BacktestStats."""
-        from options_backtester.analytics.stats import BacktestStats
+        from options_portfolio_backtester.analytics.stats import BacktestStats
         return BacktestStats.from_balance_range(self.balance, start, end)
 
     def logs_dataframe(self) -> pd.DataFrame:

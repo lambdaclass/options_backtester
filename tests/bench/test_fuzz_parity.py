@@ -15,7 +15,7 @@ from hypothesis import strategies as st
 
 try:
     import polars as pl
-    from options_backtester._ob_rust import (
+    from options_portfolio_backtester._ob_rust import (
         compute_stats as rust_compute_stats,
         compute_exit_mask as rust_compute_exit_mask,
         apply_filter as rust_apply_filter,
@@ -325,8 +325,8 @@ class TestEngineAllocationFuzz:
     @settings(max_examples=20, deadline=30000,
               suppress_health_check=[HealthCheck.too_slow])
     def test_rust_matches_original(self, stocks_pct, options_pct, capital):
-        from options_backtester.engine.engine import BacktestEngine
-        from options_backtester.execution.cost_model import NoCosts
+        from options_portfolio_backtester.engine.engine import BacktestEngine
+        from options_portfolio_backtester.execution.cost_model import NoCosts
         from backtester.strategy import Strategy, StrategyLeg
         from backtester.enums import Stock, Type, Direction
         from backtester import Backtest as OriginalBacktest

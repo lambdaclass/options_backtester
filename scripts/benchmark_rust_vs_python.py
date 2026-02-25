@@ -29,12 +29,12 @@ from backtester.datahandler import HistoricalOptionsData, TiingoData
 from backtester.enums import Direction, Stock, Type
 from backtester.strategy import Strategy, StrategyLeg
 
-from options_backtester.engine.engine import BacktestEngine
-from options_backtester.engine._dispatch import use_rust
-from options_backtester.engine import _dispatch as _rust_dispatch
-from options_backtester.execution.cost_model import NoCosts
-from options_backtester.execution.fill_model import MarketAtBidAsk
-from options_backtester.execution.signal_selector import FirstMatch
+from options_portfolio_backtester.engine.engine import BacktestEngine
+from options_portfolio_backtester.engine._dispatch import use_rust
+from options_portfolio_backtester.engine import _dispatch as _rust_dispatch
+from options_portfolio_backtester.execution.cost_model import NoCosts
+from options_portfolio_backtester.execution.fill_model import MarketAtBidAsk
+from options_portfolio_backtester.execution.signal_selector import FirstMatch
 
 TEST_DIR = os.path.join(REPO_ROOT, "backtester", "test")
 STOCKS_FILE = os.path.join(TEST_DIR, "test_data", "ivy_5assets_data.csv")
@@ -275,7 +275,7 @@ def run_bt_stock_only(stocks_file, symbols, weights, initial_capital, runs) -> B
 
 
 def run_ob_stock_only(stocks_file, symbols, weights, initial_capital, runs) -> BenchResult:
-    """options_backtester stock-only benchmark."""
+    """options_portfolio_backtester stock-only benchmark."""
     stocks = [Stock(sym, w) for sym, w in zip(symbols, weights)]
     times = []
     bt_obj = None
@@ -294,7 +294,7 @@ def run_ob_stock_only(stocks_file, symbols, weights, initial_capital, runs) -> B
     final = float(bal.iloc[-1])
     total_ret = (final / initial_capital - 1) * 100
     return BenchResult(
-        name="options_backtester (stock-only)",
+        name="options_portfolio_backtester (stock-only)",
         runtime_s=float(np.mean(times)),
         final_capital=final,
         total_return_pct=total_ret,

@@ -4,10 +4,10 @@ import os
 import pytest
 import numpy as np
 
-from options_backtester.engine.engine import BacktestEngine
-from options_backtester.execution.cost_model import NoCosts
-from options_backtester.portfolio.portfolio import Portfolio
-from options_backtester.portfolio.position import OptionPosition
+from options_portfolio_backtester.engine.engine import BacktestEngine
+from options_portfolio_backtester.execution.cost_model import NoCosts
+from options_portfolio_backtester.portfolio.portfolio import Portfolio
+from options_portfolio_backtester.portfolio.position import OptionPosition
 
 from backtester.datahandler import HistoricalOptionsData, TiingoData
 from backtester.strategy import Strategy, StrategyLeg

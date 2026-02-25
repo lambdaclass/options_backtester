@@ -1,7 +1,7 @@
 """Tests for option position and position leg."""
 
-from options_backtester.core.types import Direction, OptionType, Order, Greeks
-from options_backtester.portfolio.position import PositionLeg, OptionPosition
+from options_portfolio_backtester.core.types import Direction, OptionType, Order, Greeks
+from options_portfolio_backtester.portfolio.position import PositionLeg, OptionPosition
 
 
 class TestPositionLeg:

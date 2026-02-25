@@ -1,4 +1,4 @@
-/// Core domain types mirroring Python's options_backtester.core.types.
+/// Core domain types mirroring Python's options_portfolio_backtester.core.types.
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Direction {

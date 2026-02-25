@@ -4,11 +4,11 @@ import os
 import pytest
 import pandas as pd
 
-from options_backtester.data.providers import (
+from options_portfolio_backtester.data.providers import (
     CsvOptionsProvider, CsvStocksProvider,
     DataProvider, OptionsDataProvider, StocksDataProvider,
 )
-from options_backtester.data.schema import Schema
+from options_portfolio_backtester.data.schema import Schema
 
 TEST_DIR = os.path.join(os.path.dirname(__file__), "..", "..", "backtester", "test")
 STOCKS_FILE = os.path.join(TEST_DIR, "test_data", "test_data_stocks.csv")
@@ -70,7 +70,7 @@ class TestCsvStocksProvider:
 
 class TestSchemaReExport:
     def test_schema_import(self):
-        from options_backtester.data.schema import Schema, Field, Filter
+        from options_portfolio_backtester.data.schema import Schema, Field, Filter
         assert Schema is not None
         assert Field is not None
         assert Filter is not None

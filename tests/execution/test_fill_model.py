@@ -2,8 +2,8 @@
 
 import pandas as pd
 
-from options_backtester.core.types import Direction
-from options_backtester.execution.fill_model import (
+from options_portfolio_backtester.core.types import Direction
+from options_portfolio_backtester.execution.fill_model import (
     MarketAtBidAsk, MidPrice, VolumeAwareFill,
 )
 

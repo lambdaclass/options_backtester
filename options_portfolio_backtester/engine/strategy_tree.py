@@ -6,7 +6,7 @@ from dataclasses import dataclass, field
 
 import pandas as pd
 
-from options_backtester.engine.engine import BacktestEngine
+from options_portfolio_backtester.engine.engine import BacktestEngine
 
 
 @dataclass

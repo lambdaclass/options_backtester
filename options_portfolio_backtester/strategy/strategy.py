@@ -8,9 +8,9 @@ from typing import TYPE_CHECKING
 import numpy as np
 import pandas as pd
 
-from options_backtester.execution.cost_model import TransactionCostModel, NoCosts
-from options_backtester.execution.sizer import PositionSizer, CapitalBased
-from options_backtester.execution.signal_selector import SignalSelector, FirstMatch
+from options_portfolio_backtester.execution.cost_model import TransactionCostModel, NoCosts
+from options_portfolio_backtester.execution.sizer import PositionSizer, CapitalBased
+from options_portfolio_backtester.execution.signal_selector import SignalSelector, FirstMatch
 
 if TYPE_CHECKING:
     from backtester.datahandler.schema import Schema

@@ -1,8 +1,8 @@
 """Tests for Portfolio class."""
 
-from options_backtester.core.types import Direction, OptionType, Order, Greeks
-from options_backtester.portfolio.portfolio import Portfolio, StockHolding
-from options_backtester.portfolio.position import OptionPosition, PositionLeg
+from options_portfolio_backtester.core.types import Direction, OptionType, Order, Greeks
+from options_portfolio_backtester.portfolio.portfolio import Portfolio, StockHolding
+from options_portfolio_backtester.portfolio.position import OptionPosition, PositionLeg
 
 
 def _make_portfolio() -> Portfolio:

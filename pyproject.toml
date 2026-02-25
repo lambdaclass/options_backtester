@@ -3,7 +3,7 @@ requires = ["maturin>=1.7,<2.0"]
 build-backend = "maturin"
 
 [project]
-name = "options_backtester"
+name = "options_portfolio_backtester"
 version = "0.3.0"
 description = "The open-source options backtesting framework"
 readme = "README.md"
@@ -33,12 +33,12 @@ notebooks = ["jupyter", "nbconvert"]
 
 [tool.maturin]
 manifest-path = "rust/ob_python/Cargo.toml"
-module-name = "options_backtester._ob_rust"
+module-name = "options_portfolio_backtester._ob_rust"
 python-source = "."
 features = ["pyo3/extension-module"]
 
 [tool.setuptools.packages.find]
-include = ["options_backtester*", "backtester*"]
+include = ["options_portfolio_backtester*", "backtester*"]
 
 [tool.pytest.ini_options]
 testpaths = ["backtester/test", "tests"]

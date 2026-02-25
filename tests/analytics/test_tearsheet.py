@@ -6,7 +6,7 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-from options_backtester.analytics.tearsheet import (
+from options_portfolio_backtester.analytics.tearsheet import (
     build_tearsheet,
     drawdown_series,
     monthly_return_table,

@@ -10,7 +10,7 @@ from typing import Any, Callable
 import pandas as pd
 import numpy as np
 
-from options_backtester.analytics.stats import BacktestStats
+from options_portfolio_backtester.analytics.stats import BacktestStats
 
 
 @dataclass
@@ -127,7 +127,7 @@ def rust_grid_sweep(
 
     Returns list of result dicts sorted by sharpe_ratio descending.
     """
-    from options_backtester._ob_rust import parallel_sweep
+    from options_portfolio_backtester._ob_rust import parallel_sweep
 
     results = parallel_sweep(
         options_data, stocks_data,

@@ -23,19 +23,19 @@ import numpy as np
 import pandas as pd
 import pyprind
 
-from options_backtester.core.types import (
+from options_portfolio_backtester.core.types import (
     Direction, OptionType, Order, Signal, Greeks, StockAllocation,
     get_order,
 )
-from options_backtester.execution.cost_model import TransactionCostModel, NoCosts
-from options_backtester.execution.fill_model import FillModel, MarketAtBidAsk
-from options_backtester.execution.sizer import PositionSizer, CapitalBased
-from options_backtester.execution.signal_selector import SignalSelector, FirstMatch
-from options_backtester.portfolio.risk import RiskManager
-from options_backtester.portfolio.portfolio import Portfolio, StockHolding
-from options_backtester.portfolio.position import OptionPosition, PositionLeg
-from options_backtester.engine._dispatch import use_rust, rust
-from options_backtester.engine.algo_adapters import (
+from options_portfolio_backtester.execution.cost_model import TransactionCostModel, NoCosts
+from options_portfolio_backtester.execution.fill_model import FillModel, MarketAtBidAsk
+from options_portfolio_backtester.execution.sizer import PositionSizer, CapitalBased
+from options_portfolio_backtester.execution.signal_selector import SignalSelector, FirstMatch
+from options_portfolio_backtester.portfolio.risk import RiskManager
+from options_portfolio_backtester.portfolio.portfolio import Portfolio, StockHolding
+from options_portfolio_backtester.portfolio.position import OptionPosition, PositionLeg
+from options_portfolio_backtester.engine._dispatch import use_rust, rust
+from options_portfolio_backtester.engine.algo_adapters import (
     EngineAlgo,
     EnginePipelineContext,
 )
@@ -552,7 +552,7 @@ class BacktestEngine:
         }
         data_snapshot = self._data_snapshot()
         return {
-            "framework": "options_backtester.engine.BacktestEngine",
+            "framework": "options_portfolio_backtester.engine.BacktestEngine",
             "dispatch_mode": dispatch_mode,
             "rust_available": bool(use_rust()),
             "git_sha": self._git_sha(),

@@ -11,11 +11,11 @@ import pytest
 
 try:
     import polars as pl
-    from options_backtester._ob_rust import (
+    from options_portfolio_backtester._ob_rust import (
         parallel_sweep as rust_parallel_sweep,
         run_backtest_py as rust_run_backtest,
     )
-    from options_backtester.analytics.optimization import rust_grid_sweep
+    from options_portfolio_backtester.analytics.optimization import rust_grid_sweep
     RUST_AVAILABLE = True
 except ImportError:
     RUST_AVAILABLE = False

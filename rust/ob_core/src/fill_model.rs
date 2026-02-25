@@ -1,6 +1,6 @@
 //! Fill models — determine the execution price for trades.
 //!
-//! Mirrors Python's `options_backtester.execution.fill_model`.
+//! Mirrors Python's `options_portfolio_backtester.execution.fill_model`.
 
 #[derive(Debug, Clone, Default)]
 pub enum FillModel {

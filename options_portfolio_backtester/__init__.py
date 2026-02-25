@@ -1,7 +1,7 @@
-"""options_backtester — the open-source options backtesting framework."""
+"""options_portfolio_backtester — the open-source options backtesting framework."""
 
 # Core types
-from options_backtester.core.types import (
+from options_portfolio_backtester.core.types import (
     Direction,
     OptionType,
     Order,
@@ -15,35 +15,35 @@ from options_backtester.core.types import (
 )
 
 # Data
-from options_backtester.data.schema import Schema, Field, Filter
-from options_backtester.data.providers import CsvOptionsProvider, CsvStocksProvider
+from options_portfolio_backtester.data.schema import Schema, Field, Filter
+from options_portfolio_backtester.data.providers import CsvOptionsProvider, CsvStocksProvider
 
 # Strategy
-from options_backtester.strategy.strategy import Strategy
-from options_backtester.strategy.strategy_leg import StrategyLeg
+from options_portfolio_backtester.strategy.strategy import Strategy
+from options_portfolio_backtester.strategy.strategy_leg import StrategyLeg
 
 # Execution
-from options_backtester.execution.cost_model import (
+from options_portfolio_backtester.execution.cost_model import (
     NoCosts, PerContractCommission, TieredCommission, SpreadSlippage,
 )
-from options_backtester.execution.fill_model import MarketAtBidAsk, MidPrice, VolumeAwareFill
-from options_backtester.execution.sizer import (
+from options_portfolio_backtester.execution.fill_model import MarketAtBidAsk, MidPrice, VolumeAwareFill
+from options_portfolio_backtester.execution.sizer import (
     CapitalBased, FixedQuantity, FixedDollar, PercentOfPortfolio,
 )
-from options_backtester.execution.signal_selector import (
+from options_portfolio_backtester.execution.signal_selector import (
     FirstMatch, NearestDelta, MaxOpenInterest,
 )
 
 # Portfolio
-from options_backtester.portfolio.portfolio import Portfolio
-from options_backtester.portfolio.position import OptionPosition
-from options_backtester.portfolio.greeks import aggregate_greeks
-from options_backtester.portfolio.risk import RiskManager, MaxDelta, MaxVega, MaxDrawdown
+from options_portfolio_backtester.portfolio.portfolio import Portfolio
+from options_portfolio_backtester.portfolio.position import OptionPosition
+from options_portfolio_backtester.portfolio.greeks import aggregate_greeks
+from options_portfolio_backtester.portfolio.risk import RiskManager, MaxDelta, MaxVega, MaxDrawdown
 
 # Engine
-from options_backtester.engine.engine import BacktestEngine
-from options_backtester.engine.clock import TradingClock
-from options_backtester.engine.pipeline import (
+from options_portfolio_backtester.engine.engine import BacktestEngine
+from options_portfolio_backtester.engine.clock import TradingClock
+from options_portfolio_backtester.engine.pipeline import (
     AlgoPipelineBacktester, PipelineContext, PipelineLogRow, StepDecision,
     # Scheduling
     RunMonthly, RunWeekly, RunQuarterly, RunYearly, RunDaily,
@@ -71,7 +71,7 @@ from options_backtester.engine.pipeline import (
     # Random benchmarking
     RandomBenchmarkResult, benchmark_random,
 )
-from options_backtester.engine.algo_adapters import (
+from options_portfolio_backtester.engine.algo_adapters import (
     EngineAlgo,
     EngineStepDecision,
     EnginePipelineContext,
@@ -84,12 +84,12 @@ from options_backtester.engine.algo_adapters import (
     MaxGreekExposure,
     ExitOnThreshold,
 )
-from options_backtester.engine.strategy_tree import StrategyTreeNode, StrategyTreeEngine
+from options_portfolio_backtester.engine.strategy_tree import StrategyTreeNode, StrategyTreeEngine
 
 # Analytics
-from options_backtester.analytics.stats import BacktestStats, PeriodStats, LookbackReturns
-from options_backtester.analytics.trade_log import TradeLog
-from options_backtester.analytics.tearsheet import TearsheetReport, build_tearsheet
+from options_portfolio_backtester.analytics.stats import BacktestStats, PeriodStats, LookbackReturns
+from options_portfolio_backtester.analytics.trade_log import TradeLog
+from options_portfolio_backtester.analytics.tearsheet import TearsheetReport, build_tearsheet
 
 __all__ = [
     # Core types

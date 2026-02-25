@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any
 
-from options_backtester.core.types import (
+from options_portfolio_backtester.core.types import (
     Direction, OptionType, Order, Greeks, get_order, Signal,
 )
 

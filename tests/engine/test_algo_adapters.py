@@ -5,7 +5,7 @@ import warnings
 import pandas as pd
 import pytest
 
-from options_backtester.engine.algo_adapters import (
+from options_portfolio_backtester.engine.algo_adapters import (
     BudgetPercent,
     EngineRunMonthly,
     EnginePipelineContext,
@@ -17,8 +17,8 @@ from options_backtester.engine.algo_adapters import (
     SelectByDelta,
     IVRankFilter,
 )
-from options_backtester.engine.engine import BacktestEngine
-from options_backtester.core.types import Greeks
+from options_portfolio_backtester.engine.engine import BacktestEngine
+from options_portfolio_backtester.core.types import Greeks
 
 from tests.engine.test_engine import _buy_strategy, _ivy_stocks, _options_data, _stocks_data
 
@@ -241,7 +241,7 @@ def test_events_dataframe_contains_cash_from_rebalance_start():
 
 
 def test_events_dataframe_empty_when_no_events():
-    from options_backtester.engine.engine import BacktestEngine
+    from options_portfolio_backtester.engine.engine import BacktestEngine
     engine = BacktestEngine({"stocks": 0.97, "options": 0.03, "cash": 0.0})
     events = engine.events_dataframe()
     assert events.empty

@@ -1,7 +1,7 @@
-Options Backtester
-==================
+Options Portfolio Backtester
+============================
 
-Backtester for evaluating options strategies over historical data. Includes tools for strategy sweeps, tail-risk hedge analysis, and signal-based timing research.
+Backtester for evaluating options and equity portfolio strategies over historical data. Includes tools for strategy sweeps, tail-risk hedge analysis, and signal-based timing research.
 
 **v0.3** — Modular pluggable framework with Rust performance core (2.4x faster than Python, 6x faster than bt).
 
@@ -18,13 +18,13 @@ Backtester for evaluating options strategies over historical data. Includes tool
 
 ## Comparison with bt
 
-**options_backtester is a strict superset of [bt](https://github.com/pmorissette/bt)** (the most popular algo-style Python backtester). Every bt algo and analytics feature has been implemented. The tables below show what we add on top.
+**options_portfolio_backtester is a strict superset of [bt](https://github.com/pmorissette/bt)** (the most popular algo-style Python backtester). Every bt algo and analytics feature has been implemented. The tables below show what we add on top.
 
 ### Performance
 
 Measured on SPY data (2008-2025), Apple M-series:
 
-| Benchmark | options_backtester | bt | Speedup |
+| Benchmark | options_portfolio_backtester | bt | Speedup |
 |-----------|-------------------|-----|---------|
 | Stock-only monthly rebalance | 0.6s | 3.7s | **6x** |
 | Full options backtest (24.7M rows) | 4.2s (Rust) | N/A | bt cannot run options |
@@ -137,7 +137,7 @@ New bt-style extensions:
 ## Architecture
 
 ```
-options_backtester/
+options_portfolio_backtester/
 ├── core/            # Types: Direction, OptionType, Greeks, Fill, Order
 ├── data/            # Schema DSL, CSV providers
 ├── strategy/        # Strategy, StrategyLeg, presets (strangle, iron condor, etc.)
@@ -165,7 +165,7 @@ Data → Strategy (legs + filters) → Engine → Execution (cost, fill, sizer, 
 ### New framework (recommended)
 
 ```python
-from options_backtester import (
+from options_portfolio_backtester import (
     BacktestEngine, Stock,
     NearestDelta, PerContractCommission,
     RiskManager, MaxDelta, MaxDrawdown,
@@ -274,7 +274,7 @@ Pre-trade risk checks that can block entries:
 The risk manager computes portfolio Greeks from current inventory positions and proposed entry Greeks, then checks all constraints before allowing a trade.
 
 ```python
-from options_backtester import RiskManager, MaxDelta, MaxDrawdown
+from options_portfolio_backtester import RiskManager, MaxDelta, MaxDrawdown
 
 rm = RiskManager([
     MaxDelta(limit=50.0),
@@ -368,7 +368,7 @@ Compiled once per strategy setup, reused across all dates.
 ### Dispatch layer
 
 ```python
-from options_backtester.engine._dispatch import use_rust, rust
+from options_portfolio_backtester.engine._dispatch import use_rust, rust
 
 if use_rust():
     result = rust.compute_stats(daily_returns, trade_pnls, risk_free_rate)

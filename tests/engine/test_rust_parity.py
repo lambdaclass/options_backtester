@@ -9,11 +9,11 @@ import math
 import numpy as np
 import pytest
 
-from options_backtester.engine.engine import BacktestEngine
-from options_backtester.engine._dispatch import use_rust
-from options_backtester.execution.cost_model import NoCosts, PerContractCommission
-from options_backtester.execution.signal_selector import FirstMatch, NearestDelta
-from options_backtester.portfolio.risk import RiskManager
+from options_portfolio_backtester.engine.engine import BacktestEngine
+from options_portfolio_backtester.engine._dispatch import use_rust
+from options_portfolio_backtester.execution.cost_model import NoCosts, PerContractCommission
+from options_portfolio_backtester.execution.signal_selector import FirstMatch, NearestDelta
+from options_portfolio_backtester.portfolio.risk import RiskManager
 
 from backtester.datahandler import HistoricalOptionsData, TiingoData
 from backtester.strategy import Strategy, StrategyLeg
@@ -211,8 +211,8 @@ class TestRustDispatchGating:
 
     def test_python_used_for_per_leg_override(self):
         """Per-leg signal selector should skip Rust dispatch."""
-        from options_backtester.strategy.strategy_leg import StrategyLeg as NewLeg
-        from options_backtester.execution.signal_selector import FirstMatch as FM
+        from options_portfolio_backtester.strategy.strategy_leg import StrategyLeg as NewLeg
+        from options_portfolio_backtester.execution.signal_selector import FirstMatch as FM
 
         options_data = _options_data()
         schema = options_data.schema
@@ -314,8 +314,8 @@ class TestPerLegSellDirection:
 
     def test_sell_leg_with_midprice(self):
         """SELL leg with MidPrice fill should have correct sign on cost."""
-        from options_backtester.strategy.strategy_leg import StrategyLeg as NewLeg
-        from options_backtester.execution.fill_model import MidPrice
+        from options_portfolio_backtester.strategy.strategy_leg import StrategyLeg as NewLeg
+        from options_portfolio_backtester.execution.fill_model import MidPrice
 
         options_data = _options_data()
         schema = options_data.schema

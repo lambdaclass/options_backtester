@@ -1,4 +1,4 @@
-"""Standardized benchmark matrix for options_backtester vs bt.
+"""Standardized benchmark matrix for options_portfolio_backtester vs bt.
 
 Runs multiple scenarios over date ranges/rebalance frequencies and writes
 a CSV scorecard with runtime and parity metrics.
@@ -87,7 +87,7 @@ def slice_stocks_data(stocks_file: str, start: pd.Timestamp, end: pd.Timestamp) 
     return d
 
 
-def run_options_backtester(
+def run_options_portfolio_backtester(
     stocks_file: str,
     symbols: list[str],
     weights: list[float],
@@ -218,7 +218,7 @@ def main() -> None:
 
     rows = []
     for sc in scenarios:
-        ob_stats, ob_eq = run_options_backtester(
+        ob_stats, ob_eq = run_options_portfolio_backtester(
             stocks_file=args.stocks_file,
             symbols=symbols,
             weights=weights,

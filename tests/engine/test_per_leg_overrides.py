@@ -5,17 +5,17 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from options_backtester.engine.engine import BacktestEngine
-from options_backtester.execution.cost_model import NoCosts
-from options_backtester.execution.fill_model import MarketAtBidAsk, MidPrice
-from options_backtester.execution.signal_selector import FirstMatch, NearestDelta, SignalSelector
+from options_portfolio_backtester.engine.engine import BacktestEngine
+from options_portfolio_backtester.execution.cost_model import NoCosts
+from options_portfolio_backtester.execution.fill_model import MarketAtBidAsk, MidPrice
+from options_portfolio_backtester.execution.signal_selector import FirstMatch, NearestDelta, SignalSelector
 
 from backtester.datahandler import HistoricalOptionsData, TiingoData
 from backtester.strategy import Strategy
 from backtester.enums import Stock, Type, Direction
 
 # Use new StrategyLeg that supports signal_selector/fill_model
-from options_backtester.strategy.strategy_leg import StrategyLeg
+from options_portfolio_backtester.strategy.strategy_leg import StrategyLeg
 
 TEST_DIR = os.path.join(os.path.dirname(__file__), "..", "..", "backtester", "test")
 STOCKS_FILE = os.path.join(TEST_DIR, "test_data", "ivy_5assets_data.csv")

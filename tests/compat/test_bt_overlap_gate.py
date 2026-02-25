@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from scripts.compare_with_bt import normalize_weights, run_bt, run_options_backtester
+from scripts.compare_with_bt import normalize_weights, run_bt, run_options_portfolio_backtester
 
 
 @pytest.mark.bench
@@ -23,7 +23,7 @@ def test_bt_overlap_gate_stock_only():
 
     symbols = ["SPY"]
     weights = normalize_weights(symbols, None)
-    ob = run_options_backtester(
+    ob = run_options_portfolio_backtester(
         stocks_file=str(stocks_file),
         symbols=symbols,
         weights=weights,

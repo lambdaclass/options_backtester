@@ -1,6 +1,6 @@
 //! Signal selectors — choose which contract to trade from candidates.
 //!
-//! Mirrors Python's `options_backtester.execution.signal_selector`.
+//! Mirrors Python's `options_portfolio_backtester.execution.signal_selector`.
 
 use polars::prelude::*;
 

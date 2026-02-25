@@ -11,8 +11,8 @@ import pytest
 from hypothesis import given, settings, assume, HealthCheck
 from hypothesis import strategies as st
 
-from options_backtester.analytics.stats import BacktestStats, PeriodStats
-from options_backtester.engine.pipeline import (
+from options_portfolio_backtester.analytics.stats import BacktestStats, PeriodStats
+from options_portfolio_backtester.engine.pipeline import (
     AlgoPipelineBacktester,
     PipelineContext,
     Rebalance,
@@ -28,13 +28,13 @@ from options_backtester.engine.pipeline import (
     ScaleWeights,
     StepDecision,
 )
-from options_backtester.execution.cost_model import (
+from options_portfolio_backtester.execution.cost_model import (
     NoCosts, PerContractCommission, TieredCommission,
 )
-from options_backtester.execution.fill_model import (
+from options_portfolio_backtester.execution.fill_model import (
     MarketAtBidAsk, MidPrice, VolumeAwareFill,
 )
-from options_backtester.execution.signal_selector import (
+from options_portfolio_backtester.execution.signal_selector import (
     FirstMatch, NearestDelta, MaxOpenInterest,
 )
 
@@ -173,7 +173,7 @@ class TestFillModelInvariants:
     @settings(max_examples=100)
     def test_mid_price_between_bid_ask(self, bid, ask):
         assume(bid <= ask)
-        from options_backtester.core.types import Direction
+        from options_portfolio_backtester.core.types import Direction
         row = pd.Series({"bid": bid, "ask": ask, "volume": 100})
         model = MidPrice()
         mid = model.get_fill_price(row, Direction.BUY)
@@ -186,7 +186,7 @@ class TestFillModelInvariants:
     @settings(max_examples=100)
     def test_market_bid_ask_buy_at_ask(self, bid, ask):
         assume(bid <= ask)
-        from options_backtester.core.types import Direction
+        from options_portfolio_backtester.core.types import Direction
         row = pd.Series({"bid": bid, "ask": ask, "volume": 100})
         model = MarketAtBidAsk()
         assert model.get_fill_price(row, Direction.BUY) == ask

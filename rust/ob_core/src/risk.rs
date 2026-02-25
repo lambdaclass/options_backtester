@@ -1,6 +1,6 @@
 //! Risk management — constraints checked before entering positions.
 //!
-//! Mirrors Python's `options_backtester.portfolio.risk`.
+//! Mirrors Python's `options_portfolio_backtester.portfolio.risk`.
 
 use crate::types::Greeks;
 

@@ -8,7 +8,7 @@ from typing import Literal, Protocol
 
 import pandas as pd
 
-from options_backtester.core.types import Greeks
+from options_portfolio_backtester.core.types import Greeks
 
 
 StepStatus = Literal["continue", "skip_day", "stop"]

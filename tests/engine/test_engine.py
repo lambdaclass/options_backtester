@@ -5,10 +5,10 @@ import math
 import pytest
 import numpy as np
 
-from options_backtester.engine.engine import BacktestEngine
-from options_backtester.execution.cost_model import NoCosts, PerContractCommission
-from options_backtester.execution.signal_selector import FirstMatch
-from options_backtester.portfolio.risk import RiskManager
+from options_portfolio_backtester.engine.engine import BacktestEngine
+from options_portfolio_backtester.execution.cost_model import NoCosts, PerContractCommission
+from options_portfolio_backtester.execution.signal_selector import FirstMatch
+from options_portfolio_backtester.portfolio.risk import RiskManager
 
 from backtester.datahandler import HistoricalOptionsData, TiingoData
 from backtester.strategy import Strategy, StrategyLeg
@@ -146,7 +146,7 @@ class TestRunMetadata:
         engine = _run_engine()
         meta = engine.run_metadata
 
-        assert meta["framework"] == "options_backtester.engine.BacktestEngine"
+        assert meta["framework"] == "options_portfolio_backtester.engine.BacktestEngine"
         assert meta["dispatch_mode"] in {"python", "rust-full"}
         assert isinstance(meta["git_sha"], str)
         assert len(meta["config_hash"]) == 64
