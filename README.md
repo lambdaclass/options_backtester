@@ -1,11 +1,10 @@
 Options Portfolio Backtester
 ============================
 
-Open-source backtesting framework for options, equities, and multi-asset portfolios. A strict superset of [bt](https://github.com/pmorissette/bt) — every bt feature is implemented, plus options support, richer execution modeling, and a Rust performance core.
+Open-source backtesting framework for options, equities, and multi-asset portfolios. Run a full options backtest on 24.7M rows in 4 seconds. 444 tests.
 
-**v0.3** — 444 tests, 6x faster than bt, full options Greeks chain.
-
-- [Why this over bt?](#why-this-over-bt)
+- [Features](#features)
+- [Performance](#performance)
 - [Setup](#setup)
 - [Architecture](#architecture)
 - [Usage](#usage)
@@ -17,37 +16,29 @@ Open-source backtesting framework for options, equities, and multi-asset portfol
 - [Data](#data)
 - [Recommended Reading](#recommended-reading)
 
-## Why this over bt?
+## Features
 
-### Performance
+**Options engine** — Multi-leg strategies (strangle, iron condor, butterfly, collar, covered call, cash-secured put) with per-position Greeks (delta, gamma, theta, vega), strike/DTE/delta/IV filtering via Schema DSL, profit/loss exit thresholds, per-contract inventory, and dynamic budget callable.
 
-| Benchmark | Time | vs bt |
-|-----------|------|-------|
-| Stock-only monthly rebalance | 0.6s | **6x faster** |
-| Full options backtest (24.7M rows) | 4.2s (Rust) | bt can't do this |
-| Parallel grid sweep (100 configs) | Rust + Rayon | **5-8x faster** |
+**Composable algo pipeline** — 40+ pipeline algos following a simple protocol (`__call__(ctx) -> StepDecision`). Schedule with `RunMonthly`, `RunWeekly`, `RunEveryNPeriods`, or custom combinators. Select assets with momentum, regex, callable filters, or random sampling. Weight by inverse volatility, mean-variance, equal risk contribution, or target vol. Rebalance gradually over N periods. Inject capital flows, replay trade blotters, simulate coupon-paying positions, or auto-hedge portfolio Greeks.
 
-### Everything bt has
+**Execution modeling** — 4 cost models (per-contract, tiered volume, spread slippage, zero), 3 fill models (bid/ask, mid, volume-aware), 3 signal selectors (first match, nearest delta, max OI), 4 position sizers, all with per-leg overrides.
 
-All bt pipeline algos with matching names and semantics:
+**Risk management** — Pre-trade gating with composable constraints (`MaxDelta`, `MaxVega`, `MaxDrawdown`), margin simulation with interest charges and margin calls, circuit breakers, Greeks aggregation across the portfolio.
 
-- **Scheduling**: `RunDaily`, `RunWeekly`, `RunMonthly`, `RunQuarterly`, `RunYearly`, `RunOnce`, `RunOnDate`, `RunAfterDate`, `RunAfterDays`, `RunEveryNPeriods`, `RunIfOutOfBounds`, `Or`, `Not`, `Require`
-- **Selection**: `SelectAll`, `SelectThese`, `SelectHasData`, `SelectN`, `SelectMomentum`, `SelectWhere`, `SelectRandomly`, `SelectActive`, `SelectRegex`
-- **Weighting**: `WeighEqually`, `WeighSpecified`, `WeighTarget`, `WeighInvVol`, `WeighMeanVar`, `WeighERC`, `TargetVol`, `WeighRandomly`
-- **Weight limits**: `LimitWeights`, `LimitDeltas`, `ScaleWeights`
-- **Rebalancing & position management**: `Rebalance`, `RebalanceOverTime`, `CapitalFlow`, `CloseDead`, `ClosePositionsAfterDates`, `ReplayTransactions`, `CouponPayingPosition`
-- **Risk**: `MaxDrawdownGuard`, `HedgeRisks`, `Margin`
-- **Analytics**: Sharpe/Sortino/Calmar, drawdowns, skew/kurtosis, lookback returns, turnover, Herfindahl, weights chart, `set_date_range()`, `to_dot()`, `benchmark_random()`
+**Analytics** — Sharpe, Sortino, Calmar, max drawdown, profit factor, tail ratio, win rate, skew/kurtosis, lookback returns, turnover, Herfindahl concentration, monthly heatmap (Altair), weights evolution chart, tearsheet export (CSV/Markdown/HTML), round-trip trade P&L, `benchmark_random()`, `set_date_range()` for post-hoc sub-period analysis.
 
-### Everything bt doesn't have
+**Strategy tree** — Hierarchical capital allocation across sub-strategies with budget caps, weight normalization, and Graphviz DOT export via `to_dot()`.
 
-| Category | What we add |
-|----------|-------------|
-| **Options** | Multi-leg strategies (strangle, iron condor, butterfly, collar, covered call, cash-secured put), per-position Greeks (delta, gamma, theta, vega), strike/DTE/delta/IV filtering via Schema DSL, profit/loss exit thresholds, per-contract inventory, options chain iteration, dynamic budget callable |
-| **Execution** | 4 cost models (per-contract, tiered volume, spread slippage), 3 fill models (bid/ask, mid, volume-aware), 3 signal selectors (first match, nearest delta, max OI), 4 position sizers, per-leg overrides |
-| **Risk** | Pre-trade gating with composable constraints (`MaxDelta`, `MaxVega`, `MaxDrawdown`), Greeks aggregation |
-| **Analytics** | Profit factor, tail ratio, win rate, monthly heatmap (Altair), tearsheet export (CSV/Markdown/HTML), round-trip trade P&L tracking, property-based fuzz testing |
-| **Infrastructure** | Rust backend (PyO3/Polars/Rayon), parallel parameter sweeps, walk-forward optimization, structured event log, run metadata (git SHA, config hash), strategy tree with budget caps, Schema DSL for type-safe data access |
+**Rust acceleration** — Optional PyO3/Polars/Rayon backend. Falls back transparently to Python when not installed. Parallel parameter sweeps bypass the GIL entirely.
+
+## Performance
+
+| Benchmark | Time |
+|-----------|------|
+| Stock-only monthly rebalance | **0.6s** |
+| Full options backtest (24.7M rows) | **4.2s** (Rust) / 9.9s (Python) |
+| Parallel grid sweep (100 configs) | **5-8x** faster via Rayon |
 
 ## Setup
 
@@ -94,8 +85,6 @@ make lint          # ruff linter
 make typecheck     # mypy type checking
 make rust-test     # Rust unit tests
 make rust-build    # build Rust extension
-make compare-bt    # head-to-head stock-only comparison vs bt
-make parity-gate   # bt overlap tolerance gate
 ```
 
 ## Architecture
@@ -168,7 +157,7 @@ engine.options_strategy = strategy
 engine.run(rebalance_freq=1)
 ```
 
-### Stock portfolio (bt-style pipeline)
+### Stock portfolio (algo pipeline)
 
 ```python
 from options_portfolio_backtester import (
@@ -226,7 +215,7 @@ Presets: `strangle`, `iron_condor`, `covered_call`, `cash_secured_put`, `collar`
 
 ## Pipeline Algos
 
-Full bt-compatible composable pipeline. All algos follow the `Algo` protocol: `__call__(ctx: PipelineContext) -> StepDecision`.
+40+ composable pipeline algos. All follow the `Algo` protocol: `__call__(ctx: PipelineContext) -> StepDecision`.
 
 ### Scheduling
 
@@ -348,10 +337,8 @@ The optional Rust extension runs the full backtest loop via PyO3/Polars/Rayon. F
 |--------|-----------------|------------|
 | **Rust** | **4.2s** | **0.6s** |
 | Python | 9.9s | -- |
-| bt | -- | 3.7s |
 
 - **2.4x faster** than Python on full options backtest (24.7M rows)
-- **6.0x faster** than bt on stock-only monthly rebalancing
 - Exact numerical parity with Python path
 - Parallel grid sweep: **5-8x faster** via Rayon (bypasses GIL)
 
@@ -399,7 +386,7 @@ if use_rust():
 | [iron_condor](notebooks/iron_condor.ipynb) | 4-leg iron condor income strategy |
 | [ivy_portfolio](notebooks/ivy_portfolio.ipynb) | Endowment-style portfolio with straddle hedge overlay |
 | [gold_sp500](notebooks/gold_sp500.ipynb) | Multi-asset portfolio with cash/gold proxy + options overlay |
-| [benchmark_vs_bt](notebooks/benchmark_vs_bt.ipynb) | Head-to-head vs bt: 6x faster, return parity, equity curves |
+| [benchmark_vs_bt](notebooks/benchmark_vs_bt.ipynb) | Performance benchmark and return parity validation |
 | [spitznagel_case](notebooks/spitznagel_case.ipynb) | AQR vs Spitznagel tested with real data. Multi-dimensional parameter sweep. |
 
 ## Tail-Risk Hedge Research
