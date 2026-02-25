@@ -3,7 +3,7 @@ Options Backtester
 
 Backtester for evaluating options strategies over historical data. Includes tools for strategy sweeps, tail-risk hedge analysis, and signal-based timing research.
 
-**v0.3** — Modular pluggable framework with optional Rust performance core (10-50x speedup on hot paths).
+**v0.3** — Modular pluggable framework with Rust performance core (2.4x faster than Python, 6x faster than bt).
 
 - [Setup](#setup)
 - [Architecture](#architecture)
@@ -253,19 +253,34 @@ rm = RiskManager([
 
 ## Rust Performance Core
 
-The optional Rust extension provides 10-50x speedup on hot paths via PyO3/Polars/Rayon. Falls back transparently to Python when not installed.
+The optional Rust extension runs the full backtest loop in Rust via PyO3/Polars/Rayon and falls back transparently to Python when not installed.
 
-### What's accelerated
+### Benchmarks
 
-| Hot Path | Python | Rust | Expected Speedup |
-|----------|--------|------|-----------------|
-| Inventory→options join | `pd.merge` | Polars hash-join | 10-50x |
-| Balance groupby+pivot | `groupby().sum()` | Polars groupby + Arrow | 3-8x |
-| Filter evaluation | `data.eval(query)` per leg per day | Compiled AST → Polars predicates | 3-8x |
-| Entry signal generation | sort + reindex + MultiIndex | Polars lazy plan: anti-join → filter → sort | 5-15x |
-| Exit mask + thresholds | concat + fillna + reduce(OR) | Arrow SIMD boolean ops | 2-3x |
-| Stats (Sharpe/Sortino) | numpy loops | Vectorized Rust | 2-5x |
-| Grid sweep | ProcessPoolExecutor (pickle) | Rayon scoped pool (shared memory, per-config `elapsed_ms` timing) | N_cores |
+Measured on 24.7M rows of SPY options data (2008–2025), Apple M-series, 3-run average:
+
+| Engine | Options Backtest | Stock-Only |
+|--------|-----------------|------------|
+| **Rust `BacktestEngine`** | **4.2s** | **0.6s** |
+| Legacy Python `Backtest` | 9.9s | — |
+| [bt library](https://github.com/pmorissette/bt) | — | 3.7s |
+
+- **2.4x faster** than Python on the full options backtest (24.7M rows, 4,513 dates)
+- **6.0x faster** than the bt library on stock-only monthly rebalancing
+- Exact numerical parity with the Python path ($6,314,159.58 final capital)
+- Parallel grid sweep: **5–8x faster** via Rayon (bypasses GIL, shared-memory data)
+
+### How it's fast
+
+| Optimization | Impact |
+|--------------|--------|
+| Pre-partition by date | `HashMap<i64, DayOptions>` — O(1) lookups instead of O(n) DataFrame scans per date |
+| i64 nanosecond date keys | Eliminates 21s of pandas `strftime` overhead |
+| PyArrow bridge | `pandas → PyArrow → Polars` is 2x faster than `pandas → Polars` directly |
+| Column pruning | Drops 5 unused columns before Arrow conversion (saves ~30% transfer) |
+| Skip-sort detection | Samples 8 points to detect pre-sorted data — avoids unnecessary Polars sort |
+| Compiled filter AST | Query strings compiled once, reused across all 4,513 dates |
+| Rayon parallel sweep | Shared-memory data (no pickle), per-config timing, scoped thread pool |
 
 ### Building
 
@@ -317,6 +332,7 @@ The engine automatically dispatches to Rust when available — zero API change f
 | [iron_condor](notebooks/iron_condor.ipynb) | 4-leg iron condor income strategy with options capital breakdown |
 | [ivy_portfolio](notebooks/ivy_portfolio.ipynb) | Endowment-style portfolio (Ivy Portfolio) with long straddle hedge overlay |
 | [gold_sp500](notebooks/gold_sp500.ipynb) | Multi-asset portfolio with cash/gold proxy + options overlay (7 configs) |
+| [benchmark_vs_bt](notebooks/benchmark_vs_bt.ipynb) | **Head-to-head vs bt library**: runtime (6x faster), return parity, equity curves, options backtest (bt can't do), feature comparison table |
 | [spitznagel_case](notebooks/spitznagel_case.ipynb) | **The main analysis.** AQR vs Spitznagel tested with real data. Multi-dimensional parameter sweep (DTE, delta, exit, budget). Spitznagel's leveraged framing: 13.8–28.8%/yr with lower drawdowns. Implementation guide. |
 
 See also [REFERENCES.md](REFERENCES.md) for 20 academic papers on options overlay strategies.
