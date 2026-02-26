@@ -27,6 +27,20 @@ def _pd_to_pl(df: pd.DataFrame) -> "pl.DataFrame":
     return pl.from_pandas(df)
 
 
+def _dates_to_ns(dates: list[str]) -> list[int]:
+    """Convert date strings to nanosecond timestamps for Rust interop."""
+    return [int(pd.Timestamp(d).value) for d in dates]
+
+
+def _ensure_datetime_cols(df: pd.DataFrame, cols: list[str]) -> pd.DataFrame:
+    """Convert string date columns to datetime for Rust interop."""
+    df = df.copy()
+    for col in cols:
+        if col in df.columns:
+            df[col] = pd.to_datetime(df[col])
+    return df
+
+
 # ---------------------------------------------------------------------------
 # Shared synthetic test data (3 dates, 4 options per date, 2 stocks)
 # ---------------------------------------------------------------------------
@@ -57,6 +71,8 @@ def _make_test_data():
         "symbol": ["SPY"] * 3 + ["TLT"] * 3,
         "adjClose": [450.0, 455.0, 460.0, 100.0, 101.0, 102.0],
     })
+    opts = _ensure_datetime_cols(opts, ["quotedate", "expiration"])
+    stocks = _ensure_datetime_cols(stocks, ["date"])
     return _pd_to_pl(opts), _pd_to_pl(stocks)
 
 
@@ -77,7 +93,7 @@ def _base_config():
         "profit_pct": None,
         "loss_pct": None,
         "stocks": [("SPY", 0.6), ("TLT", 0.4)],
-        "rebalance_dates": ["2024-01-01", "2024-01-15", "2024-02-01"],
+        "rebalance_dates": _dates_to_ns(["2024-01-01", "2024-01-15", "2024-02-01"]),
     }
 
 

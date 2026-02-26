@@ -1,8 +1,10 @@
+"""Tests for StrategyLeg: entry/exit filters, custom filters."""
+
 import pandas as pd
 
-from backtester.strategy.strategy_leg import StrategyLeg
-from backtester.datahandler.schema import Schema
-from backtester.enums import Type, Direction
+from options_portfolio_backtester.strategy.strategy_leg import StrategyLeg
+from options_portfolio_backtester.data.schema import Schema
+from options_portfolio_backtester.core.types import OptionType as Type, Direction
 
 
 def make_options_df():

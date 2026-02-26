@@ -17,9 +17,10 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 
-from backtester import Backtest, Stock, Type, Direction
-from backtester.datahandler import HistoricalOptionsData, TiingoData
-from backtester.strategy import Strategy, StrategyLeg
+from options_portfolio_backtester import BacktestEngine as Backtest, Stock, OptionType as Type, Direction
+from options_portfolio_backtester.data.providers import HistoricalOptionsData, TiingoData
+from options_portfolio_backtester.strategy.strategy import Strategy
+from options_portfolio_backtester.strategy.strategy_leg import StrategyLeg
 
 # ---------------------------------------------------------------------------
 # Config defaults

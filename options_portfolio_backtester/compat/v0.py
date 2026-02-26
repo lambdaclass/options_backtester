@@ -10,7 +10,7 @@ backed by BacktestEngine internals.
 from __future__ import annotations
 
 from options_portfolio_backtester.engine.engine import BacktestEngine
-from backtester.enums import Stock  # noqa: F401
+from options_portfolio_backtester.core.types import Stock  # noqa: F401
 
 
 class Backtest(BacktestEngine):

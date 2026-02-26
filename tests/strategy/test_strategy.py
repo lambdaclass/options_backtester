@@ -1,12 +1,15 @@
+"""Tests for Strategy class: adding/removing legs, thresholds."""
+
 import math
 
 import pytest
 import numpy as np
 import pandas as pd
 
-from backtester.strategy import Strategy, StrategyLeg
-from backtester.datahandler.schema import Schema
-from backtester.enums import Type, Direction
+from options_portfolio_backtester.strategy.strategy import Strategy
+from options_portfolio_backtester.strategy.strategy_leg import StrategyLeg
+from options_portfolio_backtester.data.schema import Schema
+from options_portfolio_backtester.core.types import OptionType as Type, Direction
 
 
 @pytest.fixture
@@ -84,9 +87,6 @@ class TestExitThresholds:
 
 class TestFilterThresholds:
     def test_within_bounds_no_exit(self, strategy):
-        # BUY entry: entry_cost positive, exit_cost negative
-        # excess_return = (current/entry + 1) * -sign(entry)
-        # = (-110/100 + 1) * -1 = -0.1 * -1 = 0.1 (10% profit, within 50% threshold)
         strategy.add_exit_thresholds(0.5, 0.5)
         entry_cost = pd.Series([100.0])
         current_cost = pd.Series([-110.0])
@@ -94,7 +94,6 @@ class TestFilterThresholds:
         assert not result.any()
 
     def test_profit_exceeded(self, strategy):
-        # excess_return = (-200/100 + 1) * -1 = -1 * -1 = 1.0 >= 0.5 threshold
         strategy.add_exit_thresholds(0.5, 0.5)
         entry_cost = pd.Series([100.0])
         current_cost = pd.Series([-200.0])
@@ -102,7 +101,6 @@ class TestFilterThresholds:
         assert result.all()
 
     def test_loss_exceeded(self, strategy):
-        # excess_return = (-10/100 + 1) * -1 = 0.9 * -1 = -0.9 <= -0.5 threshold
         strategy.add_exit_thresholds(0.5, 0.5)
         entry_cost = pd.Series([100.0])
         current_cost = pd.Series([-10.0])

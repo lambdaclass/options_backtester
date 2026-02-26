@@ -1,7 +1,6 @@
-"""Tests for BacktestEngine — verifies it produces identical results to the original Backtest."""
+"""Tests for BacktestEngine — verifies regression values and engine behavior."""
 
 import os
-import math
 import pytest
 import numpy as np
 
@@ -10,14 +9,14 @@ from options_portfolio_backtester.execution.cost_model import NoCosts, PerContra
 from options_portfolio_backtester.execution.signal_selector import FirstMatch
 from options_portfolio_backtester.portfolio.risk import RiskManager
 
-from backtester.datahandler import HistoricalOptionsData, TiingoData
-from backtester.strategy import Strategy, StrategyLeg
-from backtester.enums import Stock, Type, Direction
-from backtester import Backtest as OriginalBacktest
+from options_portfolio_backtester.data.providers import HistoricalOptionsData, TiingoData
+from options_portfolio_backtester.strategy.strategy import Strategy
+from options_portfolio_backtester.strategy.strategy_leg import StrategyLeg
+from options_portfolio_backtester.core.types import Stock, OptionType as Type, Direction
 
-TEST_DIR = os.path.join(os.path.dirname(__file__), "..", "..", "backtester", "test")
-STOCKS_FILE = os.path.join(TEST_DIR, "test_data", "ivy_5assets_data.csv")
-OPTIONS_FILE = os.path.join(TEST_DIR, "test_data", "options_data.csv")
+TEST_DIR = os.path.join(os.path.dirname(__file__), "..", "test_data")
+STOCKS_FILE = os.path.join(TEST_DIR, "ivy_5assets_data.csv")
+OPTIONS_FILE = os.path.join(TEST_DIR, "options_data.csv")
 
 
 def _ivy_stocks():
@@ -54,21 +53,6 @@ def _buy_strategy(schema):
     return strat
 
 
-def _run_original():
-    stocks = _ivy_stocks()
-    stocks_data = _stocks_data()
-    options_data = _options_data()
-    schema = options_data.schema
-
-    bt = OriginalBacktest({"stocks": 0.97, "options": 0.03, "cash": 0})
-    bt.stocks = stocks
-    bt.stocks_data = stocks_data
-    bt.options_data = options_data
-    bt.options_strategy = _buy_strategy(schema)
-    bt.run(rebalance_freq=1)
-    return bt
-
-
 def _run_engine(cost_model=None):
     stocks = _ivy_stocks()
     stocks_data = _stocks_data()
@@ -87,39 +71,28 @@ def _run_engine(cost_model=None):
     return engine
 
 
-class TestEngineMatchesOriginal:
-    """The new engine with NoCosts must produce identical results to the original."""
+class TestEngineRegressionValues:
+    """Verify the engine produces known regression values."""
 
     @pytest.fixture(autouse=True)
     def setup(self):
-        self.original = _run_original()
         self.engine = _run_engine()
 
-    def test_trade_log_same_shape(self):
-        assert self.original.trade_log.shape == self.engine.trade_log.shape
+    def test_trade_log_not_empty(self):
+        assert not self.engine.trade_log.empty
 
-    def test_balance_same_shape(self):
-        assert self.original.balance.shape == self.engine.balance.shape
+    def test_balance_not_empty(self):
+        assert not self.engine.balance.empty
 
-    def test_final_capital_matches(self):
-        orig_final = self.original.balance["total capital"].iloc[-1]
-        engine_final = self.engine.balance["total capital"].iloc[-1]
-        assert abs(orig_final - engine_final) < 0.01, f"{orig_final} != {engine_final}"
-
-    def test_cash_matches(self):
-        assert abs(self.original.current_cash - self.engine.current_cash) < 0.01
-
-    def test_trade_log_costs_match(self):
-        orig_costs = self.original.trade_log["totals"]["cost"].values
-        engine_costs = self.engine.trade_log["totals"]["cost"].values
-        assert np.allclose(orig_costs, engine_costs, rtol=1e-4)
-
-    def test_regression_values(self):
-        """Same regression assertions as the original test suite."""
+    def test_regression_costs(self):
         tol = 0.0001
         bt = self.engine
         assert np.allclose(bt.trade_log["totals"]["cost"].values, [100, 150], rtol=tol)
         assert np.allclose(bt.trade_log["leg_1"]["cost"].values, [100, 150], rtol=tol)
+
+    def test_regression_qtys(self):
+        tol = 0.0001
+        bt = self.engine
         assert np.allclose(
             bt.trade_log["totals"]["qty"].values,
             [300, (((97 + 3 * 0.5) * 0.03 - 1.5) / 1.5) * 100],

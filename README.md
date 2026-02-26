@@ -30,13 +30,12 @@ This is the open-source framework that does all of that, plus everything equity-
 
 ```python
 from options_portfolio_backtester import (
-    BacktestEngine, Stock,
+    BacktestEngine, Stock, Type, Direction,
+    HistoricalOptionsData, TiingoData,
+    Strategy, StrategyLeg,
     NearestDelta, PerContractCommission,
     RiskManager, MaxDelta, MaxDrawdown,
 )
-from backtester.datahandler import HistoricalOptionsData, TiingoData
-from backtester.strategy import Strategy, StrategyLeg
-from backtester.enums import Type, Direction
 
 options_data = HistoricalOptionsData("data/processed/options.csv")
 stocks_data = TiingoData("data/processed/stocks.csv")
@@ -99,7 +98,7 @@ print(stats.summary())
 ### Strategy presets
 
 ```python
-from backtester.strategy import Strangle
+from options_portfolio_backtester import Strangle
 
 strangle = Strangle(schema, "short", "SPY",
                     dte_entry_range=(30, 60), dte_exit=7,
@@ -171,8 +170,7 @@ This fetches from the [self-hosted GitHub Release](https://github.com/lambdaclas
 ### Run tests
 
 ```shell
-make test          # all tests (Python + legacy)
-make test-new      # new framework tests only
+make test          # all tests
 make test-bench    # benchmark/property tests (explicit opt-in)
 make lint          # ruff linter
 make typecheck     # mypy type checking

@@ -38,7 +38,7 @@ struct SweepOverrides {
 
 struct SweepResult {
     label: String,
-    stats: ob_core::types::Stats,
+    stats: ob_core::stats::Stats,
     final_cash: f64,
     elapsed_ms: u128,
     error: Option<String>,

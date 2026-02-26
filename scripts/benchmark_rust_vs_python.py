@@ -24,10 +24,11 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
-from backtester import Backtest as LegacyBacktest
-from backtester.datahandler import HistoricalOptionsData, TiingoData
-from backtester.enums import Direction, Stock, Type
-from backtester.strategy import Strategy, StrategyLeg
+from options_portfolio_backtester import BacktestEngine as LegacyBacktest
+from options_portfolio_backtester.data.providers import HistoricalOptionsData, TiingoData
+from options_portfolio_backtester.core.types import Direction, Stock, OptionType as Type
+from options_portfolio_backtester.strategy.strategy import Strategy
+from options_portfolio_backtester.strategy.strategy_leg import StrategyLeg
 
 from options_portfolio_backtester.engine.engine import BacktestEngine
 from options_portfolio_backtester.engine._dispatch import use_rust

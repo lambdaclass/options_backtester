@@ -142,5 +142,6 @@ class OptionContract:
 # Re-use namedtuple for backward compatibility
 StockAllocation = namedtuple("StockAllocation", "symbol percentage")
 
-# Backward-compatible alias
+# Backward-compatible aliases
 Stock = StockAllocation
+Type = OptionType

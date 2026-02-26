@@ -28,6 +28,20 @@ def _pd_to_pl(df: pd.DataFrame) -> "pl.DataFrame":
     """Convert pandas DataFrame to polars for Rust interop."""
     return pl.from_pandas(df)
 
+
+def _dates_to_ns(dates: list[str]) -> list[int]:
+    """Convert date strings to nanosecond timestamps for Rust interop."""
+    return [int(pd.Timestamp(d).value) for d in dates]
+
+
+def _ensure_datetime_cols(df: pd.DataFrame, cols: list[str]) -> pd.DataFrame:
+    """Convert string date columns to datetime for Rust interop."""
+    df = df.copy()
+    for col in cols:
+        if col in df.columns:
+            df[col] = pd.to_datetime(df[col])
+    return df
+
 pytestmark = pytest.mark.skipif(not RUST_AVAILABLE, reason="Rust extension not installed")
 
 
@@ -311,7 +325,7 @@ class TestFullBacktestParity:
             "profit_pct": None,
             "loss_pct": None,
             "stocks": [("SPY", 0.6), ("TLT", 0.4)],
-            "rebalance_dates": ["2024-01-01", "2024-01-15"],
+            "rebalance_dates": _dates_to_ns(["2024-01-01", "2024-01-15"]),
         }
         schema = {
             "contract": "optionroot",
@@ -321,6 +335,8 @@ class TestFullBacktestParity:
             "stocks_price": "adjClose",
         }
 
+        opts = _ensure_datetime_cols(opts, ["quotedate", "expiration"])
+        stocks = _ensure_datetime_cols(stocks, ["date"])
         opts_pl = _pd_to_pl(opts)
         stocks_pl = _pd_to_pl(stocks)
 

@@ -13,7 +13,7 @@ from options_portfolio_backtester.execution.signal_selector import SignalSelecto
 from options_portfolio_backtester.execution.fill_model import FillModel, MarketAtBidAsk
 
 if TYPE_CHECKING:
-    from backtester.datahandler.schema import Filter, Schema
+    from options_portfolio_backtester.data.schema import Filter, Schema
 
 
 class StrategyLeg:

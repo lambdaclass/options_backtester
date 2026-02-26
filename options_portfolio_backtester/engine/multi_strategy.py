@@ -10,7 +10,7 @@ from options_portfolio_backtester.engine.engine import BacktestEngine
 from options_portfolio_backtester.execution.cost_model import TransactionCostModel, NoCosts
 from options_portfolio_backtester.portfolio.risk import RiskManager
 
-from backtester.enums import Stock
+from options_portfolio_backtester.core.types import Stock
 
 
 class StrategyAllocation:

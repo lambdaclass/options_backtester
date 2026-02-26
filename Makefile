@@ -2,26 +2,20 @@ NIX_CMD := XDG_CACHE_HOME=$(CURDIR)/.cache nix --extra-experimental-features 'ni
 RUNCMD := $(NIX_CMD)
 PYTHON := python
 
-.PHONY: test test-old test-new test-bench lint typecheck notebooks rust-build rust-test rust-bench bench install-dev compare-bt benchmark-matrix walk-forward-report parity-gate bench-rust-vs-python help
+.PHONY: test test-bench lint typecheck notebooks rust-build rust-test rust-bench bench install-dev compare-bt benchmark-matrix walk-forward-report parity-gate bench-rust-vs-python help
 .DEFAULT_GOAL := help
 
-test: ## Run all tests (old + new)
-	$(RUNCMD) $(PYTHON) -m pytest -v backtester/test tests
-
-test-old: ## Run legacy tests only
-	$(RUNCMD) $(PYTHON) -m pytest -v backtester/test
-
-test-new: ## Run new framework tests only
+test: ## Run all tests
 	$(RUNCMD) $(PYTHON) -m pytest -v tests
 
 test-bench: ## Run benchmark/property tests
 	$(RUNCMD) $(PYTHON) -m pytest -v -m bench tests/bench
 
 lint: ## Run ruff linter
-	$(RUNCMD) $(PYTHON) -m ruff check backtester options_portfolio_backtester
+	$(RUNCMD) $(PYTHON) -m ruff check options_portfolio_backtester
 
 typecheck: ## Run mypy type checker
-	$(RUNCMD) $(PYTHON) -m mypy backtester options_portfolio_backtester --ignore-missing-imports
+	$(RUNCMD) $(PYTHON) -m mypy options_portfolio_backtester --ignore-missing-imports
 
 notebooks: ## Execute all notebooks
 	@for nb in notebooks/*.ipynb; do \

@@ -1,9 +1,11 @@
+"""Legacy summary statistics function (moved from backtester.statistics.stats)."""
+
 from __future__ import annotations
 
 import numpy as np
 import pandas as pd
 
-from ..enums import Order  # noqa: F401
+from options_portfolio_backtester.core.types import Order
 
 
 def summary(trade_log: pd.DataFrame, balance: pd.DataFrame) -> pd.io.formats.style.Styler:

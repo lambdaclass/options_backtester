@@ -28,6 +28,7 @@ pub fn compute_leg_entries(
     entry_sort_asc: bool,
     shares_per_contract: i64,
     is_sell: bool,
+    extra_columns: &[String],
 ) -> PolarsResult<DataFrame> {
     // Anti-join: exclude already-held contracts
     let inv_contracts = Series::new("_held".into(), inventory_contracts);
@@ -58,14 +59,19 @@ pub fn compute_leg_entries(
     let sign = if is_sell { lit(-1.0) } else { lit(1.0) };
     let spc = lit(shares_per_contract as f64);
 
-    lazy = lazy.select([
+    let mut select_exprs = vec![
         col(contract_col).alias("contract"),
         col("underlying"),
         col("expiration"),
         col("type"),
-        col("strike"),
+        col("strike").cast(DataType::Float64),
         (sign * col(cost_field) * spc).alias("cost"),
-    ]);
+    ];
+    // Include extra columns needed by signal selectors (e.g. delta, openinterest)
+    for extra in extra_columns {
+        select_exprs.push(col(extra));
+    }
+    lazy = lazy.select(select_exprs);
 
     lazy.collect()
 }
@@ -113,6 +119,7 @@ mod tests {
             true,
             100,
             false,
+            &[],
         )
         .unwrap();
 

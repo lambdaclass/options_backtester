@@ -22,9 +22,9 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
-from backtester import Backtest
-from backtester.datahandler import TiingoData
-from backtester.enums import Stock
+from options_portfolio_backtester import BacktestEngine as Backtest
+from options_portfolio_backtester.data.providers import TiingoData
+from options_portfolio_backtester.core.types import Stock
 
 
 @dataclass

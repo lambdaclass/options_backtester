@@ -149,11 +149,98 @@ class BacktestStats:
         trade_pnls: np.ndarray | None = None,
         risk_free_rate: float = 0.0,
     ) -> "BacktestStats":
-        """Compute stats from a balance DataFrame and optional trade P&Ls."""
-        stats = cls()
+        """Compute stats from a balance DataFrame and optional trade P&Ls.
 
+        Tries Rust backend first for speed, falls back to pure Python.
+        """
         if balance.empty:
-            return stats
+            return cls()
+
+        try:
+            return cls._from_balance_rust(balance, trade_pnls, risk_free_rate)
+        except Exception:
+            pass
+
+        return cls._from_balance_python(balance, trade_pnls, risk_free_rate)
+
+    @classmethod
+    def _from_balance_rust(
+        cls,
+        balance: pd.DataFrame,
+        trade_pnls: np.ndarray | None = None,
+        risk_free_rate: float = 0.0,
+    ) -> "BacktestStats":
+        """Compute stats via Rust backend."""
+        from options_portfolio_backtester._ob_rust import compute_full_stats
+
+        total_capital = balance["total capital"].values.astype(np.float64)
+        timestamps_ns = balance.index.astype(np.int64).tolist()
+        pnls = trade_pnls.astype(np.float64).tolist() if trade_pnls is not None else []
+
+        # Build stock weight matrix
+        stock_cols = [c for c in balance.columns if f"{c} qty" in balance.columns]
+        if stock_cols:
+            total = balance["total capital"].values
+            with np.errstate(divide="ignore", invalid="ignore"):
+                weights = balance[stock_cols].values / total[:, None]
+            weights = np.nan_to_num(weights, 0.0).astype(np.float64)
+            flat_weights = weights.ravel().tolist()
+            n_stocks = len(stock_cols)
+        else:
+            flat_weights = []
+            n_stocks = 0
+
+        d = compute_full_stats(
+            total_capital.tolist(),
+            timestamps_ns,
+            pnls,
+            flat_weights,
+            n_stocks,
+            risk_free_rate,
+        )
+
+        stats = cls()
+        # Scalars
+        for attr in (
+            "total_trades", "wins", "losses", "win_pct", "profit_factor",
+            "largest_win", "largest_loss", "avg_win", "avg_loss", "avg_trade",
+            "total_return", "annualized_return", "sharpe_ratio", "sortino_ratio",
+            "calmar_ratio", "max_drawdown", "max_drawdown_duration",
+            "avg_drawdown", "avg_drawdown_duration", "volatility", "tail_ratio",
+            "turnover", "herfindahl",
+        ):
+            setattr(stats, attr, d[attr])
+
+        # Period stats
+        for period_name in ("daily", "monthly", "yearly"):
+            pd_dict = d[period_name]
+            setattr(stats, period_name, PeriodStats(
+                mean=pd_dict["mean"], vol=pd_dict["vol"],
+                sharpe=pd_dict["sharpe"], sortino=pd_dict["sortino"],
+                skew=pd_dict["skew"], kurtosis=pd_dict["kurtosis"],
+                best=pd_dict["best"], worst=pd_dict["worst"],
+            ))
+
+        # Lookback
+        lb = d["lookback"]
+        stats.lookback = LookbackReturns(
+            mtd=lb["mtd"], three_month=lb["three_month"],
+            six_month=lb["six_month"], ytd=lb["ytd"],
+            one_year=lb["one_year"], three_year=lb["three_year"],
+            five_year=lb["five_year"], ten_year=lb["ten_year"],
+        )
+
+        return stats
+
+    @classmethod
+    def _from_balance_python(
+        cls,
+        balance: pd.DataFrame,
+        trade_pnls: np.ndarray | None = None,
+        risk_free_rate: float = 0.0,
+    ) -> "BacktestStats":
+        """Compute stats via pure Python (fallback)."""
+        stats = cls()
 
         total_capital = balance["total capital"]
         returns = balance["% change"].dropna()

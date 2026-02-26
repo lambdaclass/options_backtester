@@ -4,6 +4,7 @@
 from options_portfolio_backtester.core.types import (
     Direction,
     OptionType,
+    Type,
     Order,
     Signal,
     Fill,
@@ -16,11 +17,15 @@ from options_portfolio_backtester.core.types import (
 
 # Data
 from options_portfolio_backtester.data.schema import Schema, Field, Filter
-from options_portfolio_backtester.data.providers import CsvOptionsProvider, CsvStocksProvider
+from options_portfolio_backtester.data.providers import (
+    CsvOptionsProvider, CsvStocksProvider,
+    TiingoData, HistoricalOptionsData,
+)
 
 # Strategy
 from options_portfolio_backtester.strategy.strategy import Strategy
 from options_portfolio_backtester.strategy.strategy_leg import StrategyLeg
+from options_portfolio_backtester.strategy.presets import Strangle
 
 # Execution
 from options_portfolio_backtester.execution.cost_model import (
@@ -90,15 +95,17 @@ from options_portfolio_backtester.engine.strategy_tree import StrategyTreeNode, 
 from options_portfolio_backtester.analytics.stats import BacktestStats, PeriodStats, LookbackReturns
 from options_portfolio_backtester.analytics.trade_log import TradeLog
 from options_portfolio_backtester.analytics.tearsheet import TearsheetReport, build_tearsheet
+from options_portfolio_backtester.analytics.summary import summary
 
 __all__ = [
     # Core types
-    "Direction", "OptionType", "Order", "Signal", "Fill", "Greeks",
+    "Direction", "OptionType", "Type", "Order", "Signal", "Fill", "Greeks",
     "OptionContract", "StockAllocation", "Stock", "get_order",
     # Data
     "Schema", "Field", "Filter", "CsvOptionsProvider", "CsvStocksProvider",
+    "TiingoData", "HistoricalOptionsData",
     # Strategy
-    "Strategy", "StrategyLeg",
+    "Strategy", "StrategyLeg", "Strangle",
     # Execution
     "NoCosts", "PerContractCommission", "TieredCommission", "SpreadSlippage",
     "MarketAtBidAsk", "MidPrice", "VolumeAwareFill",
@@ -132,4 +139,5 @@ __all__ = [
     # Analytics
     "BacktestStats", "PeriodStats", "LookbackReturns",
     "TradeLog", "TearsheetReport", "build_tearsheet",
+    "summary",
 ]

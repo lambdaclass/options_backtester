@@ -45,6 +45,7 @@ pub fn compute_entries(
         entry_sort_asc,
         shares_per_contract,
         is_sell,
+        &[],
     )
     .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))?;
 

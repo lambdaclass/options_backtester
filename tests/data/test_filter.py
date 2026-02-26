@@ -1,4 +1,6 @@
-from backtester.datahandler.schema import Field
+"""Tests for Schema DSL: Field filter operations."""
+
+from options_portfolio_backtester.data.schema import Field
 
 
 def test_strike_eq_100():

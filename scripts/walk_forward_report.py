@@ -9,9 +9,9 @@ import pandas as pd
 
 from options_portfolio_backtester.analytics.optimization import walk_forward
 from options_portfolio_backtester.analytics.stats import BacktestStats
-from backtester import Backtest
-from backtester.datahandler import TiingoData
-from backtester.enums import Stock
+from options_portfolio_backtester import BacktestEngine as Backtest
+from options_portfolio_backtester.data.providers import TiingoData
+from options_portfolio_backtester.core.types import Stock
 
 
 def parse_args() -> argparse.Namespace:

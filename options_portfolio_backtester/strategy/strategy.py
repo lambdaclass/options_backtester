@@ -13,7 +13,7 @@ from options_portfolio_backtester.execution.sizer import PositionSizer, CapitalB
 from options_portfolio_backtester.execution.signal_selector import SignalSelector, FirstMatch
 
 if TYPE_CHECKING:
-    from backtester.datahandler.schema import Schema
+    from options_portfolio_backtester.data.schema import Schema
     from .strategy_leg import StrategyLeg
 
 

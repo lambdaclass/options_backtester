@@ -1,8 +1,10 @@
+"""Tests for Strangle preset strategy."""
+
 import pytest
 
-from backtester.strategy.strangle import Strangle
-from backtester.datahandler.schema import Schema
-from backtester.enums import Type, Direction
+from options_portfolio_backtester.strategy.presets import Strangle
+from options_portfolio_backtester.data.schema import Schema
+from options_portfolio_backtester.core.types import OptionType as Type, Direction
 
 
 @pytest.fixture

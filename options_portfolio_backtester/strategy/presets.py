@@ -9,7 +9,7 @@ from options_portfolio_backtester.strategy.strategy import Strategy
 from options_portfolio_backtester.strategy.strategy_leg import StrategyLeg
 
 if TYPE_CHECKING:
-    from backtester.datahandler.schema import Schema
+    from options_portfolio_backtester.data.schema import Schema
 
 
 def strangle(
@@ -258,3 +258,49 @@ def butterfly(
     strat.add_legs([lower, middle, upper])
     strat.add_exit_thresholds(exit_thresholds[0], exit_thresholds[1])
     return strat
+
+
+class Strangle(Strategy):
+    """Legacy class-based Strangle constructor (moved from backtester.strategy.strangle)."""
+
+    def __init__(
+        self,
+        schema: "Schema",
+        name: str,
+        underlying: str,
+        dte_entry_range: tuple[int, int],
+        dte_exit: int,
+        otm_pct: float = 0,
+        pct_tolerance: float = 1,
+        exit_thresholds: tuple[float, float] = (float('inf'), float('inf')),
+        shares_per_contract: int = 100,
+    ) -> None:
+        assert (name.lower() == 'short' or name.lower() == 'long')
+        super().__init__(schema)
+        direction = Direction.SELL if name.lower() == 'short' else Direction.BUY
+
+        leg1 = StrategyLeg(
+            "leg_1",
+            schema,
+            option_type=OptionType.CALL,
+            direction=direction,
+        )
+
+        otm_lower_bound = (otm_pct - pct_tolerance) / 100
+        otm_upper_bound = (otm_pct + pct_tolerance) / 100
+
+        leg1.entry_filter = (schema.underlying == underlying) & (schema.dte >= dte_entry_range[0]) & (
+            schema.dte <= dte_entry_range[1]) & (schema.strike >= schema.underlying_last *
+                                                 (1 + otm_lower_bound)) & (schema.strike <= schema.underlying_last *
+                                                                           (1 + otm_upper_bound))
+        leg1.exit_filter = (schema.dte <= dte_exit)
+
+        leg2 = StrategyLeg("leg_2", schema, option_type=OptionType.PUT, direction=direction)
+        leg2.entry_filter = (schema.underlying == underlying) & (schema.dte >= dte_entry_range[0]) & (
+            schema.dte <= dte_entry_range[1]) & (schema.strike <= schema.underlying_last *
+                                                 (1 - otm_lower_bound)) & (schema.strike >= schema.underlying_last *
+                                                                           (1 - otm_upper_bound))
+        leg2.exit_filter = (schema.dte <= dte_exit)
+
+        self.add_legs([leg1, leg2])
+        self.add_exit_thresholds(exit_thresholds[0], exit_thresholds[1])

@@ -230,6 +230,12 @@ pub fn parse_config_from_dict(config: &Bound<'_, PyDict>) -> PyResult<BacktestCo
         .get_item("options_budget_fixed")?
         .and_then(|v| v.extract::<f64>().ok());
 
+    let stop_if_broke: bool = config
+        .get_item("stop_if_broke")?
+        .map(|v| v.extract::<bool>())
+        .transpose()?
+        .unwrap_or(false);
+
     Ok(BacktestConfig {
         allocation_stocks: alloc_stocks,
         allocation_options: alloc_options,
@@ -248,6 +254,7 @@ pub fn parse_config_from_dict(config: &Bound<'_, PyDict>) -> PyResult<BacktestCo
         risk_constraints,
         sma_days,
         options_budget_fixed,
+        stop_if_broke,
     })
 }
 

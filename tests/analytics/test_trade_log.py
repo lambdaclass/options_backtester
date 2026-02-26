@@ -4,7 +4,7 @@ import numpy as np
 import pandas as pd
 
 from options_portfolio_backtester.analytics.trade_log import Trade, TradeLog
-from backtester.enums import Order
+from options_portfolio_backtester.core.types import Order
 
 
 def _make_trade(pnl_sign: float = 1.0) -> Trade:

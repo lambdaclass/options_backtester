@@ -10,16 +10,16 @@ from options_portfolio_backtester.execution.cost_model import NoCosts
 from options_portfolio_backtester.execution.fill_model import MarketAtBidAsk, MidPrice
 from options_portfolio_backtester.execution.signal_selector import FirstMatch, NearestDelta, SignalSelector
 
-from backtester.datahandler import HistoricalOptionsData, TiingoData
-from backtester.strategy import Strategy
-from backtester.enums import Stock, Type, Direction
+from options_portfolio_backtester.data.providers import HistoricalOptionsData, TiingoData
+from options_portfolio_backtester.strategy.strategy import Strategy
+from options_portfolio_backtester.core.types import Stock, OptionType as Type, Direction
 
 # Use new StrategyLeg that supports signal_selector/fill_model
 from options_portfolio_backtester.strategy.strategy_leg import StrategyLeg
 
-TEST_DIR = os.path.join(os.path.dirname(__file__), "..", "..", "backtester", "test")
-STOCKS_FILE = os.path.join(TEST_DIR, "test_data", "ivy_5assets_data.csv")
-OPTIONS_FILE = os.path.join(TEST_DIR, "test_data", "options_data.csv")
+TEST_DIR = os.path.join(os.path.dirname(__file__), "..", "test_data")
+STOCKS_FILE = os.path.join(TEST_DIR, "ivy_5assets_data.csv")
+OPTIONS_FILE = os.path.join(TEST_DIR, "options_data.csv")
 
 
 def _ivy_stocks():
@@ -86,7 +86,7 @@ class TestPerLegSignalSelector:
 
     def test_engine_selector_used_when_leg_has_none(self):
         """When leg has no signal_selector attr (legacy leg), engine-level is used."""
-        from backtester.strategy.strategy_leg import StrategyLeg as LegacyLeg
+        from options_portfolio_backtester.strategy.strategy_leg import StrategyLeg as LegacyLeg
 
         call_count = 0
 

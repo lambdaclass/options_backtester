@@ -8,7 +8,7 @@ from typing import Any
 import pandas as pd
 import numpy as np
 
-from backtester.enums import Order
+from options_portfolio_backtester.core.types import Order
 
 
 @dataclass

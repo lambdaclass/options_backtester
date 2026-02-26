@@ -23,7 +23,8 @@ use crate::filter::CompiledFilter;
 use crate::risk::{self, RiskConstraint};
 use crate::signal_selector::SignalSelector;
 use crate::stats;
-use crate::types::{Direction, Greeks, LegConfig, Stats};
+use crate::stats::Stats;
+use crate::types::{Direction, Greeks, LegConfig};
 
 #[derive(Clone)]
 pub struct BacktestConfig {
@@ -51,6 +52,8 @@ pub struct BacktestConfig {
     pub sma_days: Option<usize>,
     /// Fixed options budget in dollars (overrides allocation_options * total_capital).
     pub options_budget_fixed: Option<f64>,
+    /// Stop the backtest if cash goes negative (mirrors Python's stop_if_broke).
+    pub stop_if_broke: bool,
 }
 
 pub struct BacktestResult {
@@ -67,6 +70,10 @@ struct Position {
     quantity: f64,
     entry_cost: f64,
     greeks: Greeks,
+    /// Entry-time metadata per leg, used as fallback when contract is missing from today's data.
+    leg_underlyings: Vec<String>,
+    leg_expirations: Vec<String>,
+    leg_strikes: Vec<f64>,
 }
 
 struct StockHolding {
@@ -337,6 +344,13 @@ pub fn run_backtest(
             &config.cost_model,
         )?;
 
+        // Recompute portfolio greeks from CURRENT market data after exits.
+        // Matches Python's _compute_portfolio_greeks(options) which looks up
+        // current delta/gamma/theta/vega from today's data, not entry-time values.
+        portfolio_greeks = compute_portfolio_greeks_from_market(
+            &positions, day_opts, &config.legs,
+        );
+
         // Compute total capital
         let stock_cap = compute_stock_capital(&stock_holdings, day_stocks);
         let options_cap = compute_options_capital(&positions, day_opts, config.shares_per_contract);
@@ -389,6 +403,9 @@ pub fn run_backtest(
                 // Update portfolio greeks from entry
                 portfolio_greeks += pos.greeks;
                 positions.push(pos);
+            } else {
+                // No entry made — revert the budget added to cash
+                cash -= budget;
             }
         } else {
             // _sell_some_options
@@ -399,6 +416,11 @@ pub fn run_backtest(
                 &config.legs, to_sell,
                 schema, rb_date, &mut trade_rows,
             )?;
+        }
+
+        // stop_if_broke: halt if cash goes negative
+        if config.stop_if_broke && cash < 0.0 {
+            break;
         }
     }
 
@@ -608,12 +630,12 @@ fn execute_exits(
                 leg_data.push(LegTradeData {
                     contract: pos.leg_contracts[j].clone(),
                     underlying: day_opts.get_str(&pos.leg_contracts[j], &schema.underlying)
-                        .unwrap_or_default(),
+                        .unwrap_or_else(|| pos.leg_underlyings[j].clone()),
                     expiration: day_opts.get_str(&pos.leg_contracts[j], &schema.expiration)
-                        .unwrap_or_default(),
+                        .unwrap_or_else(|| pos.leg_expirations[j].clone()),
                     opt_type: pos.leg_types[j].clone(),
                     strike: day_opts.get_f64(&pos.leg_contracts[j], &schema.strike)
-                        .unwrap_or(0.0),
+                        .unwrap_or(pos.leg_strikes[j]),
                     cost,
                     order: order.to_string(),
                 });
@@ -684,12 +706,12 @@ fn sell_some_options(
                     leg_data.push(LegTradeData {
                         contract: pos.leg_contracts[j].clone(),
                         underlying: day_opts.get_str(&pos.leg_contracts[j], &schema.underlying)
-                            .unwrap_or_default(),
+                            .unwrap_or_else(|| pos.leg_underlyings[j].clone()),
                         expiration: day_opts.get_str(&pos.leg_contracts[j], &schema.expiration)
-                            .unwrap_or_default(),
+                            .unwrap_or_else(|| pos.leg_expirations[j].clone()),
                         opt_type: pos.leg_types[j].clone(),
                         strike: day_opts.get_f64(&pos.leg_contracts[j], &schema.strike)
-                            .unwrap_or(0.0),
+                            .unwrap_or(pos.leg_strikes[j]),
                         cost,
                         order: order.to_string(),
                     });
@@ -773,6 +795,7 @@ fn execute_entries(
             leg.direction.price_column(),
             leg.entry_sort_col.as_deref(), leg.entry_sort_asc,
             spc, leg.direction == Direction::Sell,
+            &extra_cols,
         )?;
         if entries.height() == 0 {
             return Ok(None);
@@ -780,11 +803,56 @@ fn execute_entries(
         leg_results.push(entries);
     }
 
+    // Pre-filter candidates by affordability (mirrors Python's qty > 0 filter).
+    // Python computes qty = allocation // abs(total_cost) for every candidate row
+    // and removes rows where qty == 0 before the signal selector runs.
+    {
+        let min_len = leg_results.iter().map(|df| df.height()).min().unwrap_or(0);
+        if min_len == 0 {
+            return Ok(None);
+        }
+
+        // Compute per-row total cost (sum of costs across all legs at each row index)
+        let mut affordable = vec![false; min_len];
+        for row in 0..min_len {
+            let mut combined_cost = 0.0;
+            for leg_df in &leg_results {
+                if let Ok(col) = leg_df.column("cost") {
+                    if let Ok(ca) = col.f64() {
+                        combined_cost += ca.get(row).unwrap_or(0.0);
+                    }
+                }
+            }
+            let abs_cost = combined_cost.abs();
+            if abs_cost > 0.0 && (budget / abs_cost).floor() >= 1.0 {
+                affordable[row] = true;
+            }
+        }
+
+        // Build a boolean mask and filter all legs to only affordable rows
+        let mask = BooleanChunked::from_slice("mask".into(), &affordable);
+        for leg_df in &mut leg_results {
+            // Truncate to min_len first (align by position like Python's reset_index)
+            if leg_df.height() > min_len {
+                *leg_df = leg_df.slice(0, min_len);
+            }
+            *leg_df = leg_df.filter(&mask)?;
+        }
+
+        if leg_results.iter().any(|df| df.height() == 0) {
+            return Ok(None);
+        }
+    }
+
     // Apply signal selector per leg to pick the best row
     let mut leg_contracts = Vec::new();
     let mut leg_types = Vec::new();
     let mut leg_directions = Vec::new();
+    let mut leg_underlyings = Vec::new();
+    let mut leg_expirations = Vec::new();
+    let mut leg_strikes = Vec::new();
     let mut total_cost = 0.0;
+    let mut original_total_cost = 0.0;
     let mut leg_data = Vec::new();
     let mut entry_greeks = Greeks::default();
 
@@ -795,7 +863,8 @@ fn execute_entries(
 
         let contract = leg_df.column("contract")?.str()?.get(row_idx).unwrap_or("").to_string();
         let opt_type = leg_df.column("type")?.str()?.get(row_idx).unwrap_or("").to_string();
-        let mut cost = leg_df.column("cost")?.f64()?.get(row_idx).unwrap_or(0.0);
+        let original_cost = leg_df.column("cost")?.f64()?.get(row_idx).unwrap_or(0.0);
+        let mut cost = original_cost;
         let underlying = leg_df.column("underlying")?.str()?.get(row_idx).unwrap_or("").to_string();
         // Handle expiration as either String or Datetime
         let expiration = column_value_to_string(leg_df.column("expiration")?, row_idx);
@@ -829,20 +898,24 @@ fn execute_entries(
             Direction::Sell => "STO",
         };
 
+        leg_contracts.push(contract.clone());
+        leg_types.push(opt_type.clone());
+        leg_directions.push(legs[i].direction);
+        leg_underlyings.push(underlying.clone());
+        leg_expirations.push(expiration.clone());
+        leg_strikes.push(strike);
+
         leg_data.push(LegTradeData {
-            contract: contract.clone(),
+            contract,
             underlying,
             expiration,
-            opt_type: opt_type.clone(),
+            opt_type,
             strike,
             cost,
             order: order.to_string(),
         });
-
-        leg_contracts.push(contract);
-        leg_types.push(opt_type);
-        leg_directions.push(legs[i].direction);
         total_cost += cost;
+        original_total_cost += original_cost;
 
         // Accumulate greeks (will be scaled by qty later)
         entry_greeks.delta += delta * dir_sign;
@@ -851,11 +924,13 @@ fn execute_entries(
         entry_greeks.vega += vega * dir_sign;
     }
 
-    if total_cost.abs() == 0.0 {
+    if original_total_cost.abs() == 0.0 {
         return Ok(None);
     }
 
-    let qty = (budget / total_cost.abs()).floor();
+    // Qty is computed from the original (pre-fill-model) cost, matching Python behavior
+    // where qty = allocation // abs(original_cost) is computed before fill model repricing.
+    let qty = (budget / original_total_cost.abs()).floor();
     if qty <= 0.0 {
         return Ok(None);
     }
@@ -884,6 +959,9 @@ fn execute_entries(
         quantity: qty,
         entry_cost: total_cost,
         greeks: scaled_greeks,
+        leg_underlyings,
+        leg_expirations,
+        leg_strikes,
     }))
 }
 
@@ -1123,6 +1201,34 @@ fn build_result(
 // ---------------------------------------------------------------------------
 // Small helpers.
 // ---------------------------------------------------------------------------
+
+/// Compute aggregate portfolio greeks from CURRENT market data, matching
+/// Python's `_compute_portfolio_greeks(options)` which merges inventory
+/// contracts with today's options to get current delta/gamma/theta/vega.
+fn compute_portfolio_greeks_from_market(
+    positions: &[Position],
+    day_opts: &DayOptions,
+    legs: &[LegConfig],
+) -> Greeks {
+    let mut total = Greeks::default();
+    for pos in positions {
+        for (j, leg) in legs.iter().enumerate() {
+            if j >= pos.leg_contracts.len() { continue; }
+            let contract = &pos.leg_contracts[j];
+            let dir_sign = if leg.direction == Direction::Buy { 1.0 } else { -1.0 };
+            let delta = day_opts.get_f64(contract, "delta").unwrap_or(0.0);
+            let gamma = day_opts.get_f64(contract, "gamma").unwrap_or(0.0);
+            let theta = day_opts.get_f64(contract, "theta").unwrap_or(0.0);
+            let vega = day_opts.get_f64(contract, "vega").unwrap_or(0.0);
+
+            total.delta += delta * dir_sign * pos.quantity;
+            total.gamma += gamma * dir_sign * pos.quantity;
+            total.theta += theta * dir_sign * pos.quantity;
+            total.vega += vega * dir_sign * pos.quantity;
+        }
+    }
+    total
+}
 
 /// Compute the total exit cost for a position — O(1) per leg via DayOptions.
 fn compute_position_exit_cost(pos: &Position, day_opts: &DayOptions, spc: i64) -> f64 {

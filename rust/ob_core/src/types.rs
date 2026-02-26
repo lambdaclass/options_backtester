@@ -117,21 +117,6 @@ pub struct BalanceRow {
     pub stock_qtys: Vec<(String, f64)>,
 }
 
-/// Stats summary for a backtest.
-#[derive(Debug, Clone, Default)]
-pub struct Stats {
-    pub total_return: f64,
-    pub annualized_return: f64,
-    pub sharpe_ratio: f64,
-    pub sortino_ratio: f64,
-    pub calmar_ratio: f64,
-    pub max_drawdown: f64,
-    pub max_drawdown_duration: u32,
-    pub profit_factor: f64,
-    pub win_rate: f64,
-    pub total_trades: u32,
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;

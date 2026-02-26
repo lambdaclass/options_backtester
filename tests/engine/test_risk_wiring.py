@@ -8,13 +8,14 @@ from options_portfolio_backtester.engine.engine import BacktestEngine
 from options_portfolio_backtester.execution.cost_model import NoCosts
 from options_portfolio_backtester.portfolio.risk import RiskManager, MaxDelta, MaxDrawdown
 
-from backtester.datahandler import HistoricalOptionsData, TiingoData
-from backtester.strategy import Strategy, StrategyLeg
-from backtester.enums import Stock, Type, Direction
+from options_portfolio_backtester.data.providers import HistoricalOptionsData, TiingoData
+from options_portfolio_backtester.strategy.strategy import Strategy
+from options_portfolio_backtester.strategy.strategy_leg import StrategyLeg
+from options_portfolio_backtester.core.types import Stock, OptionType as Type, Direction
 
-TEST_DIR = os.path.join(os.path.dirname(__file__), "..", "..", "backtester", "test")
-STOCKS_FILE = os.path.join(TEST_DIR, "test_data", "ivy_5assets_data.csv")
-OPTIONS_FILE = os.path.join(TEST_DIR, "test_data", "options_data.csv")
+TEST_DIR = os.path.join(os.path.dirname(__file__), "..", "test_data")
+STOCKS_FILE = os.path.join(TEST_DIR, "ivy_5assets_data.csv")
+OPTIONS_FILE = os.path.join(TEST_DIR, "options_data.csv")
 
 
 def _ivy_stocks():

@@ -38,13 +38,14 @@ python-source = "."
 features = ["pyo3/extension-module"]
 
 [tool.setuptools.packages.find]
-include = ["options_portfolio_backtester*", "backtester*"]
+include = ["options_portfolio_backtester*"]
 
 [tool.pytest.ini_options]
-testpaths = ["backtester/test", "tests"]
+testpaths = ["tests"]
 addopts = "-m \"not bench\""
 markers = [
     "bench: benchmark/property tests requiring explicit opt-in",
+    "slow: full-range stress tests (17-year SPY, minutes to run)",
 ]
 filterwarnings = ["ignore::DeprecationWarning"]
 
