@@ -64,3 +64,44 @@ class TestSpreadSlippage:
         """SpreadSlippage models slippage separately, not via option_cost."""
         m = SpreadSlippage(pct=0.5)
         assert m.option_cost(2.50, 10, 100) == 0.0
+
+    def test_stock_cost_is_zero(self):
+        m = SpreadSlippage(pct=0.5)
+        assert m.stock_cost(150.0, 100) == 0.0
+
+
+class TestTieredCommissionEdgeCases:
+    def test_qty_exceeds_all_tiers(self):
+        """When quantity exceeds all tiers, remaining uses last tier rate."""
+        m = TieredCommission(tiers=[(10, 1.0), (20, 0.5)])
+        # 10 @ 1.0 + 10 @ 0.5 + 5 @ 0.5 (last tier rate)
+        cost = m.option_cost(2.50, 25, 100)
+        assert cost == 10 * 1.0 + 10 * 0.5 + 5 * 0.5
+
+    def test_stock_cost(self):
+        m = TieredCommission(stock_rate=0.01)
+        assert m.stock_cost(150.0, 100) == 1.00
+
+    def test_tier_boundary_exact(self):
+        """Exact tier boundary: no remaining."""
+        m = TieredCommission(tiers=[(10, 1.0), (20, 0.5)])
+        cost = m.option_cost(2.50, 20, 100)
+        assert cost == 10 * 1.0 + 10 * 0.5
+
+
+class TestRustConfigs:
+    def test_no_costs_rust_config(self):
+        c = NoCosts().to_rust_config()
+        assert c["type"] == "NoCosts"
+
+    def test_per_contract_rust_config(self):
+        c = PerContractCommission(rate=0.65, stock_rate=0.01).to_rust_config()
+        assert c["type"] == "PerContract"
+        assert c["rate"] == 0.65
+        assert c["stock_rate"] == 0.01
+
+    def test_tiered_rust_config(self):
+        m = TieredCommission(tiers=[(100, 0.65), (500, 0.50)])
+        c = m.to_rust_config()
+        assert c["type"] == "Tiered"
+        assert len(c["tiers"]) == 2

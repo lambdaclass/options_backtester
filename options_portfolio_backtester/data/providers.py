@@ -1,4 +1,4 @@
-"""Data providers — ABCs, CSV implementations, and legacy data loaders."""
+"""Data providers — ABCs, CSV implementations, and data loaders."""
 
 from __future__ import annotations
 
@@ -10,10 +10,6 @@ import pandas as pd
 
 from .schema import Schema, Filter
 
-
-# ---------------------------------------------------------------------------
-# Legacy data loaders (moved from backtester.datahandler)
-# ---------------------------------------------------------------------------
 
 class TiingoData:
     """Tiingo (stocks & indeces) Data container class."""
@@ -276,7 +272,6 @@ class CsvOptionsProvider(OptionsDataProvider):
     def iter_months(self) -> Any:
         return self._loader.iter_months()
 
-    # Pass-through to underlying loader for backward compat
     def __getitem__(self, item: Any) -> Any:
         return self._loader[item]
 
@@ -288,7 +283,7 @@ class CsvOptionsProvider(OptionsDataProvider):
 
     @property
     def _data(self) -> pd.DataFrame:
-        """Backward-compat access used by engine internals."""
+        """Access to underlying DataFrame."""
         return self._loader._data
 
 
@@ -337,5 +332,5 @@ class CsvStocksProvider(StocksDataProvider):
 
     @property
     def _data(self) -> pd.DataFrame:
-        """Backward-compat access used by engine internals."""
+        """Access to underlying DataFrame."""
         return self._loader._data

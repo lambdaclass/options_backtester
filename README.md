@@ -69,7 +69,7 @@ engine.run(rebalance_freq=1)
 ### Stock portfolio with algo pipeline
 
 ```python
-from options_portfolio_backtester import (
+from options_portfolio_backtester.engine.pipeline import (
     AlgoPipelineBacktester,
     RunMonthly, SelectAll, WeighInvVol, LimitWeights, Rebalance,
 )
@@ -379,3 +379,13 @@ For complete novices in finance and economics, this [post](https://notamonadtuto
 - [Ergodicity economics](https://ergodicityeconomics.files.wordpress.com/2018/06/ergodicity_economics.pdf)
 - [The Rate of Return on Everything, 1870-2015](https://economics.harvard.edu/files/economics/files/ms28533.pdf)
 - [Volatility and the Alchemy of Risk](https://static1.squarespace.com/static/5581f17ee4b01f59c2b1513a/t/59ea16dbbe42d6ff1cae589f/1508513505640/Artemis_Volatility+and+the+Alchemy+of+Risk_2017.pdf)
+- [Variance Risk Premia - Carr & Wu, 2009](https://papers.ssrn.com/sol3/papers.cfm?abstract_id=577222)
+- [Portfolio Selection - Markowitz, 1952](https://www.jstor.org/stable/2975974)
+- [The Kelly Criterion in Blackjack, Sports Betting, and the Stock Market - Thorp, 2006](https://www.edwardothorp.com/wp-content/uploads/2016/11/TheKellyCriterionAndTheStockMarket.pdf)
+- [Tail Risk Hedging: Creating Robust Portfolios for Volatile Markets - Bhansali, 2014](https://www.amazon.com/Tail-Risk-Hedging-Creating-Portfolios/dp/0071791760)
+
+### Backtesting methodology
+
+- [The Backtest Overfitting Problem - Bailey et al., 2017](https://papers.ssrn.com/sol3/papers.cfm?abstract_id=2326253)
+- [Pseudo-Mathematics and Financial Charlatanism - Bailey et al., 2014](https://papers.ssrn.com/sol3/papers.cfm?abstract_id=2308659)
+- [Advances in Financial Machine Learning - de Prado, 2018](https://www.amazon.com/Advances-Financial-Machine-Learning-Marcos/dp/1119482089) (chapters on backtesting, cross-validation, bet sizing)

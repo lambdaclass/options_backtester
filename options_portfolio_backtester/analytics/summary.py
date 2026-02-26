@@ -1,4 +1,4 @@
-"""Legacy summary statistics function (moved from backtester.statistics.stats)."""
+"""Summary statistics for trade logs."""
 
 from __future__ import annotations
 

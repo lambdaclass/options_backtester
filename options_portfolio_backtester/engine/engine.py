@@ -24,7 +24,7 @@ import pandas as pd
 import pyprind
 
 from options_portfolio_backtester.core.types import (
-    Direction, OptionType, Order, Signal, Greeks, StockAllocation,
+    Direction, OptionType, Order, Signal, Greeks, Stock, StockAllocation,
     get_order,
 )
 from options_portfolio_backtester.execution.cost_model import TransactionCostModel, NoCosts
@@ -44,18 +44,14 @@ from options_portfolio_backtester.data.providers import HistoricalOptionsData, T
 from options_portfolio_backtester.data.schema import Schema
 from options_portfolio_backtester.strategy.strategy import Strategy
 from options_portfolio_backtester.strategy.strategy_leg import StrategyLeg
-from options_portfolio_backtester.core.types import Stock, OptionType, Signal, get_order
 
 
 class BacktestEngine:
-    """New framework engine — orchestrates backtest with pluggable components.
+    """Orchestrates backtest with pluggable execution components.
 
-    This engine uses the ORIGINAL data structures (MultiIndex DataFrames for
-    inventory) internally to maintain backward compatibility with existing tests
-    and notebooks, but exposes pluggable execution components (cost model, fill
-    model, sizer, signal selector, risk manager).
-
-    For a fully new-style engine with Portfolio dataclass, see Phase 7+.
+    Composes data providers, strategy legs, cost/fill/sizer/selector models,
+    and risk constraints into a single backtest loop.  Dispatches to Rust
+    when available, falls back to Python transparently.
     """
 
     def __init__(

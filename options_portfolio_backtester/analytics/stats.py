@@ -23,10 +23,6 @@ TRADING_DAYS_PER_YEAR = 252
 MONTHS_PER_YEAR = 12
 
 
-def _safe_ratio(numerator: float, denominator: float) -> float:
-    return numerator / denominator if denominator > 0 else 0.0
-
-
 def _sharpe(returns: pd.Series, risk_free_rate: float, periods_per_year: int) -> float:
     if len(returns) < 2:
         return 0.0

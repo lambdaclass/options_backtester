@@ -1,1 +1,1 @@
-"""Data module — schema, providers, and legacy data loaders."""
+"""Data module — schema and providers."""

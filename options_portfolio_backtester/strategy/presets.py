@@ -261,7 +261,7 @@ def butterfly(
 
 
 class Strangle(Strategy):
-    """Legacy class-based Strangle constructor (moved from backtester.strategy.strangle)."""
+    """Class-based Strangle constructor."""
 
     def __init__(
         self,
