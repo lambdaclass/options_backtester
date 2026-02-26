@@ -12,7 +12,7 @@ This is the open-source framework that does all of that, plus everything equity-
 - **Per-position Greeks**: delta, gamma, theta, vega with portfolio-level aggregation
 - **40+ composable pipeline algos**: scheduling, selection, weighting, rebalancing, risk guards
 - **Realistic execution**: cost models, fill models, signal selectors, position sizers — all pluggable, all with per-leg overrides
-- **Risk management**: pre-trade gating (`MaxDelta`, `MaxVega`, `MaxDrawdown`), margin simulation, circuit breakers, auto-hedging
+- **Risk management**: pre-trade gating (`MaxDelta`, `MaxVega`, `MaxDrawdown`), notional cap (`max_notional_pct`), margin simulation, circuit breakers, auto-hedging
 - **Strategy tree**: hierarchical capital allocation with budget caps and Graphviz export
 - **Rust acceleration**: optional PyO3/Polars/Rayon backend, transparent fallback to Python, parallel parameter sweeps that bypass the GIL
 - **Walk-forward optimization**: in-sample/out-of-sample with parallel grid sweep
@@ -292,7 +292,7 @@ Every component is swappable. Mix and match per strategy or per leg.
 | **Cost models** | `NoCosts()`, `PerContractCommission(rate)`, `TieredCommission(tiers)`, `SpreadSlippage(pct)` |
 | **Fill models** | `MarketAtBidAsk()`, `MidPrice()`, `VolumeAwareFill(threshold)` |
 | **Position sizers** | `CapitalBased()`, `FixedQuantity(qty)`, `FixedDollar(amount)`, `PercentOfPortfolio(pct)` |
-| **Risk constraints** | `MaxDelta(limit)`, `MaxVega(limit)`, `MaxDrawdown(max_dd_pct)` |
+| **Risk constraints** | `MaxDelta(limit)`, `MaxVega(limit)`, `MaxDrawdown(max_dd_pct)`, `max_notional_pct` (engine param) |
 
 ## Rust Core
 

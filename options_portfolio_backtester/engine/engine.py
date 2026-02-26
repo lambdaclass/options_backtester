@@ -66,6 +66,7 @@ class BacktestEngine:
         risk_manager: RiskManager | None = None,
         algos: list[EngineAlgo] | None = None,
         stop_if_broke: bool = False,
+        max_notional_pct: float | None = None,
     ) -> None:
         assets = ("stocks", "options", "cash")
         total_allocation = sum(allocation.get(a, 0.0) for a in assets)
@@ -83,6 +84,7 @@ class BacktestEngine:
         self.risk_manager = risk_manager or RiskManager()
         self.algos = list(algos or [])
         self.stop_if_broke = stop_if_broke
+        self.max_notional_pct = max_notional_pct
 
         self.options_budget: Union[Callable[[pd.Timestamp, float], float], float, None] = None
         self._stocks: list[Stock] = []
@@ -162,6 +164,7 @@ class BacktestEngine:
         _rust_compatible = (
             use_rust()
             and not self.algos
+            and self.max_notional_pct is None
             and (self.options_budget is None or isinstance(self.options_budget, (int, float)))
             and hasattr(self.cost_model, 'to_rust_config')
             and hasattr(self.fill_model, 'to_rust_config')
@@ -690,6 +693,7 @@ class BacktestEngine:
                 options_allocation - options_capital,
                 stocks,
                 entry_filters=entry_filters,
+                total_capital=total_capital,
             )
         else:
             to_sell = options_capital - options_allocation
@@ -1003,7 +1007,22 @@ class BacktestEngine:
 
         return total
 
-    def _execute_option_entries(self, date, options, options_allocation, stocks=None, entry_filters=None):
+    def _compute_short_notional(self) -> float:
+        """Sum of strike * qty * shares_per_contract for all short legs in inventory."""
+        inv = self._options_inventory
+        if inv.empty:
+            return 0.0
+        sell_legs = [leg for leg in self._options_strategy.legs
+                     if leg.direction == Direction.SELL]
+        if not sell_legs:
+            return 0.0
+        qty = inv["totals"]["qty"]
+        return sum(
+            (inv[leg.name]["strike"] * qty * self.shares_per_contract).sum()
+            for leg in sell_legs
+        )
+
+    def _execute_option_entries(self, date, options, options_allocation, stocks=None, entry_filters=None, total_capital=None):
         self.current_cash += options_allocation
 
         inventory_contracts = pd.concat(
@@ -1059,6 +1078,26 @@ class BacktestEngine:
             [leg_entry.droplevel(0, axis=1)["cost"] for leg_entry in entry_signals]
         )
         qty = options_allocation // abs(total_costs)
+
+        if self.max_notional_pct is not None and total_capital is not None:
+            sell_pairs = [
+                (leg_entry, leg)
+                for leg_entry, leg in zip(entry_signals, self._options_strategy.legs)
+                if leg.direction == Direction.SELL
+            ]
+            if sell_pairs:
+                existing_short_notional = self._compute_short_notional()
+                max_notional = self.max_notional_pct * total_capital
+                available = max(0.0, max_notional - existing_short_notional)
+                short_notional_per_contract = sum(
+                    leg_entry.droplevel(0, axis=1)["strike"] * self.shares_per_contract
+                    for leg_entry, _ in sell_pairs
+                )
+                mask = short_notional_per_contract > 0
+                if mask.any():
+                    max_qty = available // short_notional_per_contract
+                    qty = qty.clip(upper=max_qty)
+
         totals = pd.DataFrame.from_dict({"cost": total_costs, "qty": qty, "date": date})
         totals.columns = pd.MultiIndex.from_product([["totals"], totals.columns])
         entry_signals.append(totals)
