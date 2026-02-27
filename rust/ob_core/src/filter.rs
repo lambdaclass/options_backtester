@@ -320,6 +320,15 @@ impl Parser {
             }
             Token::FloatLit(f) => Ok(ValueExpr::Literal(Value::Float(f))),
             Token::StrLit(s) => Ok(ValueExpr::Literal(Value::Str(s))),
+            // Unary minus: negate the next numeric literal
+            Token::Minus => {
+                let next = self.advance().ok_or_else(|| FilterError::Parse("unexpected end after '-'".into()))?;
+                match next {
+                    Token::IntLit(n) => Ok(ValueExpr::Literal(Value::Int(-n))),
+                    Token::FloatLit(f) => Ok(ValueExpr::Literal(Value::Float(-f))),
+                    t => Err(FilterError::Parse(format!("expected number after '-', got {t:?}"))),
+                }
+            }
             t => Err(FilterError::Parse(format!("unexpected token in value: {t:?}"))),
         }
     }
@@ -608,5 +617,53 @@ mod tests {
         let f = CompiledFilter::new("ask > 1e-3").unwrap();
         let result = f.apply(&df).unwrap();
         assert_eq!(result.height(), 2); // 0.1 and 5.0
+    }
+
+    #[test]
+    fn parse_negative_float_literal() {
+        let expr = parse("delta >= -0.25").unwrap();
+        assert_eq!(
+            expr,
+            FilterExpr::Cmp("delta".into(), CmpOp::Ge, Value::Float(-0.25))
+        );
+    }
+
+    #[test]
+    fn parse_negative_int_literal() {
+        let expr = parse("dte >= -30").unwrap();
+        assert_eq!(
+            expr,
+            FilterExpr::Cmp("dte".into(), CmpOp::Ge, Value::Int(-30))
+        );
+    }
+
+    #[test]
+    fn parse_negative_delta_range() {
+        // The exact pattern that fails for Cash-Secured Put / Short Strangle
+        let expr = parse("(delta >= -0.30) & (delta <= -0.15)").unwrap();
+        match expr {
+            FilterExpr::And(left, right) => {
+                assert_eq!(
+                    *left,
+                    FilterExpr::Cmp("delta".into(), CmpOp::Ge, Value::Float(-0.30))
+                );
+                assert_eq!(
+                    *right,
+                    FilterExpr::Cmp("delta".into(), CmpOp::Le, Value::Float(-0.15))
+                );
+            }
+            _ => panic!("expected And, got {expr:?}"),
+        }
+    }
+
+    #[test]
+    fn compiled_filter_negative_delta() {
+        let df = DataFrame::new(vec![
+            Column::new("delta".into(), &[-0.40f64, -0.25, -0.15, -0.05, 0.10]),
+        ]).unwrap();
+
+        let f = CompiledFilter::new("(delta >= -0.30) & (delta <= -0.10)").unwrap();
+        let result = f.apply(&df).unwrap();
+        assert_eq!(result.height(), 2); // -0.25 and -0.15
     }
 }
