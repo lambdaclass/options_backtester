@@ -342,6 +342,7 @@ pub fn run_backtest(
             config.profit_pct, config.loss_pct,
             schema, rb_date, &mut trade_rows,
             &config.cost_model,
+            day_stocks,
         )?;
 
         // Recompute portfolio greeks from CURRENT market data after exits.
@@ -353,7 +354,7 @@ pub fn run_backtest(
 
         // Compute total capital
         let stock_cap = compute_stock_capital(&stock_holdings, day_stocks);
-        let options_cap = compute_options_capital(&positions, day_opts, config.shares_per_contract);
+        let options_cap = compute_options_capital(&positions, day_opts, config.shares_per_contract, day_stocks);
         let total_capital = cash + stock_cap + options_cap;
 
         // Track peak for drawdown risk checks
@@ -415,6 +416,7 @@ pub fn run_backtest(
                 day_opts, config.shares_per_contract,
                 &config.legs, to_sell,
                 schema, rb_date, &mut trade_rows,
+                day_stocks,
             )?;
         }
 
@@ -566,6 +568,7 @@ fn execute_exits(
     date: i64,
     trade_rows: &mut Vec<TradeRow>,
     cost_model: &CostModel,
+    day_stocks: Option<&DayStocks>,
 ) -> PolarsResult<()> {
     let mut to_remove = Vec::new();
 
@@ -592,7 +595,7 @@ fn execute_exits(
         // Check threshold exits — mirrors Python's Strategy.filter_thresholds:
         //   excess_return = (current_cost / entry_cost + 1) * -sign(entry_cost)
         if !should_exit {
-            let curr = compute_position_exit_cost(pos, day_opts, spc);
+            let curr = compute_position_exit_cost(pos, day_opts, spc, day_stocks);
             let entry = pos.entry_cost;
             if entry != 0.0 {
                 let excess_return = (curr / entry + 1.0) * -entry.signum();
@@ -605,7 +608,7 @@ fn execute_exits(
         }
 
         if should_exit {
-            let exit_cost = compute_position_exit_cost(pos, day_opts, spc);
+            let exit_cost = compute_position_exit_cost(pos, day_opts, spc, day_stocks);
             *cash -= exit_cost * pos.quantity;
 
             // Apply exit commission
@@ -619,7 +622,12 @@ fn execute_exits(
             for (j, leg) in legs.iter().enumerate() {
                 let exit_price_col = leg.direction.invert().price_column();
                 let price = day_opts.get_f64(&pos.leg_contracts[j], exit_price_col)
-                    .unwrap_or(0.0);
+                    .unwrap_or_else(|| {
+                        let spot = day_stocks
+                            .and_then(|ds| ds.get_price(&pos.leg_underlyings[j]))
+                            .unwrap_or(0.0);
+                        intrinsic_value(&pos.leg_types[j], pos.leg_strikes[j], spot)
+                    });
                 // Cash flow sign: BUY receives (-1), SELL pays (+1)
                 let cash_sign = if leg.direction == Direction::Buy { -1.0 } else { 1.0 };
                 let cost = cash_sign * price * spc as f64;
@@ -670,6 +678,7 @@ fn sell_some_options(
     schema: &SchemaMapping,
     date: i64,
     trade_rows: &mut Vec<TradeRow>,
+    day_stocks: Option<&DayStocks>,
 ) -> PolarsResult<()> {
     let mut sold = 0.0;
 
@@ -677,7 +686,7 @@ fn sell_some_options(
     let mut i = 0;
     while i < positions.len() {
         let pos = &positions[i];
-        let exit_cost = compute_position_exit_cost(pos, day_opts, spc);
+        let exit_cost = compute_position_exit_cost(pos, day_opts, spc, day_stocks);
 
         if exit_cost == 0.0 {
             i += 1;
@@ -696,7 +705,12 @@ fn sell_some_options(
                 for (j, leg) in legs.iter().enumerate() {
                     let exit_price_col = leg.direction.invert().price_column();
                     let price = day_opts.get_f64(&pos.leg_contracts[j], exit_price_col)
-                        .unwrap_or(0.0);
+                        .unwrap_or_else(|| {
+                            let spot = day_stocks
+                                .and_then(|ds| ds.get_price(&pos.leg_underlyings[j]))
+                                .unwrap_or(0.0);
+                            intrinsic_value(&pos.leg_types[j], pos.leg_strikes[j], spot)
+                        });
                     let cash_sign = if leg.direction == Direction::Buy { -1.0 } else { 1.0 };
                     let cost = cash_sign * price * spc as f64;
                     let order = match leg.direction {
@@ -1001,7 +1015,12 @@ fn compute_balance_period(
                     if j >= pos.leg_contracts.len() { continue; }
                     let exit_price_col = leg.direction.invert().price_column();
                     let price = opts.get_f64(&pos.leg_contracts[j], exit_price_col)
-                        .unwrap_or(0.0);
+                        .unwrap_or_else(|| {
+                            let spot = day_stocks
+                                .and_then(|ds| ds.get_price(&pos.leg_underlyings[j]))
+                                .unwrap_or(0.0);
+                            intrinsic_value(&pos.leg_types[j], pos.leg_strikes[j], spot)
+                        });
                     let sign = leg.direction.invert().sign();
                     let value = sign * price * pos.quantity * spc as f64;
 
@@ -1230,13 +1249,28 @@ fn compute_portfolio_greeks_from_market(
     total
 }
 
+/// Compute intrinsic value of an option: max(0, strike - spot) for puts,
+/// max(0, spot - strike) for calls.
+fn intrinsic_value(opt_type: &str, strike: f64, underlying_price: f64) -> f64 {
+    if opt_type == "call" {
+        (underlying_price - strike).max(0.0)
+    } else {
+        (strike - underlying_price).max(0.0)
+    }
+}
+
 /// Compute the total exit cost for a position — O(1) per leg via DayOptions.
-fn compute_position_exit_cost(pos: &Position, day_opts: &DayOptions, spc: i64) -> f64 {
+fn compute_position_exit_cost(pos: &Position, day_opts: &DayOptions, spc: i64, day_stocks: Option<&DayStocks>) -> f64 {
     let mut total = 0.0;
     for (i, contract) in pos.leg_contracts.iter().enumerate() {
         let dir = pos.leg_directions[i];
         let price = day_opts.get_f64(contract, dir.invert().price_column())
-            .unwrap_or(0.0);
+            .unwrap_or_else(|| {
+                let spot = day_stocks
+                    .and_then(|ds| ds.get_price(&pos.leg_underlyings[i]))
+                    .unwrap_or(0.0);
+                intrinsic_value(&pos.leg_types[i], pos.leg_strikes[i], spot)
+            });
         let cash_sign = if dir == Direction::Buy { -1.0 } else { 1.0 };
         total += cash_sign * price * spc as f64;
     }
@@ -1254,10 +1288,10 @@ fn compute_stock_capital(holdings: &[StockHolding], day_stocks: Option<&DayStock
 }
 
 fn compute_options_capital(
-    positions: &[Position], day_opts: &DayOptions, spc: i64,
+    positions: &[Position], day_opts: &DayOptions, spc: i64, day_stocks: Option<&DayStocks>,
 ) -> f64 {
     positions.iter().map(|pos| {
-        -compute_position_exit_cost(pos, day_opts, spc) * pos.quantity
+        -compute_position_exit_cost(pos, day_opts, spc, day_stocks) * pos.quantity
     }).sum()
 }
 
@@ -1331,5 +1365,69 @@ mod tests {
         let s = "2024-06-15 00:00:00";
         let ns = parse_datestring_to_ns(s).unwrap();
         assert_eq!(ns_to_datestring(ns), s);
+    }
+
+    #[test]
+    fn intrinsic_value_put_itm() {
+        // Put with strike 400, spot 380 → intrinsic = 20
+        assert!((intrinsic_value("put", 400.0, 380.0) - 20.0).abs() < 1e-10);
+    }
+
+    #[test]
+    fn intrinsic_value_put_otm() {
+        // Put with strike 400, spot 420 → intrinsic = 0
+        assert!((intrinsic_value("put", 400.0, 420.0)).abs() < 1e-10);
+    }
+
+    #[test]
+    fn intrinsic_value_call_itm() {
+        // Call with strike 400, spot 420 → intrinsic = 20
+        assert!((intrinsic_value("call", 400.0, 420.0) - 20.0).abs() < 1e-10);
+    }
+
+    #[test]
+    fn intrinsic_value_call_otm() {
+        // Call with strike 400, spot 380 → intrinsic = 0
+        assert!((intrinsic_value("call", 400.0, 380.0)).abs() < 1e-10);
+    }
+
+    #[test]
+    fn intrinsic_value_atm() {
+        // ATM: strike == spot → intrinsic = 0 for both
+        assert!((intrinsic_value("put", 400.0, 400.0)).abs() < 1e-10);
+        assert!((intrinsic_value("call", 400.0, 400.0)).abs() < 1e-10);
+    }
+
+    #[test]
+    fn exit_cost_uses_intrinsic_when_missing() {
+        // Position with a put at strike 400, spot at 380
+        // Contract not in day options → should use intrinsic (20.0)
+        let pos = Position {
+            leg_contracts: vec!["MISSING_CONTRACT".into()],
+            leg_types: vec!["put".into()],
+            leg_directions: vec![Direction::Sell],
+            quantity: 1.0,
+            entry_cost: -100.0,
+            greeks: Greeks::default(),
+            leg_underlyings: vec!["SPY".into()],
+            leg_expirations: vec!["2024-06-01".into()],
+            leg_strikes: vec![400.0],
+        };
+
+        let empty_opts = DayOptions {
+            df: DataFrame::default(),
+            contract_idx: HashMap::new(),
+        };
+
+        let mut prices = HashMap::new();
+        prices.insert("SPY".to_string(), 380.0);
+        let day_stocks = DayStocks { prices };
+
+        // Sell direction → exit price col is "ask" (invert of Sell = Buy → price_column = "ask")
+        // cash_sign for Sell = +1
+        // exit_cost = +1 * 20.0 * 100 = 2000.0
+        let exit_cost = compute_position_exit_cost(&pos, &empty_opts, 100, Some(&day_stocks));
+        assert!((exit_cost - 2000.0).abs() < 1e-10,
+            "Expected exit cost 2000.0 for ITM short put, got {exit_cost}");
     }
 }

@@ -17,24 +17,33 @@ pub fn join_inventory_to_market(
     contracts: &[String],
     qtys: &[f64],
     types: &[String],
+    underlyings: &[String],
+    strikes: &[f64],
     options_data: &DataFrame,
+    stocks_data: Option<&DataFrame>,
     contract_col: &str,
     _date_col: &str,
     cost_field: &str,
+    stocks_sym_col: Option<&str>,
+    stocks_price_col: Option<&str>,
     direction: Direction,
     shares_per_contract: i64,
 ) -> PolarsResult<DataFrame> {
     let contract_series = Series::new("_contract".into(), contracts);
     let qty_series = Series::new("_qty".into(), qtys);
     let type_series = Series::new("_type".into(), types);
+    let underlying_series = Series::new("_underlying".into(), underlyings);
+    let strike_series = Series::new("_strike".into(), strikes);
 
     let inv = DataFrame::new(vec![
         contract_series.into_column(),
         qty_series.into_column(),
         type_series.into_column(),
+        underlying_series.into_column(),
+        strike_series.into_column(),
     ])?;
 
-    let joined = inv
+    let mut joined = inv
         .lazy()
         .join(
             options_data.clone().lazy(),
@@ -42,6 +51,61 @@ pub fn join_inventory_to_market(
             [col(contract_col)],
             JoinArgs::new(JoinType::Left),
         )
+        .collect()?;
+
+    // Fill null cost fields with intrinsic value from stocks data
+    if let Some(cost_col) = joined.column(cost_field).ok() {
+        let null_mask = cost_col.is_null();
+        if null_mask.sum().unwrap_or(0) > 0 {
+            // Build a price lookup from stocks data (latest price per symbol)
+            let mut price_map: std::collections::HashMap<String, f64> = std::collections::HashMap::new();
+            if let (Some(sdf), Some(sym_c), Some(price_c)) = (stocks_data, stocks_sym_col, stocks_price_col) {
+                if let (Ok(sym_ca), Ok(price_raw)) = (sdf.column(sym_c), sdf.column(price_c)) {
+                    if let Ok(sym_str) = sym_ca.str() {
+                        let price_casted = price_raw.cast(&DataType::Float64).unwrap_or(price_raw.clone());
+                        if let Ok(price_ca) = price_casted.f64() {
+                            for i in 0..sdf.height() {
+                                if let (Some(s), Some(p)) = (sym_str.get(i), price_ca.get(i)) {
+                                    price_map.insert(s.to_string(), p);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            let types_ca = joined.column("_type")?.str()?;
+            let strikes_ca = joined.column("_strike")?.f64()?;
+            let underlyings_ca = joined.column("_underlying")?.str()?;
+            let cost_ca = joined.column(cost_field)?.f64()?;
+
+            let filled: Vec<Option<f64>> = (0..joined.height())
+                .map(|i| {
+                    if cost_ca.get(i).is_some() {
+                        cost_ca.get(i)
+                    } else {
+                        let opt_type = types_ca.get(i).unwrap_or("put");
+                        let strike = strikes_ca.get(i).unwrap_or(0.0);
+                        let underlying = underlyings_ca.get(i).unwrap_or("");
+                        let spot = price_map.get(underlying).copied().unwrap_or(0.0);
+                        let iv = if opt_type == "call" {
+                            (spot - strike).max(0.0)
+                        } else {
+                            (strike - spot).max(0.0)
+                        };
+                        Some(iv)
+                    }
+                })
+                .collect();
+
+            let filled_series = Float64Chunked::from_iter_options(cost_field.into(), filled.into_iter());
+            let _ = joined.replace(cost_field, filled_series.into_series());
+        }
+    }
+
+    // Compute _value after filling nulls
+    let joined = joined
+        .lazy()
         .with_column(
             (lit(direction.sign())
                 * col(cost_field)
@@ -103,10 +167,15 @@ mod tests {
             &["SPX_A".into(), "SPX_B".into()],
             &[10.0, 5.0],
             &["call".into(), "put".into()],
+            &["SPY".into(), "SPY".into()],
+            &[400.0, 400.0],
             &opts,
+            None,
             "optionroot",
             "quotedate",
             "bid",
+            None,
+            None,
             Direction::Buy,
             100,
         )
@@ -126,10 +195,15 @@ mod tests {
             &["SPX_A".into(), "SPX_B".into()],
             &[10.0, 5.0],
             &["call".into(), "put".into()],
+            &["SPY".into(), "SPY".into()],
+            &[400.0, 400.0],
             &opts,
+            None,
             "optionroot",
             "quotedate",
             "bid",
+            None,
+            None,
             Direction::Buy,
             100,
         )

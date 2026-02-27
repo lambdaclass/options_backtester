@@ -48,16 +48,24 @@ fn bench_inventory_join(c: &mut Criterion) {
         })
         .collect();
 
+    let underlyings: Vec<String> = vec!["SPX".into(); n_inv];
+    let strikes: Vec<f64> = (0..n_inv).map(|i| 3800.0 + i as f64 * 5.0).collect();
+
     c.bench_function("inventory_join_50x10k", |b| {
         b.iter(|| {
             let result = join_inventory_to_market(
                 black_box(&contracts),
                 black_box(&qtys),
                 black_box(&types),
+                black_box(&underlyings),
+                black_box(&strikes),
                 black_box(&opts),
+                None,
                 "optionroot",
                 "quotedate",
                 "bid",
+                None,
+                None,
                 Direction::Buy,
                 100,
             )

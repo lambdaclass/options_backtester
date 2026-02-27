@@ -11,6 +11,7 @@ use crate::arrow_bridge::{polars_to_py, py_to_polars};
 #[pyfunction]
 #[pyo3(signature = (
     leg_contracts, leg_qtys, leg_types, leg_directions,
+    leg_underlyings, leg_strikes,
     stock_symbols, stock_qtys,
     options_data, stocks_data,
     contract_col, date_col,
@@ -22,6 +23,8 @@ pub fn update_balance(
     leg_qtys: Vec<Vec<f64>>,
     leg_types: Vec<Vec<String>>,
     leg_directions: Vec<String>,
+    leg_underlyings: Vec<Vec<String>>,
+    leg_strikes: Vec<Vec<f64>>,
     stock_symbols: Vec<String>,
     stock_qtys: Vec<f64>,
     options_data: PyDataFrame,
@@ -42,11 +45,15 @@ pub fn update_balance(
         .zip(leg_qtys)
         .zip(leg_types)
         .zip(leg_directions)
-        .map(|(((contracts, qtys), types), dir)| LegInventory {
+        .zip(leg_underlyings)
+        .zip(leg_strikes)
+        .map(|(((((contracts, qtys), types), dir), underlyings), strikes)| LegInventory {
             contracts,
             qtys,
             types,
             direction: if dir == "buy" { Direction::Buy } else { Direction::Sell },
+            underlyings,
+            strikes,
         })
         .collect();
 

@@ -15,6 +15,8 @@ pub struct LegInventory {
     pub qtys: Vec<f64>,
     pub types: Vec<String>,
     pub direction: Direction,
+    pub underlyings: Vec<String>,
+    pub strikes: Vec<f64>,
 }
 
 /// Stock inventory data.
@@ -43,6 +45,9 @@ pub fn compute_balance(
     shares_per_contract: i64,
     cash: f64,
 ) -> PolarsResult<DataFrame> {
+    // Build a stocks snapshot for intrinsic value fallback:
+    // For balance computation we pass the full stocks_data to inventory join
+    // so it can look up spot prices for missing contracts.
     // Get unique dates from options
     let dates = options_data
         .column(date_col)?
@@ -66,10 +71,15 @@ pub fn compute_balance(
             &leg.contracts,
             &leg.qtys,
             &leg.types,
+            &leg.underlyings,
+            &leg.strikes,
             options_data,
+            Some(stocks_data),
             contract_col,
             date_col,
             cost_field,
+            Some(stocks_sym_col),
+            Some(stocks_price_col),
             leg.direction.invert(),
             shares_per_contract,
         )?;
@@ -195,7 +205,7 @@ mod tests {
         .unwrap();
 
         let result = compute_balance(
-            &[],
+            &[],  // no legs
             &StockInventory {
                 symbols: vec!["SPY".into()],
                 qtys: vec![100.0],

@@ -46,6 +46,17 @@ from options_portfolio_backtester.strategy.strategy import Strategy
 from options_portfolio_backtester.strategy.strategy_leg import StrategyLeg
 
 
+def _intrinsic_value(option_type: str, strike: float, underlying_price: float) -> float:
+    """Compute intrinsic value of an option given spot price.
+
+    For puts:  max(0, strike - spot)
+    For calls: max(0, spot - strike)
+    """
+    if option_type == OptionType.CALL.value:
+        return max(0.0, underlying_price - strike)
+    return max(0.0, strike - underlying_price)
+
+
 class BacktestEngine:
     """Orchestrates backtest with pluggable execution components.
 
@@ -228,7 +239,7 @@ class BacktestEngine:
                 })
 
                 stock_capital = self._current_stock_capital(stocks)
-                options_capital = self._current_options_capital(options)
+                options_capital = self._current_options_capital(options, stocks)
                 total_capital = self.current_cash + stock_capital + options_capital
                 if self.options_budget is not None and not callable(self.options_budget):
                     options_allocation = float(self.options_budget)
@@ -623,7 +634,7 @@ class BacktestEngine:
                                 options: pd.DataFrame) -> float:
         """Quick estimate of total capital for risk checks."""
         stock_cap = self._current_stock_capital(stocks)
-        options_cap = self._current_options_capital(options)
+        options_cap = self._current_options_capital(options, stocks)
         return self.current_cash + stock_cap + options_cap
 
     def _initialize_inventories(self) -> None:
@@ -663,10 +674,10 @@ class BacktestEngine:
         entry_filters: list | None = None,
         exit_threshold_override: tuple[float, float] | None = None,
     ):
-        self._execute_option_exits(date, options, exit_threshold_override=exit_threshold_override)
+        self._execute_option_exits(date, options, stocks, exit_threshold_override=exit_threshold_override)
 
         stock_capital = self._current_stock_capital(stocks)
-        options_capital = self._current_options_capital(options)
+        options_capital = self._current_options_capital(options, stocks)
         total_capital = self.current_cash + stock_capital + options_capital
 
         stocks_allocation = self.allocation["stocks"] * total_capital
@@ -698,10 +709,25 @@ class BacktestEngine:
         else:
             to_sell = options_capital - options_allocation
             current_options = self._get_current_option_quotes(options)
-            self._sell_some_options(date, to_sell, current_options)
+            self._sell_some_options(date, to_sell, current_options, stocks)
 
-    def _sell_some_options(self, date, to_sell, current_options):
+    def _sell_some_options(self, date, to_sell, current_options, stocks):
         sold: float = 0
+        sym_col = self._stocks_schema["symbol"]
+        price_col = self._stocks_schema["adjClose"]
+        for i, leg in enumerate(self._options_strategy.legs):
+            cost_series = current_options[i]["cost"]
+            if cost_series.isna().any():
+                inv_leg = self._options_inventory[leg.name]
+                for idx in cost_series.index[cost_series.isna()]:
+                    opt_type = inv_leg.at[idx, "type"]
+                    strike = inv_leg.at[idx, "strike"]
+                    underlying = inv_leg.at[idx, "underlying"]
+                    spot_match = stocks.loc[stocks[sym_col] == underlying, price_col]
+                    spot = spot_match.iloc[0] if len(spot_match) > 0 else 0.0
+                    iv = _intrinsic_value(opt_type, float(strike), float(spot))
+                    cash_sign = 1.0 if ~leg.direction == Direction.SELL else -1.0
+                    current_options[i].at[idx, "cost"] = cash_sign * iv * self.shares_per_contract
         total_costs = sum([current_options[i]["cost"] for i in range(len(current_options))])
         trade_rows: list[pd.Series] = []
         for exit_cost, (row_index, inventory_row) in zip(
@@ -755,13 +781,27 @@ class BacktestEngine:
         )
         return (current_stocks[self._stocks_schema["adjClose"]] * current_stocks["qty"]).sum()
 
-    def _current_options_capital(self, options):
+    def _current_options_capital(self, options, stocks):
         options_value = self._get_current_option_quotes(options)
         values_by_row: Any = [0] * len(options_value[0])
         if len(options_value[0]) != 0:
-            for i in range(len(self._options_strategy.legs)):
-                # fillna(0): contracts missing from today's data are unpriced
-                values_by_row += options_value[i]["cost"].fillna(0.0).values
+            sym_col = self._stocks_schema["symbol"]
+            price_col = self._stocks_schema["adjClose"]
+            for i, leg in enumerate(self._options_strategy.legs):
+                cost_series = options_value[i]["cost"].copy()
+                # Replace NaN (missing contracts) with intrinsic value
+                if cost_series.isna().any():
+                    inv_leg = self._options_inventory[leg.name]
+                    for idx in cost_series.index[cost_series.isna()]:
+                        opt_type = inv_leg.at[idx, "type"]
+                        strike = inv_leg.at[idx, "strike"]
+                        underlying = inv_leg.at[idx, "underlying"]
+                        spot_match = stocks.loc[stocks[sym_col] == underlying, price_col]
+                        spot = spot_match.iloc[0] if len(spot_match) > 0 else 0.0
+                        iv = _intrinsic_value(opt_type, float(strike), float(spot))
+                        cash_sign = 1.0 if ~leg.direction == Direction.SELL else -1.0
+                        cost_series.at[idx] = cash_sign * iv * self.shares_per_contract
+                values_by_row += cost_series.values
             total: float = -sum(values_by_row * self._options_inventory["totals"]["qty"].values)
         else:
             total = 0
@@ -830,10 +870,29 @@ class BacktestEngine:
                 "_type": leg_inventory["type"].values,
             })
 
+            inv_info["_underlying"] = leg_inventory["underlying"].values
+            inv_info["_strike"] = leg_inventory["strike"].values
+
             all_current = inv_info.merge(
                 options_data, how="left",
                 left_on="_contract", right_on=options_contract_col,
             )
+
+            # Fill missing prices with intrinsic value from stocks data
+            missing = all_current[cost_field].isna()
+            if missing.any():
+                spots = all_current.loc[missing, "_underlying"].map(
+                    stocks_data.drop_duplicates(self._stocks_schema["symbol"])
+                    .set_index(self._stocks_schema["symbol"])[self._stocks_schema["adjClose"]]
+                ).fillna(0.0)
+                strikes = all_current.loc[missing, "_strike"].astype(float)
+                types = all_current.loc[missing, "_type"]
+                intrinsics = np.where(
+                    types == OptionType.CALL.value,
+                    np.maximum(0.0, spots.values - strikes.values),
+                    np.maximum(0.0, strikes.values - spots.values),
+                )
+                all_current.loc[missing, cost_field] = intrinsics
 
             sign = -1 if cost_field == Direction.BUY.price_column else 1
             all_current["_value"] = (
@@ -891,16 +950,22 @@ class BacktestEngine:
         leg_qtys = []
         leg_types = []
         leg_directions = []
+        leg_underlyings = []
+        leg_strikes = []
         for leg in self._options_strategy.legs:
             leg_inv = self._options_inventory[leg.name]
             if leg_inv.empty or leg_inv["contract"].isna().all():
                 leg_contracts.append([])
                 leg_qtys.append([])
                 leg_types.append([])
+                leg_underlyings.append([])
+                leg_strikes.append([])
             else:
                 leg_contracts.append(leg_inv["contract"].astype(str).tolist())
                 leg_qtys.append(self._options_inventory["totals"]["qty"].astype(float).tolist())
                 leg_types.append(leg_inv["type"].astype(str).tolist())
+                leg_underlyings.append(leg_inv["underlying"].astype(str).tolist())
+                leg_strikes.append(leg_inv["strike"].astype(float).tolist())
             leg_directions.append(leg.direction.price_column)
 
         opts_pl = pl.from_pandas(options_data)
@@ -908,6 +973,7 @@ class BacktestEngine:
 
         result_pl = rust.update_balance(
             leg_contracts, leg_qtys, leg_types, leg_directions,
+            leg_underlyings, leg_strikes,
             self._stocks_inventory["symbol"].tolist(),
             self._stocks_inventory["qty"].astype(float).tolist(),
             opts_pl, stocks_pl,
@@ -1155,7 +1221,7 @@ class BacktestEngine:
         )
         self.current_cash -= np.sum(cost_val * qty_val) + commission
 
-    def _execute_option_exits(self, date, options, exit_threshold_override: tuple[float, float] | None = None):
+    def _execute_option_exits(self, date, options, stocks, exit_threshold_override: tuple[float, float] | None = None):
         strategy = self._options_strategy
         current_options_quotes = self._get_current_option_quotes(options)
 
@@ -1172,7 +1238,7 @@ class BacktestEngine:
             )
 
         exit_candidates = pd.concat(current_options_quotes, axis=1)
-        exit_candidates = self._impute_missing_option_values(exit_candidates)
+        exit_candidates = self._impute_missing_option_values(exit_candidates, stocks)
 
         qtys = self._options_inventory["totals"]["qty"]
         total_costs = sum(
@@ -1355,11 +1421,25 @@ class BacktestEngine:
             current_options_quotes.append(leg_options)
         return current_options_quotes
 
-    def _impute_missing_option_values(self, exit_candidates):
+    def _impute_missing_option_values(self, exit_candidates, stocks):
         df = self._options_inventory.copy()
         if not df.empty:
+            sym_col = self._stocks_schema["symbol"]
+            price_col = self._stocks_schema["adjClose"]
             for leg in self._options_strategy.legs:
-                df[(leg.name, "cost")] = 0
+                inv_leg = self._options_inventory[leg.name]
+                intrinsics = []
+                for idx in inv_leg.index:
+                    opt_type = inv_leg.at[idx, "type"]
+                    strike = inv_leg.at[idx, "strike"]
+                    underlying = inv_leg.at[idx, "underlying"]
+                    spot_match = stocks.loc[stocks[sym_col] == underlying, price_col]
+                    spot = spot_match.iloc[0] if len(spot_match) > 0 else 0.0
+                    iv = _intrinsic_value(opt_type, float(strike), float(spot))
+                    # Apply same sign/scaling as _get_current_option_quotes
+                    cash_sign = 1.0 if ~leg.direction == Direction.SELL else -1.0
+                    intrinsics.append(cash_sign * iv * self.shares_per_contract)
+                df[(leg.name, "cost")] = intrinsics
         return exit_candidates.fillna(df)
 
     def __repr__(self) -> str:
