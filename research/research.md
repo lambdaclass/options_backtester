@@ -625,13 +625,83 @@ The options backtester currently supports SPY options data. The same engine coul
 - **Trade structure**: Long high-yielder futures + buy OTM puts. The carry differential appears as positive roll yield on the futures position.
 - **Key question**: Does the carry-funded-protection structure outperform SPY + puts on a risk-adjusted basis? Academic evidence (Jurek 2014) says hedged carry still earns significant returns.
 
-Both would require downloading historical options data from CME DataMine and adapting the backtester's data providers to handle non-equity option schemas.
+Both would require downloading historical options data from CME DataMine or Databento and adapting the backtester's data providers to handle non-equity option schemas.
 
 ---
 
-## 8. Other Trade Structures Considered
+## 8. Synthetic FX Carry Backtest Results (Preliminary)
 
-### 8.1 Leveraged ETFs — High Convexity, Impractical
+**Notebook:** `notebooks/fx_carry_synthetic.ipynb`
+
+Before buying real FX options data, we ran a synthetic backtest using free spot FX data (yfinance, 2005-2026) and Black-Scholes put pricing with trailing 60-day realized vol as an implied vol proxy. This gives a rough estimate — not rigorous enough for trading decisions, but useful for validating whether the structure is worth pursuing with real data.
+
+**Important caveat:** This uses modeled option prices, not real market data. Real FX options have skew (puts cost more than ATM), term structure, and bid-ask spreads that this model ignores. The results below need validation with actual CME FX option prices.
+
+### Main results
+
+| Strategy | CAGR | Volatility | Sharpe | Max DD |
+|----------|------|-----------|--------|--------|
+| AUD/JPY spot only | 1.51% | 15.38% | 0.098 | -47.6% |
+| AUD/JPY carry (unhedged) | 4.68% | 15.38% | 0.305 | -44.9% |
+| **AUD/JPY carry + 10d puts** | **5.17%** | **15.76%** | **0.328** | **-41.3%** |
+| MXN/JPY spot only | -0.04% | 16.47% | -0.003 | -62.9% |
+| MXN/JPY carry (unhedged) | 6.62% | 16.47% | 0.402 | -41.9% |
+| **MXN/JPY carry + 10d puts** | **7.72%** | **16.99%** | **0.454** | **-35.2%** |
+| EUR/USD carry + puts | -1.25% | 11.19% | -0.112 | -39.5% |
+| SPY buy & hold | 10.61% | 19.01% | 0.558 | -55.2% |
+| **SPY + 0.5% puts (real data)** | **16.00%** | **~14%** | **1.879** | **~-20%** |
+
+### Put economics — the puts pay for themselves
+
+| Pair | Put Cost/yr | Put Payoff/yr | Net |
+|------|-----------|-------------|-----|
+| AUD/JPY | 2.12% | 2.64% | **+0.52%/yr** (puts are profitable) |
+| MXN/JPY | 2.41% | 3.52% | **+1.11%/yr** (puts are profitable) |
+| EUR/USD | 1.47% | 1.39% | -0.08%/yr (roughly break-even) |
+
+This confirms Jurek (2014) and Caballero & Doyle (2012): FX crash protection options are underpriced relative to what they pay. On both carry pairs, the hedged trade beats unhedged on both CAGR and Sharpe.
+
+### Delta sensitivity (AUD/JPY and MXN/JPY)
+
+| Pair | Delta | CAGR | Sharpe | Put Cost/yr | Net Cost/yr |
+|------|-------|------|--------|-----------|------------|
+| AUD/JPY | 5d | 5.44% | 0.349 | 0.93% | **-0.75%** (cheapest) |
+| AUD/JPY | 10d | 5.17% | 0.328 | 2.12% | -0.52% |
+| AUD/JPY | 25d | 3.87% | 0.237 | 6.72% | +0.64% (too expensive) |
+| MXN/JPY | 5d | 7.70% | 0.459 | 1.06% | **-1.06%** |
+| MXN/JPY | 10d | 7.72% | 0.454 | 2.41% | -1.11% |
+| MXN/JPY | 25d | 6.23% | 0.353 | 7.63% | +0.18% |
+
+5-delta and 10-delta puts are the sweet spot — cheap enough that payoffs exceed costs. 25-delta is too expensive and eats the carry.
+
+### Tenor sensitivity — 3-month vs 1-month
+
+| Pair | Tenor | CAGR | Sharpe | Put Cost/yr |
+|------|-------|------|--------|-----------|
+| AUD/JPY | 1m | 5.17% | 0.328 | 2.12% |
+| AUD/JPY | 3m | 1.60% | 0.104 | 3.74% |
+| MXN/JPY | 1m | 7.72% | 0.454 | 2.41% |
+| MXN/JPY | 3m | 3.06% | 0.184 | 4.24% |
+
+3-month tenor is worse here, contradicting Jurek's finding that quarterly hedging is 1-2%/yr cheaper. This is likely a model artifact — our BS pricing with realized vol overestimates 3-month costs because it scales vol by √T, while real implied vol term structure is flatter. **This is exactly the discrepancy that real option data would resolve.**
+
+### Key takeaways
+
+1. **FX carry + puts works** (5-8%/yr, positive Sharpe, puts net profitable) — but it doesn't beat SPY + puts (16%/yr, Sharpe 1.879)
+2. **The puts pay for themselves** on carry pairs — confirming academic evidence that FX crash options are underpriced
+3. **It's a diversifier, not a replacement** for the equity strategy
+4. **Need real option data** to resolve the tenor question and get accurate cost estimates — synthetic BS pricing isn't enough
+5. **EUR/USD confirms the control**: without carry differential, the structure adds nothing
+
+### Next step
+
+Buy real CME FX option prices from Databento (~$100-300 with $125 free credit) and run through the actual backtester engine. The synthetic results are promising enough to justify the data purchase.
+
+---
+
+## 9. Other Trade Structures Considered
+
+### 9.1 Leveraged ETFs — High Convexity, Impractical
 
 Puts on TQQQ (3x leveraged Nasdaq) or UPRO (3x leveraged S&P 500) would be incredibly convex. A 30% SPY drop becomes a ~70% drop in TQQQ. Deep OTM puts would return 50-100x.
 
@@ -643,7 +713,7 @@ But there are problems:
 
 **Verdict:** Theoretically the highest raw convexity available to retail, but practically not worth it. The vol decay and wide spreads eat the advantage. SPY puts are cheaper on a risk-adjusted basis.
 
-### 8.2 Dispersion Trades — Capturing the Correlation Risk Premium
+### 9.2 Dispersion Trades — Capturing the Correlation Risk Premium
 
 Instead of buying SPY puts, buy puts on individual stocks and sell SPY puts. When correlations spike in a crash, individual names fall more than the index (diversification benefit disappears). You capture the "correlation risk premium" — index vol trades rich to realized single-stock vol in normal times, but this relationship inverts in crises.
 
@@ -657,7 +727,7 @@ Instead of buying SPY puts, buy puts on individual stocks and sell SPY puts. Whe
 
 **Interesting hybrid:** Instead of full dispersion, you could buy puts on the most volatile index components (top 5-10 names by weight × beta) as a substitute for index puts. These might be cheaper than SPY puts while providing similar crisis payoff. Worth exploring but needs backtesting.
 
-### 8.3 The Cheapest Convexity Scanner — The Real Universa Insight
+### 9.3 The Cheapest Convexity Scanner — The Real Universa Insight
 
 The most important idea that emerges from this entire research: **the optimal strategy isn't to always hedge in one market — it's to continuously scan across all markets for wherever tail convexity is cheapest right now.**
 
@@ -698,7 +768,7 @@ The hard part isn't the data — it's the normalization. How do you compare the 
 
 ---
 
-## 9. Key References
+## 10. Key References
 
 ### Papers
 
@@ -736,7 +806,7 @@ The hard part isn't the data — it's the normalization. How do you compare the 
 
 ---
 
-## 10. Data Sourcing: What We Need and What It Costs
+## 11. Data Sourcing: What We Need and What It Costs
 
 To backtest the Spitznagel structure across asset classes (and eventually build the convexity scanner), we need historical options data for multiple instruments.
 
