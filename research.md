@@ -104,60 +104,467 @@ The confirmed result from this backtester: **100% SPY + 0.5% fixed put budget = 
 
 But the *structure* of this trade — earn steady carry in normal times, buy cheap tail protection for extreme moves — isn't unique to equities. The general pattern works anywhere you find: (1) steady carry in normal times, (2) extreme moves rarely but violently, (3) protection underpriced for those extremes.
 
-### Rates — most reliable asymmetry
+---
+
+### 4.1 Rates — Most Reliable Asymmetry
 
 The Fed reaction function creates the most predictable convexity in finance. They always cut in crises. Always. It's not a probability — it's a policy mandate.
 
-**The asymmetry:** Rates grind higher 25bps at a time over months and years, then collapse violently. 5.25% to 0.25% in months during 2008. 1.50% to 0% in two weeks during COVID. This is a structural feature of central banking: they raise slowly and cut in panic.
+#### The asymmetry
 
-**The instruments:** SOFR/eurodollar futures, Treasury futures, swaptions. Long SOFR futures earn near the risk-free rate; OTM calls on rate futures bet on panic cuts.
+Rates grind higher 25bps at a time over months and years, then collapse violently. This is a structural feature of central banking: they raise slowly and cut in panic.
 
-**Why it's underpriced:** Rate vol models assume mean-reversion around a stable level. They don't properly price "emergency 300bps cut in 6 weeks" scenarios because these events are outside the Gaussian framework the models are built on.
+| Episode | Fed Funds Path | Timeline |
+|---------|---------------|----------|
+| Dot-com / 9-11 | 6.50% → 1.00% | Jan 2001 – Jun 2003 (30 months) |
+| 2007-2008 GFC | 5.25% → 0.25% | Sep 2007 – Dec 2008 (15 months) |
+| COVID | 1.50% → 0.00% | Mar 3 – Mar 15, 2020 (**12 days**) |
 
-**Ranking:** Best structural asymmetry of any market. The Fed's reaction function is the closest thing to a guaranteed asymmetry in finance.
+The COVID episode is staggering: 150bps of emergency cuts in less than two weeks, plus unlimited QE. The 10-year Treasury yield dropped from ~1.9% in January 2020 to 0.54% in March — Treasury futures rallied massively.
 
-### FX carry — well-documented crash risk premium
+During 2008, long-term Treasuries gained over 27% for the year while equities crashed. The "flight to quality" effect means Treasury futures have built-in positive convexity during financial crises.
 
-The carry trade is one of the most studied anomalies in finance. High-yield currencies (AUD, MXN, BRL) vs funding currencies (JPY, CHF) earn 3-5% annual rate differential. This differential persists because it compensates for crash risk — and the crashes, when they come, are devastating.
+#### Instruments
 
-**The crashes:** AUD/JPY fell ~40% in 2008. CHF unpegged from the Euro in January 2015 — a -30% move in minutes that bankrupted multiple brokers. EM currencies can lose 20-50% in weeks during contagion events (1997, 1998, 2018).
+**Retail-accessible (via Interactive Brokers, futures account):**
+- **SOFR futures (SR3)**: Three-Month SOFR, $2,500 per basis point. Replaced Eurodollars in June 2023. Price = 100 - implied rate, so a rate cut from 5% to 3% means price goes 95.00 → 97.00 (+200 ticks = $5,000/contract).
+- **Treasury futures**: ZF (5-yr, ~$50/tick), ZN (10-yr, ~$15.625/tick), ZB (30-yr, ~$31.25/tick). Options available on all of them.
+- **Options on SOFR futures**: American-style, listed on CME. Puts on SOFR = betting rates stay high. Calls on SOFR = betting on rate cuts (the tail hedge).
+- **Options on ZN/ZB**: Calls on Treasury futures = betting on flight-to-quality (rates fall, bond prices rise).
+- **Micro Treasury futures**: 1/10th size of standard contracts, launched for retail.
 
-**The trade:** Long high-yielder (earn carry), buy OTM puts. The carry funds the protection, and the left tail is genuinely underpriced by Gaussian models. Academic literature strongly supports the existence of a "carry trade crash risk" premium — insurance is cheap because short-vol carry strategies are crowded, creating a persistent risk premium.
+**Institutional only:**
+- **Swaptions**: Options on interest rate swaps. Receiver swaptions pay off when rates fall (deflationary crash hedge). Payer swaptions pay off when rates spike (inflationary bust hedge). Require ISDA master agreement. The most direct way to express rate convexity but completely inaccessible to retail.
 
-**Ranking:** Best risk premium. The carry pays for the protection, and the fat tails are well-documented.
+#### The specific trade structure
 
-### Credit — spread compression/blowout cycle
+The Spitznagel analogy for rates: **long SOFR futures or Treasury futures (earn near risk-free rate) + OTM calls on SOFR/Treasury futures (bet on panic cuts)**. In normal times, you earn carry from the futures position. When a crisis hits and the Fed slashes rates, the OTM calls explode in value.
 
-Corporate bonds earn a spread over treasuries that compensates for default risk. Credit spreads grind tight for years during economic expansions, then blow out overnight when fear returns.
+For Treasury futures specifically: calls on ZN (10-year) or ZB (30-year) benefit from both the rate cut AND the flight-to-quality bid. During 2008, ZB futures went from ~113 in mid-2008 to ~142 by December — a ~26% move. OTM calls purchased before the crisis would have paid 20-50x.
 
-**The numbers:** Investment-grade CDS went from 50bps to 250bps in 2008. High-yield CDS went from 300bps to 2000bps. These are 5-7x moves in the cost of protection — massive asymmetry.
+#### Cost and sizing
 
-**The trade:** Hold investment-grade bonds (earn the spread), buy CDS protection on HY or IG index. Spreads grind tight for years then blow out overnight.
+- SOFR options: An OTM call on SR3 at 97.00 strike (implying 3% rate) when current rate is 5% (price at 95.00) costs roughly 2-5 ticks ($50-125/contract) for 3-6 month expiry in calm markets.
+- ZN options: Deep OTM calls (~3-5 points out of the money, 90 DTE) cost approximately $200-500/contract in calm conditions.
+- Treasury futures margin: ZN ~$3,800-4,500 initial margin per contract.
 
-**Limitations:** CDS rolls, counterparty risk (ironic for a protection instrument), and the carry is smaller than FX. This is primarily an institutional trade.
+#### Historical data for backtesting
 
-### Commodities — supply/demand shocks
+- **CME DataMine**: Historical SOFR/Eurodollar futures and options data going back decades. Paid service, self-service cloud platform.
+- **SOFR futures history**: Only since 2018 (Eurodollar options back to 1980s, but ED contracts delisted June 2023).
+- **Treasury futures options**: Data available via CME DataMine, OptionMetrics (IvyDB Futures), and Databento.
 
-Oil is wildly asymmetric. It grinds between $60-80 for years, then spikes to $140 or crashes to $20. Both tails are fat. Agriculture faces weather-driven tail events — a drought in the Midwest can double corn prices in weeks.
+#### Academic literature
 
-**The trades:**
-- **Oil:** Earn contango roll yield, buy OTM calls and puts. Both tails pay, and vol is cheap during the grinding periods.
-- **Gold:** Steady in normal times, spikes in crises. OTM calls as a chaos hedge.
-- **Agriculture:** Weather events create massive tail moves in corn, wheat, soybeans. Insurance is especially cheap because most market participants are hedgers, not speculators.
+- Bernanke & Kuttner (2005) — "What Explains the Stock Market's Reaction to Federal Reserve Policy?" *Review of Economics and Statistics*. Documents asymmetric rate move impact.
+- Adrian & Shin (2010) — "Liquidity and Leverage." *Journal of Financial Intermediation*. Explains the flight-to-quality mechanism.
+- Hanson & Stein (2015) — "Monetary Policy and Long-Term Real Rates." *Journal of Financial Economics*. On the term premium and rate expectations during crises.
 
-### Volatility itself — the purest expression
+#### Practical challenges
 
-VIX sits at 12-15 for months of calm, then spikes to 40-80 in crises. This is the most direct measure of the phenomenon all the other trades are trying to capture.
+- **Margin**: Futures require margin posting; during crises, exchanges increase margins, potentially forcing liquidation at the worst time. But long options only require the premium paid (no additional margin).
+- **Roll costs**: SOFR futures have quarterly expiry; rolling every 3 months has minimal cost due to deep liquidity.
+- **Basis risk**: SOFR tracks overnight repo rate, which closely follows Fed Funds but isn't identical. Treasury futures track bond prices, which include term premium (can diverge from short rates).
+- **Contango in SOFR**: When the yield curve is inverted (short rates > long rates), deferred SOFR futures trade at higher prices (lower implied rates), creating positive carry for the hedge.
 
-**The trade:** Deep OTM VIX calls (or call spreads to reduce cost). You're directly buying "the world gets scary" insurance.
+**Why rates rank #1**: The Fed's reaction function is institutional, not statistical. Every other market's tail behavior is probabilistic — "it usually happens." The Fed cutting rates in a crisis is a policy commitment. No other market has a single actor who both controls the price and has a mandate to move it violently in one direction during crises.
 
-**The catch:** Most expensive of all these trades because everyone knows about this asymmetry. VIX options are priced to reflect the spike potential. But they're still underpriced for true extremes (VIX 80+) because models calibrate to the full distribution, and the 99th percentile events are structurally underweight.
+---
 
-### Emerging market sovereign debt
+### 4.2 FX Carry — Best Risk Premium
 
-High yield in normal times, violent contagious crises. The 1997 Asian crisis, 1998 Russian default, 2001 Argentine default, 2015 China devaluation fears, 2018 Turkey/Argentina — EM crises cluster and spread.
+The carry trade is one of the most studied anomalies in finance. High-yield currencies vs funding currencies earn persistent rate differentials that compensate for crash risk.
 
-**The trade:** Earn EM sovereign spread, buy CDS or OTM puts on EM bond ETFs. The contagion dynamics mean protection on any one EM instrument provides indirect exposure to the whole complex.
+#### Current rate differentials (as of early 2026)
+
+| Country | Policy Rate | vs USD (3.50%) | vs JPY (0.00%) |
+|---------|-----------|---------------|---------------|
+| Brazil | 15.00% | +11.50% | +15.00% |
+| Turkey | 37.00% | +33.50% | +37.00% |
+| Mexico | 7.00% | +3.50% | +7.00% |
+| South Africa | 6.75% | +3.25% | +6.75% |
+| Australia | 3.85% | +0.35% | +3.85% |
+| New Zealand | 2.25% | -1.25% | +2.25% |
+| Switzerland | 0.00% | -3.50% | 0.00% |
+| Japan | 0.00% | -3.50% | — |
+
+Classic carry pairs: long MXN/JPY (+7%), long BRL/USD (+11.5%), long AUD/JPY (+3.85%). The differentials fund the protection.
+
+#### Historical crash episodes
+
+| Event | Pair/Move | Timeline | Details |
+|-------|-----------|----------|---------|
+| 1998 LTCM/Russia | Multiple EM pairs -20-40% | Aug-Oct 1998 | Ruble: 6.29 → 21 per dollar in 3 weeks. Contagion hit Brazil, Asia. EMBI spread >1500bps. |
+| 2008 GFC | AUD/JPY: 108 → ~55 (-49%) | Jul-Oct 2008 | Massive yen carry unwind. NZD/JPY similar. |
+| 2015 CHF unpeg | EUR/CHF: 1.20 → 0.85 (-30%) | Jan 15, 2015 | **Minutes.** SNB removed the EUR/CHF floor. Multiple brokers bankrupted (FXCM, Alpari UK). |
+| 2018 EM crisis | TRY/USD: -45%, ARS/USD: -50% | Apr-Sep 2018 | Turkey: rate hikes from 8% to 24% failed to stop the slide. Argentina: emergency IMF bailout. |
+| 2020 COVID | AUD/JPY: -15%, MXN/USD: -25% | Feb-Mar 2020 | Broad carry unwind. EM currencies hit hard. |
+| 2024 Yen carry unwind | AUD/JPY: 109 → 93.5 (-14%) | Jul-Aug 2024 | BOJ rate hike triggered massive deleveraging. Yen appreciated 14% vs USD in under a month. Nikkei crashed 12% in one day (Aug 5). JP Morgan estimated 65-75% of global carry positions unwound. |
+
+The 2024 episode is notable: the BOJ's surprise rate hike on July 31 triggered a cascade. TOPIX lost 12% in a single day, VIX spiked, and the Nikkei volatility index hit crisis levels. This was a textbook carry unwind — and a recent reminder that these events aren't historical curiosities.
+
+#### The specific trade structure
+
+Long high-yielder spot/forward + buy OTM puts on the high-yielder.
+
+**Example: AUD/JPY with 3.85% carry, buying 10-delta puts.**
+- Carry income: 3.85%/yr on notional
+- 10-delta put cost (3-month, ~8% OTM): approximately 0.8-1.5% of notional annualized
+- Net carry after hedging: ~2.4-3.0%/yr in normal times
+- Crash payoff: if AUD/JPY drops 30% (as in 2008), the 8% OTM put is now 22% ITM, paying ~22% of notional vs cost of ~0.3%
+
+So the carry roughly funds the protection (3.85% income vs ~1-1.5% put cost), and the tail payoff is 15-70x the premium. This is the cleanest "carry funds protection" math of any asset class.
+
+#### Instruments (retail-accessible)
+
+- **CME FX futures**: AUD (6A), JPY (6J), MXN (6M), BRL (6L), CHF (6S). Options available on all major pairs.
+- **CME cross-rate futures**: AUD/JPY directly tradeable on CME. $7.4B average daily volume in AUD futures, $14.7B in JPY.
+- **CME FX options**: American-style exercise on most pairs. European-style available on GBP, CAD, EUR, JPY, CHF. Volatility-based quoting available (delta-neutral). $10B daily options liquidity.
+- **Micro FX futures**: Available for major pairs, 1/10th standard size.
+
+No ISDA required. Standard futures account at Interactive Brokers or similar.
+
+#### Academic literature
+
+- **Brunnermeier, Nagel & Pedersen (2008)** — "Carry Trades and Currency Crashes." Foundational paper. Carry returns have negative skewness — consistent with crash risk premium.
+- **Lustig & Verdelhan (2007)** — "The Cross-Section of Foreign Currency Risk Premia and Consumption Growth Risk." High-interest-rate currencies earn a risk premium because they load on systematic crash risk.
+- **Jurek (2014)** — "Crash-Neutral Currency Carry Trades." *Journal of Financial Economics*, Vol. 113, Issue 3, pp. 325-347. ([ScienceDirect](https://www.sciencedirect.com/science/article/abs/pii/S0304405X14001081), [SSRN](https://papers.ssrn.com/sol3/papers.cfm?abstract_id=1262934)). The most important paper for this trade structure. See detailed analysis below.
+- **Caballero & Doyle (2012)** — "Carry Trade and Systemic Risk: Why are FX Options So Cheap?" NBER Working Paper 18644. ([NBER](https://www.nber.org/papers/w18644)). Source of the "puzzlingly cheap" finding — FX option bundles designed to hedge carry trades provide cheap systemic risk insurance.
+- **Burnside, Eichenbaum, Kleshchelski & Rebelo (2011)** — "Do Peso Problems Explain the Returns to the Carry Trade?" Options hedging reduces but doesn't eliminate abnormal carry returns.
+- **Farhi, Fraiberger, Gabaix, Ranciere & Verdelhan** — "Crash Risk in Currency Markets." ([SSRN](https://papers.ssrn.com/sol3/papers.cfm?abstract_id=1397668)). Systematic crash risk is priced in currency returns.
+- **Daniel, Hodrick & Lu (2017)** — "The Carry Trade: Risks and Drawdowns." *Critical Finance Review*. ([PDF](https://business.columbia.edu/sites/default/files-efs/pubfiles/6378/Daniel.Hodrick.Lu.Carry%20Trade.Critical%20Finance%20Review.2017.pdf), [SSRN](https://papers.ssrn.com/sol3/papers.cfm?abstract_id=2486275)).
+- **Fan & Londono (2022)** — "Equity Tail Risk and Currency Risk Premia." ([Federal Reserve](https://www.federalreserve.gov/econres/ifdp/files/ifdp1253.pdf)). Option-based equity tail risk is priced in the cross-section of currency returns.
+- **BIS Bulletin No. 90 (2024)** — "The Market Turbulence and Carry Trade Unwind of August 2024." ([BIS](https://www.bis.org/publ/bisbull90.pdf)). Real-time analysis of the 2024 yen carry unwind.
+
+#### Jurek (2014) in detail — the key paper
+
+This is the most important academic validation of the carry + tail protection structure. Full citation: Jakub W. Jurek (Princeton/Wharton), *Journal of Financial Economics*, Vol. 113, Issue 3, pp. 325-347, 2014.
+
+**Sample:** 9 G10 currency pairs vs USD (AUD, NZD, GBP, CAD, NOK, SEK, EUR, CHF, JPY). Full sample 1990-2012 for spot/forward trades. Options subsample 1999-2012 (constrained by simultaneous availability of FX option data for all G10 currencies). Options data from J.P. Morgan; implied vol surface constructed via vanna-volga method.
+
+**Methodology:** Combine standard carry trades with OTM FX option protection to create "crash-neutral" portfolios. When long a high-yield currency, buy a put on it. When short a funding currency, buy a call. Tested with 10-delta options (~3-4.5% OTM) and 25-delta options (~1.5-2.5% OTM), both 1-month and 3-month maturities. Multiple portfolio weightings: equal-weighted, spread-weighted, dollar-neutral and non-dollar-neutral.
+
+**The headline result:** Crash risk accounts for **at most one-third** (~30-35%) of carry trade excess returns. Approximately **two-thirds of carry alpha survives crash hedging.** The "peso problem" explanation — that carry returns are just compensation for rare crashes — is rejected.
+
+**Hedged carry returns (10-delta options, full sample):**
+
+| Portfolio | Excess Return | t-stat |
+|-----------|-------------|--------|
+| Non-dollar-neutral, spread-weighted | **6.55%/yr** | 3.59 |
+| Non-dollar-neutral, equal-weighted | **3.85%/yr** | 2.76 |
+| Dollar-neutral, spread-weighted | **5.31%/yr** | 3.69 |
+| Dollar-neutral, equal-weighted | **3.18%/yr** | 3.13 |
+
+These are returns *after* paying for crash protection. The fact that they're still 3-6%/yr and statistically significant means the carry trade is genuinely profitable, not just crash risk compensation.
+
+**The "four times" finding:** Rationalizing the *entirety* of carry returns via crash risk would require OTM FX option implied volatilities to be roughly **4x greater** than actually observed. There is no evidence of such mispricing. This means FX options are **not** unconditionally cheap in Jurek's framework — they're priced roughly correctly for the crash risk they cover, but carry returns are much larger than crash risk alone can explain.
+
+**Important nuance:** The exact phrase "puzzlingly cheap" comes from **Caballero & Doyle (2012)**, not Jurek. Jurek finds the options are correctly priced for crash risk — but since crash risk only explains 1/3 of carry returns, the remaining 2/3 is genuine alpha. This actually makes the trade *better*: you're not just harvesting mispriced insurance, you're earning a real risk premium that persists even after hedging.
+
+**3-month options beat 1-month:** Quarterly hedging produces returns 1-2%/yr higher than monthly hedging. This is because carry trade crashes unfold over weeks (not overnight jumps), making rolling 1-month protection more expensive relative to the risk covered. The 2008 carry unwind (~20% loss over ~3 months) was a gradual sequence of adverse moves, not a single overnight event.
+
+**Key takeaway for our framework:** The carry + OTM put structure works in FX with strong academic backing. The options aren't "free money cheap" — they're correctly priced for crash risk. But the carry premium is so large that even after paying for full crash hedging, you still earn 3-6%/yr with statistical significance. Use 10-delta options (cheap, far OTM), 3-month maturities (cheaper than monthly rolling), and spread-weighted portfolios (higher returns).
+
+#### Practical challenges
+
+- **Margin**: FX futures require margin. Long options require only premium (no additional margin calls).
+- **Roll costs**: CME FX options expire quarterly for standard, monthly for serial. Rolling cost is minimal for liquid pairs (EUR, JPY, AUD).
+- **Liquidity in OTM strikes**: Decent for G10 pairs, thins significantly for EM pairs (MXN, BRL). Bid-ask widens for >15% OTM.
+- **EM currency options**: MXN is liquid on CME. BRL, TRY, ZAR are primarily OTC — retail access limited.
+- **Counterparty risk**: Exchange-traded (CME-cleared) eliminates this. OTC FX options carry bilateral counterparty risk.
+- **Settlement**: CME FX futures are physically settled (delivery of currency). Options are settled into futures positions, which can then be closed.
+
+**Why FX carry ranks #2**: The carry literally pays for the protection, and academic evidence confirms the options are underpriced. The structure is cleaner than equities (where "carry" is just "SPY goes up over time"). But G10 pairs are accessible at retail; EM pairs mostly require OTC.
+
+---
+
+### 4.3 Credit — Spread Compression/Blowout Cycle
+
+Corporate bonds earn a spread over treasuries. Spreads grind tight during expansions, then blow out violently when fear returns. The asymmetry is structural: spreads can only compress so far toward zero but can widen essentially without limit.
+
+#### Historical spread moves
+
+| Event | IG Spread | HY Spread | Notes |
+|-------|----------|----------|-------|
+| 2007 pre-crisis | ~80bps | ~250bps | Multi-year tights |
+| 2008 GFC peak | **656bps** (Dec 2008) | **2,000bps+** | 8x IG blowout, 8x HY blowout |
+| 2011 Euro crisis | ~200bps | ~800bps | European sovereign contagion |
+| 2015-16 Energy/China | ~180bps | ~850bps | HY energy sector CDS blew out to 1,500bps+ |
+| 2019 pre-COVID | ~100bps | ~360bps | |
+| 2020 COVID peak | ~400bps (Mar 23) | ~1,100bps | Fastest blowout in history — 3 weeks. IG ETFs (LQD) traded at 7% discount to NAV |
+| 2020 post-Fed | ~130bps (Dec) | ~400bps | Fed bought IG bonds → rapid compression |
+| 2022 Russia/Ukraine | ~150bps | ~500bps | +70bps IG, +150bps HY from 2021 lows |
+| 2024 tights | ~80bps | ~300bps | Near multi-decade tights |
+
+The COVID sequence is instructive: IG spreads went from 100bps to 400bps in three weeks, then back to 130bps by year-end after the Fed intervened. Anyone holding CDS protection bought at 100bps and cashed out at 400bps — a 4x move, with the timing determined by a policy decision.
+
+#### Instruments
+
+**Institutional (ISDA required):**
+- **CDX IG**: CDS index on 125 investment-grade North American names. 5-year standard maturity, rolls every 6 months. Cleared through ICE Clear Credit since 2009 (mandatory clearing under Dodd-Frank since March 2013).
+- **CDX HY**: CDS index on 100 high-yield names. Same mechanics.
+- **iTraxx Europe**: European IG CDS index.
+- **Single-name CDS**: Protection on individual corporate or sovereign credits.
+
+**Retail-accessible:**
+- **LQD** (iShares IG Corporate Bond ETF): Options available, decent liquidity. ~$30B AUM.
+- **HYG** (iShares HY Corporate Bond ETF): Options available. ~$15B AUM.
+- **JNK** (SPDR HY Bond ETF): Options available.
+- **Puts on HYG/JNK**: The retail-accessible credit tail hedge. Buy OTM puts on HYG = bet on credit spread blowout.
+
+A recent paper (ArXiv 2504.06289, April 2025) tested **shorting IG corporate bond ETFs as a tail hedge** using momentum, liquidity, and credit signals. Key findings:
+- Systematic short HYG/LQD hedges avoided IG credit drawdowns
+- Achieved higher Sortino ratios than benchmark bond funds
+- Credit ETFs provided better downside convexity than CDX index positions
+- Works for portfolios up to ~$10B in assets
+- LQD liquidity improved dramatically: a $500M hedge position took ~35 trading days in 2012 but only ~2 days now
+
+#### The carry math
+
+This is where credit gets harder than FX or rates. The "carry" (IG bond spread) is typically only 80-120bps. Protection costs:
+- CDX HY 5-year protection costs ~300-400bps/yr in calm markets
+- CDX IG 5-year costs ~60-80bps/yr in calm markets
+
+So you can't fund HY protection from IG carry alone (120bps income vs 300-400bps protection cost). You'd need to either:
+1. Accept negative carry and rely on tail blowout to compensate
+2. Use partial hedges (buy less notional protection)
+3. Use the retail approach: long LQD + buy OTM puts on HYG (much cheaper than CDS)
+
+The retail approach (puts on HYG) is actually more capital-efficient because option premiums are much lower than CDS running spreads. An 8% OTM put on HYG with 3-month expiry might cost 0.5-1.5% of notional, not 300-400bps annually.
+
+#### The AIG problem and counterparty risk
+
+The irony of CDS: you buy protection against credit crises, but the protection seller might fail in the crisis. AIG wrote ~$440B in CDS and couldn't meet collateral calls when spreads widened in 2008. Bear Stearns and Lehman couldn't find counterparties willing to trade as their troubles became apparent.
+
+Post-2008 reforms helped:
+- Mandatory central clearing through CCPs (ICE Clear Credit, LCH) since 2013
+- Both parties face the CCP, not each other
+- Members pay into a default fund
+
+But counterparty risk isn't fully eliminated for uncleared single-name CDS. And during true systemic crises, even cleared CDS could face settlement issues.
+
+#### The Fed intervention problem
+
+The Fed bought IG corporate bonds directly in 2020 (first time ever), compressing spreads artificially. This creates a new dynamic: the tail hedge might pay off briefly, but the Fed may compress spreads before you can exit. The March 2020 window was only about 2-3 weeks wide.
+
+Going forward, markets now expect Fed intervention in credit crises, which means:
+1. Spreads might not blow out as far as they "should" (the "Fed put" extends to credit)
+2. But the option protection also expires — you need to be quick
+3. The policy response itself is asymmetric in your favor (spreads compress = your bond portfolio recovers)
+
+#### Academic literature
+
+- **Collin-Dufresne, Goldstein & Martin (2001)** — "The Determinants of Credit Spread Changes." *Journal of Finance*. Spreads are driven by systematic factors, not just individual default risk.
+- **Berndt, Duffie & Zhu (2018)** — "Corporate Credit Risk Premia." *Review of Finance*. CDS spreads follow lognormal distribution — fat tails on the widening side.
+- **Longstaff, Pan, Pedersen & Singleton (2011)** — "How Sovereign Is Sovereign Credit Risk?" *American Economic Review*. Systemic factors drive CDS even more than fundamentals.
+- **Chen, Joslin & Ni (2019)** — "Demand for Crash Insurance, Intermediary Constraints, and Risk Premia in Financial Markets." On credit spread option pricing and tail risk.
+- **ArXiv 2504.06289 (2025)** — On shorting IG corporate bond ETFs as systematic tail hedges using momentum, liquidity, and credit signals.
+
+#### Practical challenges
+
+- **ISDA requirement**: CDX/CDS trading requires an ISDA Master Agreement. Retail investors cannot access these directly.
+- **The retail alternative works**: OTM puts on HYG/LQD are available to anyone with an options account. This is how retail can access credit tail hedging.
+- **Liquidity during crises**: In March 2020, IG ETFs traded at 3-7% discounts to NAV because authorized participants couldn't arbitrage the gap (bond market frozen, ETFs still trading). This actually helps the put buyer — the ETF drops MORE than the underlying bonds.
+- **Carry is thin**: Unlike FX where carry pays for protection, credit carry is barely enough to cover IG protection costs, let alone HY.
+
+**Why credit ranks #4 (institutional)**: The convexity is genuine (spreads 80bps → 656bps in 2008), but the carry-to-protection ratio is unfavorable, counterparty risk is a real concern, and retail access requires the ETF workaround. For institutions with ISDA agreements and dedicated credit desks, CDX protection is a core tail hedge. For retail, OTM puts on HYG are the practical answer.
+
+---
+
+### 4.4 Commodities — Supply/Demand Shocks
+
+#### Oil — both tails are fat
+
+Oil is unusual: both upside (supply disruptions) and downside (demand collapses) tails are massive. Crude oil's daily return kurtosis is approximately **37** — vastly exceeding equities (~4.5).
+
+| Event | Move | Timeline |
+|-------|------|----------|
+| 2008 superspike & crash | $147.30 → $32 (-78%) | Jul-Dec 2008 |
+| 2014-2016 shale glut | $107 → $26 (-76%) | Jun 2014 - Jan 2016 |
+| 2020 COVID negative prices | $17.73 → **-$37.63** | Apr 20, 2020 (one day!) |
+| 2022 Russia/Ukraine spike | $76 → $133 (+75%) | Feb-Mar 2022, Brent hit $139 |
+
+The April 2020 event is historic: May WTI contract settled at -$37.63/bbl the day before expiry. Cushing, OK storage hit 83% capacity. First negative price in WTI's 37-year history.
+
+**Instruments**: CL futures (NYMEX, 1,000 bbl/contract, ~$70K notional). Micro CL (MCL, 100 bbl). Options on CL are highly liquid. USO ETF has options but suffers severe contango drag (~14.6%/yr).
+
+**The trade structure**: A long strangle (buy both OTM puts and OTM calls) on CL is rational because both tails pay. Example: CL at $70, buy $55 puts and $90 calls 3 months out. In calm markets (OVX 20-30), deep OTM CL options are cheap:
+- $50 put with oil at $70 (3 months): ~$0.20-0.50/bbl ($200-500/contract)
+- $100 call with oil at $70 (3 months): ~$0.10-0.30/bbl ($100-300/contract)
+
+The challenge: contango. In persistent contango (futures > spot), rolling front-month longs costs 10-15%/yr. This is the "time decay" equivalent. During supply shocks, oil flips to backwardation, rewarding longs with both price appreciation and positive roll yield.
+
+#### Gold — chaos hedge, not crisis hedge
+
+Gold is NOT a reliable immediate crisis hedge. Critical finding:
+- **2008**: Gold dropped from $1,011 to $700 (-30%) during the liquidity phase before recovering
+- **March 2020**: Gold dropped from $1,680 to $1,470 (-12%) in the "dash for cash" before rallying to $2,067 by August
+- **2022**: Spiked briefly to $2,074 on Russia invasion, then fell to $1,656 as the Fed hiked rates
+
+Gold fails precisely when you need a tail hedge most — in the first 1-2 weeks of a crisis. Institutions sell gold to meet margin calls. Dollar strength during "dash for cash" hurts gold. It only rallies AFTER central banks respond with liquidity.
+
+Gold is a **monetary debasement hedge** (responds to QE, money printing), not an **impact hedge** (responds to the crash itself). Spitznagel himself has backtested gold and found it inferior to equity puts.
+
+That said, gold's 2024-2026 rally to $5,500+ (53 new all-time highs in 2025 alone) demonstrates its structural power against currency debasement and geopolitical regime change — just not as an options-based tail trade.
+
+**Instruments**: GC futures (COMEX, 100 oz). Micro Gold (MGC, 10 oz). GLD ETF with very liquid options. GVZ (gold vol index) ranges 12-16 calm, 30-48 in stress.
+
+#### Agriculture — hedger-dominated, potentially cheap options
+
+Weather-driven tail events create massive moves:
+
+| Event | Commodity | Move |
+|-------|-----------|------|
+| 2012 US drought | Corn (ZC) | Peaked at $8.38/bu (all-time high, normal ~$4-5) |
+| 2012 US drought | Soybeans (ZS) | Peaked at $17.89/bu (all-time high, normal ~$10) |
+| 2022 Ukraine/wheat | Wheat (ZW) | Peaked at $14.25/bu (broke 2008 record of $13.34) |
+| 2022 Ukraine/corn | Corn (ZC) | Surpassed $8/bu (first since 2012) |
+
+**The "hedger-dominated" argument**: Farmers are natural sellers of futures and buyers of puts (lock in prices for unharvested crops). This creates systematic selling pressure. De Roon, Nijman & Veld (2000) formalized the "hedging pressure hypothesis." The implication: **OTM agricultural calls may be structurally cheap** because farmers systematically sell them as covered calls against physical crop holdings.
+
+**Instruments**: ZC (corn), ZW (wheat), ZS (soybeans) — all CBOT, 5,000 bu/contract. Micro contracts (MZC, MZW, MZS, 1,000 bu) launched Feb 2025. Options on all, but liquidity drops significantly for deep OTM.
+
+**Best commodity tail hedge**: OTM corn or wheat calls before the US growing season (June-August weather risk window). Cheap, fat-tailed, and genuine information asymmetry between weather forecasters and options market makers.
+
+#### VIX — purest expression of tail risk
+
+| Event | Date | VIX Level | Notes |
+|-------|------|-----------|-------|
+| 2008 GFC | Nov 21, 2008 | **80.74** close | All-time closing high |
+| 2011 debt ceiling | Aug 8, 2011 | **48.00** close | US downgrade + Europe |
+| 2015 China deval | Aug 24, 2015 | **53.29** intraday, 40.74 close | "Mini flash crash" |
+| 2018 Volmageddon | Feb 5, 2018 | **37.32** close (from 17.31 prior) | +116% in one day. XIV lost 97%. |
+| 2020 COVID | Mar 16, 2020 | **82.69** close | Higher than 2008 closing high |
+
+**VIX options mechanics**: Options on VIX index (not futures), but priced off VIX futures forward value. European-style, cash-settled. Critical: a VIX 25-strike call when VIX spot is 15 is priced off the relevant VIX futures (~18-20 due to contango), not spot VIX.
+
+**OTM VIX call costs** (with VIX spot ~15, futures ~18):
+
+| Strike | ~90 DTE Premium | Notes |
+|--------|----------------|-------|
+| 25 | ~$0.15-0.25 ($15-25/contract) | Moderate OTM |
+| 30 | ~$0.08-0.15 ($8-15/contract) | Deep OTM |
+| 40 | ~$0.30-0.40 ($30-40/contract) | VIX skew inflates these (IV 120-156%) |
+
+**VIX call spreads** reduce cost: buy 25c / sell 40c for ~$0.15 net ($15/contract), max payout $14.85 if VIX ≥40. Caps upside but dramatically cuts cost.
+
+**The contango bleed**: VIX futures are in contango >80% of the time. Monthly contango drag is 5-10%. VXX (short-term VIX futures ETN) is down >99% since inception. This is the insurance premium the market charges.
+
+**Is VIX overpriced or underpriced?** A 25-strike VIX call purchased for $25 that expires with VIX at 80 pays $55,000 — a 2,200x return. Universa returned +3,612% in March 2020. The question is whether options markets fully price VIX 80+ events. History suggests they don't.
+
+**Recommended allocation**: 0.25-1.0% of portfolio per month to VIX call hedges. When VIX is low (12-18), spend more (~1%); when elevated (25-40), spend less (options pricier).
+
+#### Commodity data availability for backtesting
+
+- **CME DataMine**: Historical data back to 1970s for some contracts. Paid, self-service cloud. >450TB of data.
+- **OptionMetrics (IvyDB Futures)**: Academic standard. End-of-day prices, IV, Greeks. Premium subscription.
+- **CBOE DataShop (Livevol)**: VIX options/futures data from 2004. IV surfaces, trade-level.
+- **Databento**: CME/CBOT/NYMEX/COMEX data. Competitively priced but no pre-calculated Greeks.
+- **Free**: Essentially no research-quality free commodity options data. FRED has OVX/GVZ/VIX daily closes only.
+
+#### Academic literature
+
+- **Gorton & Rouwenhorst (2006)** — "Facts and Fantasies about Commodity Futures." Commodity futures match equity Sharpe ratios over 1959-2004. Negatively correlated with stocks/bonds.
+- **Tang & Xiong (2012)** — "Index Investment and the Financialization of Commodities." Since 2000s, non-energy commodities increasingly correlated with oil due to index fund flows ($15B in 2003 → $200B+ by 2008).
+- **Gorton, Hayashi & Rouwenhorst (2012)** — Risk premiums vary by inventory levels. Convenience yield is non-linear in inventories.
+
+#### Commodity tail hedge ranking
+
+| Commodity | Attractiveness | Why |
+|-----------|---------------|-----|
+| Crude oil (CL) | **High** | Both-sided fat tails (kurtosis ~37), liquid options, reasonable cost in calm |
+| Wheat/Corn calls | **High** | Hedger-dominated selling cheapens calls, weather tails are genuine |
+| VIX calls | **High (expensive)** | Purest tail hedge, but contango bleed is severe |
+| Gold | **Low** | Fails as immediate crisis hedge (dash for cash), better as macro debasement hedge |
+
+---
+
+### 4.5 Emerging Market Sovereign Debt
+
+High yield in normal times, violent contagious crises. EM crises cluster because they share common vulnerabilities: dollar-denominated debt, commodity dependence, hot money flows, and the "sudden stop" dynamic (Calvo, 1998).
+
+#### Historical crisis episodes
+
+| Event | Key Moves | Contagion |
+|-------|----------|-----------|
+| 1997 Asian crisis | THB devalued Jul 2, spread to KRW, IDR, MYR. Currencies -40-80% | Thailand → Korea → Indonesia → Malaysia → Philippines |
+| 1998 Russia | Ruble: 6.29 → 21/USD in 3 weeks. GKO yields hit 150%. EMBI spread >1,500bps | Russia → Brazil → LTCM collapse. Global contagion. |
+| 2001 Argentina | Corralito (bank freeze Dec 2001), default on $93B, peso depegged 1:1 → 4:1 | Argentina → Uruguay → Brazil pressure |
+| 2013 Taper Tantrum | "Fragile Five" (BRL, INR, IDR, TRY, ZAR) sold off -10-20% | Fed *signaling* (not acting) caused EM rout |
+| 2015 China deval | PBoC devalued yuan Aug 11. EM currencies fell 5-15% | China → commodity exporters (BRL, ZAR, AUD) |
+| 2018 Turkey/Argentina | TRY: -45%. ARS: -50%. Turkish rates hiked 8% → 24%, failed to stop slide | Turkey → Argentina → South Africa → broad EM |
+| 2020 COVID | EMBI spread blew out ~300bps in 3 weeks. EM currencies -15-30% | Global. Fed swap lines activated for select central banks |
+
+The contagion dynamic is key: EM crises are not independent events. When one EM country stumbles, investors pull capital from all EM — the "sudden stop" (Calvo & Reinhart). Capital that flowed in over years flows out in weeks. Dollar funding stress amplifies everything.
+
+#### Current EM sovereign yields
+
+EM USD-denominated sovereign bonds (EMB universe) typically yield 300-500bps over US Treasuries. With UST at ~4%, that's 7-9% total yield. Individual country spreads vary enormously:
+- Investment-grade EM (Chile, Peru, Malaysia): 80-150bps
+- Mid-grade (Mexico, Colombia, Brazil): 150-300bps
+- High-risk (Turkey, South Africa, Nigeria): 300-600bps
+- Distressed (Argentina, Pakistan, Egypt): 600-2,000bps+
+
+#### EMBI spread history
+
+| Period | EMBI Spread (bps) |
+|--------|-------------------|
+| 2007 tights | ~170bps |
+| 2008 GFC peak (Q4) | ~750bps |
+| 2013 Taper Tantrum | ~400bps |
+| 2020 COVID peak | ~700bps |
+| 2024 tights | ~250bps |
+
+The 2008 swing: 170bps → 750bps, a 4.4x blowout. Protection bought at 170bps paid out at 750bps.
+
+#### Instruments
+
+**Institutional (ISDA required):**
+- **CDX EM**: EM sovereign CDS index. Cleared through ICE.
+- **Single-name sovereign CDS**: Protection on individual countries (Brazil, Turkey, Mexico, etc.).
+
+**Retail-accessible:**
+- **EMB** (iShares JP Morgan USD EM Bond ETF): USD-denominated EM sovereign bonds. ~$15B AUM. **Options available** — this is the retail tail hedge entry point.
+- **EMLC** (VanEck EM Local Currency Bond ETF): Local currency EM bonds. Adds FX risk on top of credit risk.
+- **EEM** (iShares MSCI Emerging Markets Equity ETF): $20.3B AUM, 0.68% expense ratio. **Very active options market** — the best retail EM tail hedge instrument. Higher vol (5.34%) than VWO (4.31%), meaning more responsive to crises.
+- **VWO** (Vanguard FTSE EM ETF): $72.8B AUM, 0.08% expense ratio. More liquid ETF but less active options market than EEM.
+
+**The retail trade**: Long EEM or EMB for carry + buy OTM puts for tail protection. EEM options are the most liquid EM derivative accessible to retail investors.
+
+#### The contagion hedge
+
+How correlated are EM crises? The answer matters for hedging:
+- **Systemic events (2008, 2020)**: Nearly all EM sells off together. A single CDX EM or EEM put covers the complex.
+- **Idiosyncratic events (Turkey 2018)**: Limited contagion. Country-specific protection needed.
+- **Regional events (1997 Asia)**: Regional contagion but limited global impact. Partial coverage from broad EM hedge.
+
+For most purposes, **OTM puts on EEM** provide adequate EM tail protection because the big crises are systemic. The Turkey 2018 scenario (idiosyncratic, no global contagion) is the case where broad EM protection fails — but those events also tend to be smaller.
+
+#### Academic literature
+
+- **Calvo (1998)** — "Capital Flows and Capital-Market Crises: The Simple Economics of Sudden Stops." Foundational paper on EM capital flow dynamics.
+- **Reinhart & Rogoff (2009)** — *This Time Is Different*. Eight centuries of sovereign defaults, showing EM crises are recurring.
+- **Eichengreen, Hausmann & Panizza (2005)** — "The Pain of Original Sin." EM countries can't borrow in their own currency, creating structural vulnerability.
+- **Calvo & Reinhart (2002)** — "Fear of Floating." EM central banks accumulate reserves to prevent currency appreciation, creating vulnerability when flows reverse.
+
+#### The carry math
+
+EMB yields ~7-9%. OTM puts on EEM or EMB (10% OTM, 3-month):
+- EEM implied vol is typically 18-25% in calm markets, 35-50% in stress
+- A 10% OTM put on EEM (3 months) costs roughly 1-2% of notional annualized
+- Net carry: 7-9% yield minus 1-2% protection cost = 5-7%/yr in normal times
+
+If an EM crisis hits and EEM drops 30% (as in 2008): the 10% OTM put is now 20% ITM, paying ~20% of notional vs cost of ~0.5%. Payoff ratio: 40x.
+
+#### Practical challenges
+
+- **Liquidity**: EEM options are liquid; EMB options are thinner. Single-name EM sovereign CDS is institutional only.
+- **Local currency risk**: EMLC adds FX risk on top of credit. During EM crises, currencies and bonds fall together — double whammy or double payoff for puts.
+- **Capital controls**: Some EM countries impose capital controls during crises (Malaysia 1998, Iceland 2008, Argentina repeatedly). This can prevent you from realizing gains.
+- **Political risk**: Forced restructuring, unilateral moratoriums (Russia 1998), nationalization.
+- **Correlation breakdown**: EEM is 60% Asia (China, Taiwan, India, Korea). An EM-specific credit crisis may not move EEM much if China is unaffected. EMB is a better pure EM credit proxy.
+
+**Why EM ranks #5**: Genuine tail risk with 4-5x spread blowouts, but idiosyncratic events may not trigger broad EM instruments, and retail access is limited to ETF options. The carry math is attractive (7-9% yield) but counterbalanced by the structural fragilities that make EM crises recurring.
 
 ---
 
@@ -173,13 +580,17 @@ Then a shock — geopolitical event, financial contagion, policy error — repri
 
 The Spitznagel/Universa insight isn't about equities specifically. It's about **scanning all markets for the cheapest tail convexity and buying it there**. Sometimes that's equity vol (2007). Sometimes it's credit protection (2006). Sometimes it's rate swaptions (2019). The portfolio manager's job is to always own the cheapest crash insurance, wherever it lives.
 
-**Here's a practical ranking by investor type:**
+### Ranking by structural attractiveness
 
-| If you are... | Best market |
-|----------------|-------------|
-| Retail with simple tools | SPY/QQQ — don't overthink it |
-| Can access futures/options | Rates — the Fed asymmetry is unbeatable |
-| Running a multi-strategy fund | All of them — rotate to cheapest convexity |
+| Rank | Market | Why | Best For |
+|------|--------|-----|----------|
+| 1 | **Rates** | Fed reaction function = institutional guarantee of asymmetry | Futures account holders |
+| 2 | **FX Carry** | Carry funds protection. Academic evidence: options are "puzzlingly cheap" | Futures/FX traders |
+| 3 | **Equities (SPY)** | 16%/yr Sharpe 1.879 backtested. Most liquid options on earth | Everyone (retail default) |
+| 4 | **Credit** | 4-8x spread blowouts, but thin carry and ISDA requirement for CDS | Institutions (retail via HYG puts) |
+| 5 | **Commodities** | Fat tails (oil kurtosis ~37) but contango bleed and delivery complexity | Specialists |
+| 6 | **EM Debt** | 4-5x spread blowouts but idiosyncratic risk and limited instruments | Dedicated EM investors |
+| 7 | **VIX** | Purest tail hedge but most expensive (contango >80% of time) | Small allocation overlay |
 
 ---
 
@@ -196,3 +607,129 @@ Despite rates and FX having arguably better structural asymmetries, SPY wins for
 4. **0.5% is so cheap it doesn't need funding.** No bond yield, no carry trade, no complex allocation formula. Just SPY and monthly puts. The simplicity is the feature, not a limitation.
 
 The entire barbell exploration — selling vol, buying tail protection, adding bonds, dynamic put sizing — was a search for something more sophisticated than "buy SPY, spend 0.5% on puts." Nothing beat it.
+
+---
+
+## 7. Next Steps: Backtesting SOFR and FX Carry
+
+The options backtester currently supports SPY options data. The same engine could backtest the Spitznagel structure on other instruments if we source the data:
+
+### SOFR Futures Options
+- **Data source**: CME DataMine (paid). SOFR options data available from 2018. Eurodollar options back to 1980s but delisted June 2023.
+- **Schema adaptation**: The backtester's Schema/Filter system would need columns mapped to SOFR option fields (strike as rate level, DTE, price).
+- **Trade structure**: Long SOFR futures + roll OTM calls. Exit on rate cut events.
+
+### FX Carry (AUD/JPY, MXN/JPY)
+- **Data source**: CME DataMine for FX futures options. AUD (6A), JPY (6J) options data available historically.
+- **Schema adaptation**: Need FX option fields: strike as exchange rate, underlying as FX spot, DTE, delta.
+- **Trade structure**: Long high-yielder futures + buy OTM puts. The carry differential appears as positive roll yield on the futures position.
+- **Key question**: Does the carry-funded-protection structure outperform SPY + puts on a risk-adjusted basis? Academic evidence (Jurek 2014) says hedged carry still earns significant returns.
+
+Both would require downloading historical options data from CME DataMine and adapting the backtester's data providers to handle non-equity option schemas.
+
+---
+
+## 8. Other Trade Structures Considered
+
+### 8.1 Leveraged ETFs — High Convexity, Impractical
+
+Puts on TQQQ (3x leveraged Nasdaq) or UPRO (3x leveraged S&P 500) would be incredibly convex. A 30% SPY drop becomes a ~70% drop in TQQQ. Deep OTM puts would return 50-100x.
+
+But there are problems:
+- **Options on leveraged ETFs are less liquid, wider spreads.** TQQQ options exist but bid-ask is much wider than SPY.
+- **The underlying bleeds from daily rebalancing (volatility drag).** TQQQ decays ~10-15%/yr from rebalancing alone in normal vol environments. The instrument structurally loses value.
+- **You're paying for convexity on something that structurally decays.** The market knows TQQQ is fragile — put implied vols are high. You're not getting cheap convexity, you're getting expensive convexity on a dying asset.
+- **Strike prices move.** After a crash, TQQQ might be at $5 instead of $50. The options market adjusts. You can't maintain a consistent hedge.
+
+**Verdict:** Theoretically the highest raw convexity available to retail, but practically not worth it. The vol decay and wide spreads eat the advantage. SPY puts are cheaper on a risk-adjusted basis.
+
+### 8.2 Dispersion Trades — Capturing the Correlation Risk Premium
+
+Instead of buying SPY puts, buy puts on individual stocks and sell SPY puts. When correlations spike in a crash, individual names fall more than the index (diversification benefit disappears). You capture the "correlation risk premium" — index vol trades rich to realized single-stock vol in normal times, but this relationship inverts in crises.
+
+**How it works:**
+- In calm markets: index vol is "too high" relative to single-stock vol because the index benefits from imperfect correlation. You sell index vol, buy single-stock vol.
+- In a crash: correlations go to 1. Single stocks fall as much as or more than the index. Your single-stock puts pay off more than the index puts you sold.
+
+**Why it might be cheaper than outright index puts:** You're net short index vol (which is expensive) and long single-stock vol (which is cheaper). The position self-funds partially.
+
+**The catch:** This is an institutional trade. You need to manage positions in dozens of names simultaneously, the execution is complex, and the margin/capital requirements are substantial. Dispersion desks at banks and hedge funds run this — it's not a retail strategy.
+
+**Interesting hybrid:** Instead of full dispersion, you could buy puts on the most volatile index components (top 5-10 names by weight × beta) as a substitute for index puts. These might be cheaper than SPY puts while providing similar crisis payoff. Worth exploring but needs backtesting.
+
+### 8.3 The Cheapest Convexity Scanner — The Real Universa Insight
+
+The most important idea that emerges from this entire research: **the optimal strategy isn't to always hedge in one market — it's to continuously scan across all markets for wherever tail convexity is cheapest right now.**
+
+Sometimes that's equity vol (2007, VIX at 12). Sometimes that's credit protection (2006, IG spreads at 80bps). Sometimes that's rate swaptions (2019, rates at 1.5% with the market pricing no cuts). Sometimes that's FX vol on a particular carry pair.
+
+The key insight is that tail risk pricing varies independently across asset classes. When everyone is worried about equity crashes, SPY put vol is elevated — but nobody is thinking about rate cuts, so SOFR call vol is cheap. When credit spreads are tight and complacency reigns, CDX protection is dirt cheap.
+
+**What a scanner would need:**
+
+1. **Normalized convexity measure across asset classes.** Something like: expected payoff in a 3-sigma event / cost of protection. This lets you compare apples to apples: is a 10-delta SPY put or a 10-delta AUD/JPY put or a 5-year CDX IG contract giving you the most bang for your buck right now?
+
+2. **Inputs per asset class:**
+   - Equity: SPY option chain (implied vol surface, put skew)
+   - Rates: SOFR/ZN option chain (call skew for rate cut bets)
+   - FX: G10 carry pair option chains (AUD/JPY, MXN/JPY risk reversals)
+   - Credit: CDX IG/HY spreads, HYG/LQD option chains
+   - Commodities: CL option chain, VIX futures term structure
+   - EM: EEM/EMB option chains, EMBI spread level
+
+3. **Historical regime context.** Is the current VIX/spread/rate level in the 10th percentile (cheap protection) or 90th percentile (expensive)? Regime-conditional z-scores.
+
+4. **The allocation decision.** Given a fixed tail hedge budget (say 0.5% of portfolio/yr), allocate across the cheapest N instruments. Rebalance monthly.
+
+**Can this be built?** At a basic level, yes. The data exists:
+- SPY options: already in this backtester
+- SOFR/Treasury options: CME DataMine
+- FX options: CME DataMine for listed, J.P. Morgan/Bloomberg for OTC
+- Credit: CDX via Markit, HYG/LQD options from standard option data providers
+- VIX: CBOE DataShop
+- EM: EEM/EMB options from standard providers
+
+The hard part isn't the data — it's the normalization. How do you compare the "cheapness" of a 10-delta SPY put vs a 10-delta AUD/JPY put vs a CDX IG contract? The tail events are different sizes, frequencies, and correlations. A proper framework would need:
+- Risk-neutral vs historical tail probabilities per asset (how much is the market underpricing?)
+- Cross-asset correlation in tail events (do these hedges pay off at the same time?)
+- Liquidity-adjusted execution costs
+
+**This would be the real project** — not just backtesting one strategy, but building a cross-asset tail convexity monitor. Even a simple version (rank by implied vol percentile vs historical tail frequency) would be more sophisticated than what most retail investors do.
+
+---
+
+## 9. Key References
+
+### Papers
+
+| Paper | Authors | Year | Key Finding | Link |
+|-------|---------|------|-------------|------|
+| Crash-Neutral Currency Carry Trades | Jurek | 2014 | 2/3 of carry alpha survives crash hedging | [JFE](https://www.sciencedirect.com/science/article/abs/pii/S0304405X14001081), [SSRN](https://papers.ssrn.com/sol3/papers.cfm?abstract_id=1262934) |
+| Why are FX Options So Cheap? | Caballero & Doyle | 2012 | FX option bundles for carry hedging are "puzzlingly cheap" | [NBER WP 18644](https://www.nber.org/papers/w18644) |
+| Carry Trades and Currency Crashes | Brunnermeier, Nagel & Pedersen | 2009 | Carry returns have negative skewness — crash risk premium | [NBER](https://www.nber.org/papers/w14473) |
+| Crash Risk in Currency Markets | Farhi, Fraiberger, Gabaix, Ranciere & Verdelhan | 2015 | Systematic crash risk priced in currencies | [SSRN](https://papers.ssrn.com/sol3/papers.cfm?abstract_id=1397668) |
+| The Carry Trade: Risks and Drawdowns | Daniel, Hodrick & Lu | 2017 | Carry drawdowns are predictable and manageable | [SSRN](https://papers.ssrn.com/sol3/papers.cfm?abstract_id=2486275) |
+| Equity Tail Risk and Currency Risk Premia | Fan & Londono | 2022 | Option-based equity tail risk priced in FX | [Fed](https://www.federalreserve.gov/econres/ifdp/files/ifdp1253.pdf) |
+| Facts and Fantasies about Commodity Futures | Gorton & Rouwenhorst | 2006 | Commodities match equity Sharpe, negatively correlated | — |
+| Capital Flows and Sudden Stops | Calvo | 1998 | Foundational EM crisis dynamics | — |
+| This Time Is Different | Reinhart & Rogoff | 2009 | 800 years of sovereign defaults | — |
+
+### Market Data Sources
+
+| Source | Coverage | Access |
+|--------|----------|--------|
+| CME DataMine | SOFR, Treasury, FX, commodity futures & options | Paid, self-service cloud |
+| CBOE DataShop (Livevol) | VIX options/futures from 2004, IV surfaces | Paid |
+| OptionMetrics (IvyDB) | Academic standard for equity and futures options | Institutional subscription |
+| Databento | CME/CBOT/NYMEX/COMEX tick data | Competitive pricing, no pre-calc Greeks |
+| Markit (S&P Global) | CDX/CDS spreads and indices | Institutional |
+| BIS | Macro data, policy analysis, crisis bulletins | [bis.org](https://www.bis.org/) (free) |
+
+### Crisis Analysis
+
+| Source | Content | Link |
+|--------|---------|------|
+| BIS Bulletin No. 90 | 2024 carry trade unwind analysis | [PDF](https://www.bis.org/publ/bisbull90.pdf) |
+| RBA Bulletin Mar 2009 | 2008 AUD carry unwind | [PDF](https://www.rba.gov.au/publications/bulletin/2009/mar/pdf/bu-0309-1.pdf) |
+| BOE Quarterly Bulletin Q1 1999 | 1998 yen crisis options market analysis | [PDF](https://escoe-website.s3.amazonaws.com/wp-content/uploads/2019/11/30191453/BEQB_The-yen-dollar-exchange-rate-in-1998-views-from-options-markets-QB-1999-Q1-pp.68-77.pdf) |
+| Global FXC 2020 | COVID FX market conditions | [PDF](https://www.globalfxc.org/uploads/20200622_gfxc_overview_of_market_conditions.pdf) |
