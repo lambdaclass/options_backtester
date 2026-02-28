@@ -13,7 +13,10 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
 import subprocess
+from contextlib import contextmanager
+from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from functools import reduce
 from pathlib import Path
@@ -45,6 +48,8 @@ from options_portfolio_backtester.data.schema import Schema
 from options_portfolio_backtester.strategy.strategy import Strategy
 from options_portfolio_backtester.strategy.strategy_leg import StrategyLeg
 
+logger = logging.getLogger(__name__)
+
 
 def _intrinsic_value(option_type: str, strike: float, underlying_price: float) -> float:
     """Compute intrinsic value of an option given spot price.
@@ -55,6 +60,19 @@ def _intrinsic_value(option_type: str, strike: float, underlying_price: float) -
     if option_type == OptionType.CALL.value:
         return max(0.0, underlying_price - strike)
     return max(0.0, strike - underlying_price)
+
+
+@dataclass
+class _StrategySlot:
+    """Configuration and runtime state for one strategy within a multi-strategy engine."""
+    strategy: Strategy
+    weight: float
+    rebalance_freq: int
+    rebalance_unit: str = 'BMS'
+    check_exits_daily: bool = False
+    name: str = ""
+    inventory: pd.DataFrame = field(default=None, repr=False)
+    rebalance_dates: pd.DatetimeIndex = field(default=None, repr=False)
 
 
 class BacktestEngine:
@@ -142,12 +160,57 @@ class BacktestEngine:
         self._options_schema = data.schema
         self._options_data = data
 
+    # -- Multi-strategy API --
+
+    def add_strategy(
+        self,
+        strategy: Strategy,
+        weight: float,
+        rebalance_freq: int,
+        rebalance_unit: str = 'BMS',
+        check_exits_daily: bool = False,
+        name: str | None = None,
+    ) -> None:
+        """Register a strategy slot for multi-strategy mode.
+
+        Args:
+            strategy: The Strategy object (legs + exit thresholds).
+            weight: Fraction of options allocation for this strategy.
+            rebalance_freq: Rebalance every N periods.
+            rebalance_unit: Pandas offset alias (default 'BMS').
+            check_exits_daily: Check exits on non-rebalance days.
+            name: Human-readable name (auto-generated if omitted).
+        """
+        if not hasattr(self, '_strategy_slots'):
+            self._strategy_slots: list[_StrategySlot] = []
+        slot_name = name or f"strategy_{len(self._strategy_slots)}"
+        self._strategy_slots.append(_StrategySlot(
+            strategy=strategy,
+            weight=weight,
+            rebalance_freq=rebalance_freq,
+            rebalance_unit=rebalance_unit,
+            check_exits_daily=check_exits_daily,
+            name=slot_name,
+        ))
+
+    @property
+    def _is_multi_strategy(self) -> bool:
+        return hasattr(self, '_strategy_slots') and len(self._strategy_slots) > 0
+
     # -- Main entry point --
 
     def run(self, rebalance_freq: int = 0, monthly: bool = False,
             sma_days: int | None = None,
-            rebalance_unit: str = 'BMS') -> pd.DataFrame:
-        """Run the backtest. Returns the trade log DataFrame."""
+            rebalance_unit: str = 'BMS',
+            check_exits_daily: bool = False) -> pd.DataFrame:
+        """Run the backtest. Returns the trade log DataFrame.
+
+        Args:
+            check_exits_daily: When True, evaluate exit filters on every trading
+                day (not just rebalancing days).  Positions that match the exit
+                filter are closed and cash is updated, but no new entries or
+                stock reallocation occurs outside rebalancing days.
+        """
         self._event_log_rows = []
         for algo in self.algos:
             if hasattr(algo, "reset"):
@@ -158,6 +221,20 @@ class BacktestEngine:
             for stock in self._stocks
         ), "Ensure all stocks in portfolio are present in the data"
         assert self._options_data, "Options data not set"
+
+        # Multi-strategy mode: bypass single-strategy assertions and Rust loop
+        if self._is_multi_strategy:
+            total_weight = sum(s.weight for s in self._strategy_slots)
+            assert abs(total_weight - 1.0) < 1e-6, (
+                f"Strategy weights must sum to 1.0, got {total_weight}"
+            )
+            for slot in self._strategy_slots:
+                assert self._options_data.schema == slot.strategy.schema
+            return self._run_multi_strategy(
+                monthly=monthly, sma_days=sma_days,
+                check_exits_daily=check_exits_daily,
+            )
+
         assert self._options_strategy, "Options Strategy not set"
         assert self._options_data.schema == self._options_strategy.schema
 
@@ -195,8 +272,8 @@ class BacktestEngine:
                     sma_days=sma_days,
                     rebalance_unit=rebalance_unit,
                 )
-            except Exception:
-                pass
+            except Exception as e:
+                logger.warning("Rust dispatch failed (%s: %s), falling back to Python", type(e).__name__, e)
 
         self._initialize_inventories()
         self.current_cash: float = self.initial_capital
@@ -290,6 +367,9 @@ class BacktestEngine:
                 # stop_if_broke: halt if cash goes negative
                 if self.stop_if_broke and self.current_cash < 0:
                     break
+
+            elif check_exits_daily and not self._options_inventory.empty:
+                self._execute_option_exits(date, options, stocks)
 
             bar.update()
 
@@ -714,7 +794,10 @@ class BacktestEngine:
     def _sell_some_options(self, date, to_sell, current_options, stocks):
         sold: float = 0
         sym_col = self._stocks_schema["symbol"]
-        price_col = self._stocks_schema["adjClose"]
+        # Use unadjusted close for intrinsic value — strikes are raw prices
+        # Use unadjusted close for intrinsic value — strikes are raw prices
+        _close_col = self._stocks_schema["close"] if "close" in self._stocks_schema else None
+        price_col = _close_col if (_close_col and _close_col in stocks.columns) else self._stocks_schema["adjClose"]
         for i, leg in enumerate(self._options_strategy.legs):
             cost_series = current_options[i]["cost"]
             if cost_series.isna().any():
@@ -726,7 +809,7 @@ class BacktestEngine:
                     spot_match = stocks.loc[stocks[sym_col] == underlying, price_col]
                     spot = spot_match.iloc[0] if len(spot_match) > 0 else 0.0
                     iv = _intrinsic_value(opt_type, float(strike), float(spot))
-                    cash_sign = 1.0 if ~leg.direction == Direction.SELL else -1.0
+                    cash_sign = -1.0 if ~leg.direction == Direction.SELL else 1.0
                     current_options[i].at[idx, "cost"] = cash_sign * iv * self.shares_per_contract
         total_costs = sum([current_options[i]["cost"] for i in range(len(current_options))])
         trade_rows: list[pd.Series] = []
@@ -786,7 +869,9 @@ class BacktestEngine:
         values_by_row: Any = [0] * len(options_value[0])
         if len(options_value[0]) != 0:
             sym_col = self._stocks_schema["symbol"]
-            price_col = self._stocks_schema["adjClose"]
+            # Use unadjusted close for intrinsic value — strikes are raw prices
+            _close_col = self._stocks_schema["close"] if "close" in self._stocks_schema else None
+            price_col = _close_col if (_close_col and _close_col in stocks.columns) else self._stocks_schema["adjClose"]
             for i, leg in enumerate(self._options_strategy.legs):
                 cost_series = options_value[i]["cost"].copy()
                 # Replace NaN (missing contracts) with intrinsic value
@@ -799,7 +884,7 @@ class BacktestEngine:
                         spot_match = stocks.loc[stocks[sym_col] == underlying, price_col]
                         spot = spot_match.iloc[0] if len(spot_match) > 0 else 0.0
                         iv = _intrinsic_value(opt_type, float(strike), float(spot))
-                        cash_sign = 1.0 if ~leg.direction == Direction.SELL else -1.0
+                        cash_sign = -1.0 if ~leg.direction == Direction.SELL else 1.0
                         cost_series.at[idx] = cash_sign * iv * self.shares_per_contract
                 values_by_row += cost_series.values
             total: float = -sum(values_by_row * self._options_inventory["totals"]["qty"].values)
@@ -1152,7 +1237,11 @@ class BacktestEngine:
                 if leg.direction == Direction.SELL
             ]
             if sell_pairs:
-                existing_short_notional = self._compute_short_notional()
+                existing_short_notional = (
+                    self._compute_short_notional_multi()
+                    if self._is_multi_strategy
+                    else self._compute_short_notional()
+                )
                 max_notional = self.max_notional_pct * total_capital
                 available = max(0.0, max_notional - existing_short_notional)
                 short_notional_per_contract = sum(
@@ -1425,7 +1514,9 @@ class BacktestEngine:
         df = self._options_inventory.copy()
         if not df.empty:
             sym_col = self._stocks_schema["symbol"]
-            price_col = self._stocks_schema["adjClose"]
+            # Use unadjusted close for intrinsic value — strikes are raw prices
+            _close_col = self._stocks_schema["close"] if "close" in self._stocks_schema else None
+            price_col = _close_col if (_close_col and _close_col in stocks.columns) else self._stocks_schema["adjClose"]
             for leg in self._options_strategy.legs:
                 inv_leg = self._options_inventory[leg.name]
                 intrinsics = []
@@ -1437,7 +1528,7 @@ class BacktestEngine:
                     spot = spot_match.iloc[0] if len(spot_match) > 0 else 0.0
                     iv = _intrinsic_value(opt_type, float(strike), float(spot))
                     # Apply same sign/scaling as _get_current_option_quotes
-                    cash_sign = 1.0 if ~leg.direction == Direction.SELL else -1.0
+                    cash_sign = -1.0 if ~leg.direction == Direction.SELL else 1.0
                     intrinsics.append(cash_sign * iv * self.shares_per_contract)
                 df[(leg.name, "cost")] = intrinsics
         return exit_candidates.fillna(df)
@@ -1448,3 +1539,353 @@ class BacktestEngine:
             f"allocation={self.allocation}, "
             f"cost_model={self.cost_model.__class__.__name__})"
         )
+
+    # -- Multi-strategy support --
+
+    @contextmanager
+    def _strategy_context(self, slot: _StrategySlot):
+        """Temporarily swap strategy and inventory so existing methods operate on *slot*."""
+        saved_strategy = self._options_strategy
+        saved_inventory = self._options_inventory
+        try:
+            self._options_strategy = slot.strategy
+            self._options_inventory = slot.inventory
+            yield
+        finally:
+            slot.inventory = self._options_inventory  # capture mutations
+            self._options_strategy = saved_strategy
+            self._options_inventory = saved_inventory
+
+    def _initialize_multi_inventories(self) -> None:
+        """Create one inventory DataFrame per slot, plus shared stocks/portfolio."""
+        for slot in self._strategy_slots:
+            columns = pd.MultiIndex.from_product(
+                [
+                    [leg.name for leg in slot.strategy.legs],
+                    ["contract", "underlying", "expiration", "type", "strike", "cost", "order"],
+                ]
+            )
+            totals = pd.MultiIndex.from_product([["totals"], ["cost", "qty", "date"]])
+            slot.inventory = pd.DataFrame(
+                columns=pd.Index(columns.tolist() + totals.tolist())
+            )
+        self._stocks_inventory = pd.DataFrame(columns=["symbol", "price", "qty"])
+        self._portfolio = Portfolio(initial_cash=0.0)
+        # Set default so code outside context blocks has something valid
+        self._options_strategy = self._strategy_slots[0].strategy
+        self._options_inventory = self._strategy_slots[0].inventory
+
+    def _update_balance_multi(self, start_date, end_date):
+        """Balance update that iterates all strategy slots' inventories."""
+        stocks_date_col = self._stocks_schema["date"]
+        sd = self._stocks_data._data
+        stocks_data = sd[(sd[stocks_date_col] >= start_date) & (sd[stocks_date_col] < end_date)]
+
+        options_date_col = self._options_schema["date"]
+        od = self._options_data._data
+        options_data = od[(od[options_date_col] >= start_date) & (od[options_date_col] < end_date)]
+
+        options_contract_col = self._options_schema["contract"]
+        calls_value = pd.Series(0.0, index=options_data[options_date_col].unique())
+        puts_value = pd.Series(0.0, index=options_data[options_date_col].unique())
+
+        for slot in self._strategy_slots:
+            for leg in slot.strategy.legs:
+                leg_inventory = slot.inventory[leg.name]
+                if leg_inventory.empty or leg_inventory["contract"].isna().all():
+                    continue
+                cost_field = (~leg.direction).price_column
+
+                inv_info = pd.DataFrame({
+                    "_contract": leg_inventory["contract"].values,
+                    "_qty": slot.inventory["totals"]["qty"].values,
+                    "_type": leg_inventory["type"].values,
+                })
+                inv_info["_underlying"] = leg_inventory["underlying"].values
+                inv_info["_strike"] = leg_inventory["strike"].values
+
+                all_current = inv_info.merge(
+                    options_data, how="left",
+                    left_on="_contract", right_on=options_contract_col,
+                )
+
+                missing = all_current[cost_field].isna()
+                if missing.any():
+                    spots = all_current.loc[missing, "_underlying"].map(
+                        stocks_data.drop_duplicates(self._stocks_schema["symbol"])
+                        .set_index(self._stocks_schema["symbol"])[self._stocks_schema["adjClose"]]
+                    ).fillna(0.0)
+                    strikes = all_current.loc[missing, "_strike"].astype(float)
+                    types = all_current.loc[missing, "_type"]
+                    intrinsics = np.where(
+                        types == OptionType.CALL.value,
+                        np.maximum(0.0, spots.values - strikes.values),
+                        np.maximum(0.0, strikes.values - spots.values),
+                    )
+                    all_current.loc[missing, cost_field] = intrinsics
+
+                sign = -1 if cost_field == Direction.BUY.price_column else 1
+                all_current["_value"] = (
+                    sign * all_current[cost_field]
+                    * all_current["_qty"] * self.shares_per_contract
+                )
+
+                calls_mask = all_current["_type"] == OptionType.CALL.value
+                if calls_mask.any():
+                    calls_data = all_current.loc[calls_mask].groupby(options_date_col)["_value"].sum()
+                    calls_value = calls_value.add(calls_data, fill_value=0)
+                puts_mask = ~calls_mask
+                if puts_mask.any():
+                    puts_data = all_current.loc[puts_mask].groupby(options_date_col)["_value"].sum()
+                    puts_value = puts_value.add(puts_data, fill_value=0)
+
+        # Stocks: same as single-strategy (shared pool)
+        stocks_current = self._stocks_inventory[["symbol", "qty"]].merge(
+            stocks_data[["date", "symbol", "adjClose"]], on="symbol",
+        )
+        stocks_current["cost"] = stocks_current["qty"] * stocks_current["adjClose"]
+
+        add = stocks_current.pivot_table(
+            index=stocks_date_col, columns="symbol", values="cost", aggfunc="sum",
+        )
+        add = add.reindex(columns=[stock.symbol for stock in self._stocks])
+
+        add["cash"] = self.current_cash
+        total_options_qty = sum(
+            slot.inventory["totals"]["qty"].sum() for slot in self._strategy_slots
+        )
+        add["options qty"] = total_options_qty
+        add["calls capital"] = calls_value
+        add["puts capital"] = puts_value
+        add["stocks qty"] = self._stocks_inventory["qty"].sum()
+
+        for symbol, qty in zip(self._stocks_inventory["symbol"], self._stocks_inventory["qty"]):
+            add[symbol + " qty"] = qty
+
+        self._balance_parts.append(pd.DataFrame(add))
+
+    def _current_options_capital_multi(self, options, stocks) -> float:
+        """Sum options capital across all strategy slots."""
+        total = 0.0
+        for slot in self._strategy_slots:
+            with self._strategy_context(slot):
+                if not self._options_inventory.empty:
+                    total += self._current_options_capital(options, stocks)
+        return total
+
+    def _compute_portfolio_greeks_multi(self, options) -> Greeks:
+        """Sum Greeks across all strategy slots."""
+        total = Greeks()
+        for slot in self._strategy_slots:
+            with self._strategy_context(slot):
+                total = total + self._compute_portfolio_greeks(options)
+        return total
+
+    def _compute_short_notional_multi(self) -> float:
+        """Sum short notional across all strategy slots."""
+        total = 0.0
+        for slot in self._strategy_slots:
+            with self._strategy_context(slot):
+                total += self._compute_short_notional()
+        return total
+
+    def _total_capital_estimate_multi(self, stocks, options) -> float:
+        return (
+            self.current_cash
+            + self._current_stock_capital(stocks)
+            + self._current_options_capital_multi(options, stocks)
+        )
+
+    def _run_multi_strategy(
+        self,
+        monthly: bool = False,
+        sma_days: int | None = None,
+        check_exits_daily: bool = False,
+    ) -> pd.DataFrame:
+        """Main loop for multi-strategy mode."""
+        option_dates = self._options_data["date"].unique()
+        stock_dates = self.stocks_data["date"].unique()
+        assert np.array_equal(stock_dates, option_dates)
+
+        self._initialize_multi_inventories()
+        self.current_cash = float(self.initial_capital)
+        self._trade_log_parts = []
+        initial_balance = pd.DataFrame(
+            {"total capital": self.current_cash, "cash": self.current_cash},
+            index=[self.stocks_data.start_date - pd.Timedelta(1, unit="day")],
+        )
+        self._balance_parts = [initial_balance]
+        self._peak_value = float(self.initial_capital)
+
+        if sma_days:
+            self.stocks_data.sma(sma_days)
+
+        # Compute per-slot rebalance dates
+        dates_df = (
+            pd.DataFrame(self.options_data._data[["quotedate", "volume"]])
+            .drop_duplicates("quotedate")
+            .set_index("quotedate")
+        )
+        for slot in self._strategy_slots:
+            if slot.rebalance_freq:
+                slot.rebalance_dates = pd.to_datetime(
+                    dates_df.groupby(
+                        pd.Grouper(freq=f"{slot.rebalance_freq}{slot.rebalance_unit}")
+                    )
+                    .apply(lambda x: x.index.min())
+                    .values
+                )
+            else:
+                slot.rebalance_dates = pd.DatetimeIndex([])
+
+        # Union of all rebalance dates
+        all_rebalance_dates = pd.DatetimeIndex(
+            sorted(set().union(*(slot.rebalance_dates for slot in self._strategy_slots)))
+        )
+
+        data_iterator = self._data_iterator(monthly)
+        bar = pyprind.ProgBar(len(stock_dates), bar_char="█")
+
+        for date, stocks, options in data_iterator:
+            # Determine which slots rebalance today
+            slots_rebalancing = [
+                slot for slot in self._strategy_slots
+                if date in slot.rebalance_dates
+            ]
+
+            if date in all_rebalance_dates:
+                loc = all_rebalance_dates.get_loc(date)
+                previous_rb_date = all_rebalance_dates[loc - 1] if loc != 0 else date
+                self._update_balance_multi(previous_rb_date, date)
+                self._log_event(date, "rebalance_start", "ok", {
+                    "cash": float(self.current_cash),
+                    "slots_rebalancing": [s.name for s in slots_rebalancing],
+                })
+
+                # Phase 1: exits for each rebalancing slot
+                for slot in slots_rebalancing:
+                    with self._strategy_context(slot):
+                        self._execute_option_exits(date, options, stocks)
+
+                # Phase 2: compute aggregate capital post-exits
+                stock_capital = self._current_stock_capital(stocks)
+                options_capital = self._current_options_capital_multi(options, stocks)
+                total_capital = self.current_cash + stock_capital + options_capital
+
+                if self.options_budget is not None and not callable(self.options_budget):
+                    options_allocation = float(self.options_budget)
+                elif self.options_budget is not None and callable(self.options_budget):
+                    options_allocation = self.options_budget(date, total_capital)
+                else:
+                    options_allocation = self.allocation["options"] * total_capital
+
+                # Phase 3: run algo pipeline (once, aggregate)
+                current_greeks = self._compute_portfolio_greeks_multi(options)
+                ctx = EnginePipelineContext(
+                    date=pd.Timestamp(date),
+                    stocks=stocks,
+                    options=options,
+                    total_capital=float(total_capital),
+                    current_cash=float(self.current_cash),
+                    current_greeks=current_greeks,
+                    options_allocation=float(options_allocation),
+                )
+                should_stop, skip_day = self._apply_algos(ctx)
+                if should_stop:
+                    self._log_event(date, "algo_stop", "stop", {})
+                    break
+                if skip_day:
+                    self._log_event(date, "algo_skip_day", "skip_day", {})
+                    continue
+
+                algo_changed_alloc = (
+                    ctx.options_allocation != float(options_allocation)
+                )
+                if algo_changed_alloc:
+                    options_allocation = ctx.options_allocation
+
+                # Phase 4: buy stocks (shared pool)
+                stocks_allocation = self.allocation["stocks"] * total_capital
+                self._stocks_inventory = pd.DataFrame(columns=["symbol", "price", "qty"])
+                self.current_cash = stocks_allocation + total_capital * self.allocation["cash"]
+                self._buy_stocks(stocks, stocks_allocation, sma_days)
+
+                # Phase 5: entries for each rebalancing slot (weighted allocation)
+                for slot in slots_rebalancing:
+                    with self._strategy_context(slot):
+                        slot_capital = (
+                            self._current_options_capital(options, stocks)
+                            if not self._options_inventory.empty
+                            else 0.0
+                        )
+                        slot_allocation = slot.weight * options_allocation
+                        if slot_allocation >= slot_capital:
+                            self._execute_option_entries(
+                                date, options,
+                                slot_allocation - slot_capital,
+                                stocks,
+                                total_capital=total_capital,
+                            )
+                        else:
+                            to_sell = slot_capital - slot_allocation
+                            current_options = self._get_current_option_quotes(options)
+                            self._sell_some_options(date, to_sell, current_options, stocks)
+
+                # Track peak for drawdown risk checks
+                total = self._total_capital_estimate_multi(stocks, options)
+                self._peak_value = max(self._peak_value, total)
+
+                # stop_if_broke: halt if cash goes negative
+                if self.stop_if_broke and self.current_cash < 0:
+                    break
+
+            else:
+                # Non-rebalance day: check daily exits for eligible slots
+                for slot in self._strategy_slots:
+                    if slot.check_exits_daily or check_exits_daily:
+                        with self._strategy_context(slot):
+                            if not self._options_inventory.empty:
+                                self._execute_option_exits(date, options, stocks)
+
+            bar.update()
+
+        # Final balance update
+        if len(all_rebalance_dates) > 0:
+            self._update_balance_multi(all_rebalance_dates[-1], self.stocks_data.end_date)
+
+        # Assemble trade_log and balance
+        self.trade_log = (
+            pd.concat(self._trade_log_parts, ignore_index=True)
+            if self._trade_log_parts
+            else pd.DataFrame()
+        )
+        self.balance = pd.concat(self._balance_parts, sort=False)
+        for col in self.balance.columns:
+            self.balance[col] = pd.to_numeric(self.balance[col], errors="coerce")
+
+        self.balance["options capital"] = (
+            self.balance["calls capital"] + self.balance["puts capital"]
+        )
+        self.balance["stocks capital"] = sum(
+            self.balance[stock.symbol] for stock in self._stocks
+        )
+        first_idx = self.balance.index[0]
+        self.balance.loc[first_idx, "stocks capital"] = 0
+        self.balance.loc[first_idx, "options capital"] = 0
+        self.balance["total capital"] = (
+            self.balance["cash"]
+            + self.balance["stocks capital"]
+            + self.balance["options capital"]
+        )
+        self.balance["% change"] = self.balance["total capital"].pct_change()
+        self.balance["accumulated return"] = (
+            1.0 + self.balance["% change"]
+        ).cumprod()
+        self._attach_run_metadata(
+            rebalance_freq=0,
+            monthly=monthly,
+            sma_days=sma_days,
+            dispatch_mode="python-multi",
+        )
+
+        return self.trade_log
