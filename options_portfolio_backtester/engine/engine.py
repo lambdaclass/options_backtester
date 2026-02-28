@@ -98,11 +98,12 @@ class BacktestEngine:
         max_notional_pct: float | None = None,
     ) -> None:
         assets = ("stocks", "options", "cash")
-        total_allocation = sum(allocation.get(a, 0.0) for a in assets)
+        self._raw_allocation = {a: allocation.get(a, 0.0) for a in assets}
+        total_allocation = sum(self._raw_allocation.values())
 
         self.allocation: dict[str, float] = {}
         for asset in assets:
-            self.allocation[asset] = allocation.get(asset, 0.0) / total_allocation
+            self.allocation[asset] = self._raw_allocation[asset] / total_allocation
 
         self.initial_capital = initial_capital
         self.shares_per_contract = shares_per_contract
@@ -760,9 +761,17 @@ class BacktestEngine:
         options_capital = self._current_options_capital(options, stocks)
         total_capital = self.current_cash + stock_capital + options_capital
 
-        stocks_allocation = self.allocation["stocks"] * total_capital
+        # When options_budget is set, options are funded separately (not from the
+        # allocation split).  Use the raw allocation values for stocks/cash so
+        # that {stocks:1.0, options:0.005} really means 100% equity + 0.5% puts
+        # on top (Spitznagel leverage), rather than being normalized to 99.5%.
+        if self.options_budget is not None:
+            stocks_allocation = self._raw_allocation["stocks"] * total_capital
+            self.current_cash = stocks_allocation + total_capital * self._raw_allocation["cash"]
+        else:
+            stocks_allocation = self.allocation["stocks"] * total_capital
+            self.current_cash = stocks_allocation + total_capital * self.allocation["cash"]
         self._stocks_inventory = pd.DataFrame(columns=["symbol", "price", "qty"])
-        self.current_cash = stocks_allocation + total_capital * self.allocation["cash"]
         self._buy_stocks(stocks, stocks_allocation, sma_days)
 
         if options_allocation_override is not None:
@@ -1805,9 +1814,13 @@ class BacktestEngine:
                     options_allocation = ctx.options_allocation
 
                 # Phase 4: buy stocks (shared pool)
-                stocks_allocation = self.allocation["stocks"] * total_capital
+                if self.options_budget is not None:
+                    stocks_allocation = self._raw_allocation["stocks"] * total_capital
+                    self.current_cash = stocks_allocation + total_capital * self._raw_allocation["cash"]
+                else:
+                    stocks_allocation = self.allocation["stocks"] * total_capital
+                    self.current_cash = stocks_allocation + total_capital * self.allocation["cash"]
                 self._stocks_inventory = pd.DataFrame(columns=["symbol", "price", "qty"])
-                self.current_cash = stocks_allocation + total_capital * self.allocation["cash"]
                 self._buy_stocks(stocks, stocks_allocation, sma_days)
 
                 # Phase 5: entries for each rebalancing slot (weighted allocation)
