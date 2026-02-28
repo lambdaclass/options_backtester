@@ -733,3 +733,119 @@ The hard part isn't the data — it's the normalization. How do you compare the 
 | RBA Bulletin Mar 2009 | 2008 AUD carry unwind | [PDF](https://www.rba.gov.au/publications/bulletin/2009/mar/pdf/bu-0309-1.pdf) |
 | BOE Quarterly Bulletin Q1 1999 | 1998 yen crisis options market analysis | [PDF](https://escoe-website.s3.amazonaws.com/wp-content/uploads/2019/11/30191453/BEQB_The-yen-dollar-exchange-rate-in-1998-views-from-options-markets-QB-1999-Q1-pp.68-77.pdf) |
 | Global FXC 2020 | COVID FX market conditions | [PDF](https://www.globalfxc.org/uploads/20200622_gfxc_overview_of_market_conditions.pdf) |
+
+---
+
+## 10. Data Sourcing: What We Need and What It Costs
+
+To backtest the Spitznagel structure across asset classes (and eventually build the convexity scanner), we need historical options data for multiple instruments.
+
+### The cross-rate problem
+
+CME doesn't list direct AUD/JPY or MXN/JPY options. They list USD-denominated pairs:
+- **6A** (AUD/USD), **6J** (JPY/USD), **6M** (MXN/USD), **6E** (EUR/USD)
+
+To backtest AUD/JPY carry + puts, you construct synthetic positions from the USD pairs (long 6A + short 6J). For options, you'd model cross-rate vol from individual vols and cross-correlation, or simply backtest the USD pairs directly (long 6A + buy OTM puts on 6A covers the AUD depreciation risk).
+
+### What we need by phase
+
+**Phase 1 — equity/ETF options (convexity scanner baseline):**
+SPY (already have), HYG, EEM, TLT, GLD, VIX
+
+**Phase 2 — futures options (cross-asset backtests):**
+SOFR (SR3), ZN, ZB, 6A, 6J, 6M, 6E, CL, ZC, ZW
+
+**Phase 3 — credit derivatives:**
+CDX is institutional-only ($10k+/yr via Markit). Skip — use HYG puts from Phase 1 instead.
+
+**Spot FX rates (for synthetic backtests):** Free via yfinance/FRED.
+
+### Cost breakdown
+
+| Data | Source | Cost | Notes |
+|------|--------|------|-------|
+| SPY options | Already have | $0 | 2008-2025, 24.7M rows |
+| HYG, EEM, TLT, GLD, VIX options | [HistoricalOptionData.com](https://historicaloptiondata.com/) | $575-805/yr | All US equity/ETF/index options, with IV+Greeks. Verify VIX coverage. |
+| VIX options (if not above) | [CBOE DataShop](https://datashop.cboe.com/) | ~$100-300 one-time | Canonical source for VIX. EOD summary product. |
+| FX futures options (6A, 6J, 6M, 6E) | [Databento](https://databento.com/) | ~$100-300 | Pay-as-you-go, EOD settlement, $125 free credit on signup |
+| Rate futures options (SR3, ZN, ZB) | Databento | ~$100-200 | Same account, add products |
+| Commodity futures options (CL, ZC, ZW) | Databento | ~$100-200 | Same account |
+| FX implied vol surfaces | [IVolatility](https://www.ivolatility.com/) | $60-150/mo | Optional — proper IV surfaces beyond raw settlement |
+| Spot FX rates | yfinance + FRED | $0 | `yf.download("AUDJPY=X")` or FRED series |
+| CDX/CDS credit indices | Markit/S&P Global | $10,000+/yr | Skip — institutional only, use HYG puts |
+
+### Three budget tiers
+
+**Minimum viable (~$700-1,300 one-time):**
+- HistoricalOptionData.com ($575-805/yr) — covers SPY, HYG, EEM, TLT, GLD, probably VIX
+- Databento ($0-175 after $125 free credit) — covers all CME futures options (FX, rates, commodities)
+- Free spot FX via yfinance/FRED
+- Covers everything except IV surfaces
+
+**Comfortable (~$2,000-3,000/yr):**
+- Everything above
+- IVolatility (~$720-1,800/yr) for CME implied vol surfaces
+- CBOE DataShop for VIX if not in HistoricalOptionData
+- Full data for phases 1+2
+
+**Skip entirely:**
+- Markit/S&P Global ($10k+/yr) — use HYG puts instead
+- OptionMetrics ($20-50k/yr) — academic institutional, overkill
+- CME DataMine — Databento is cheaper and more developer-friendly
+
+### Data source details
+
+**Databento** ([databento.com](https://databento.com/)) — Best for futures options.
+- Modern Python API: `pip install databento`
+- All CME/CBOT/NYMEX/COMEX products. Historical from June 2010.
+- Schemas: OHLCV-1d (daily bars), Statistics (settlements, OI), MBP-1 (L1 BBO). Use OHLCV-1d or Statistics to keep costs low.
+- Pricing: ~$5/compressed GB downloaded. $125 free credit on signup.
+- $179/mo Standard plan available (unlimited live CME + 7yr OHLCV history) but overkill if you only need historical.
+- [Pricing](https://databento.com/pricing) · [CME dataset](https://databento.com/datasets/GLBX.MDP3) · [Options data](https://databento.com/options)
+
+**HistoricalOptionData.com** ([historicaloptiondata.com](https://historicaloptiondata.com/)) — Best for equity/ETF options.
+- All US equity/ETF/index options from 2005-present.
+- Level 1 (no Greeks): $545/yr. Level 2 (30-day surface IV): $575/yr. Level 3 (bid/ask IV, multi-tenor): $805/yr.
+- Flat file delivery. Research-quality EOD data.
+
+**CBOE DataShop** ([datashop.cboe.com](https://datashop.cboe.com/)) — Canonical source for VIX.
+- VIX options/futures from 2004. IV surfaces, trade-level data.
+- Option EOD Summary product is what we'd want. Per-symbol pricing.
+- Also covers all OPRA-listed equity/ETF options.
+
+**IVolatility** ([ivolatility.com](https://www.ivolatility.com/)) — Best for IV surfaces.
+- US futures + futures options from CME/COMEX/NYMEX/ICE since 2006. Includes FX futures.
+- NBBO, raw IV, IV Index, IV Surface, historical vol.
+- IVolLive: $60/mo (delayed) or $150/mo (real-time). Pay-per-usage also available.
+- [US Futures data](https://www.ivolatility.com/historical-options-data/us-futures-futures-options/)
+
+**QuantConnect** ([quantconnect.com](https://www.quantconnect.com/)) — Free but locked to their platform.
+- CME futures options from 2012 via Algoseek. Minute-frequency.
+- Free for research/backtesting on their cloud. Cannot export data.
+- Good for validating before spending money.
+- [US Futures Options](https://www.quantconnect.com/data/algoseek-us-future-options)
+
+**Free spot FX:**
+
+```python
+# Quick: yfinance
+import yfinance as yf
+audjpy = yf.download("AUDJPY=X", start="2010-01-01")
+mxnjpy = yf.download("MXNJPY=X", start="2010-01-01")
+
+# More reliable: FRED (St. Louis Fed)
+from fredapi import Fred
+fred = Fred(api_key='your_key')
+usdjpy = fred.get_series('DEXJPUS', observation_start='2010-01-01')
+usdaud = fred.get_series('DEXUSAL', observation_start='2010-01-01')
+audjpy = usdaud * usdjpy  # construct cross
+```
+
+**Interactive Brokers:** Cannot pull expired options data — useless for historical backtesting. Only good for forward-looking data collection.
+
+### Recommended starting path
+
+1. **Sign up for Databento** (free, $125 credit). Pull daily settlement data for 6A, 6J, 6E options to see data format and coverage.
+2. **Download free spot FX** via yfinance. Run a synthetic carry + tail protection backtest immediately (no money needed).
+3. **Buy HistoricalOptionData.com Level 2** ($575) when ready for the convexity scanner Phase 1.
+4. **Add IVolatility** ($60/mo) when you want proper IV surfaces for Level 2+ scoring.
