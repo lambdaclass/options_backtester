@@ -916,6 +916,75 @@ audjpy = usdaud * usdjpy  # construct cross
 ### Recommended starting path
 
 1. **Sign up for Databento** (free, $125 credit). Pull daily settlement data for 6A, 6J, 6E options to see data format and coverage.
-2. **Download free spot FX** via yfinance. Run a synthetic carry + tail protection backtest immediately (no money needed).
+2. **Download free spot FX** via yfinance. Run a synthetic carry + tail protection backtest immediately (no money needed). **Done** — see section 8 for results.
 3. **Buy HistoricalOptionData.com Level 2** ($575) when ready for the convexity scanner Phase 1.
 4. **Add IVolatility** ($60/mo) when you want proper IV surfaces for Level 2+ scoring.
+
+### Databento setup guide
+
+**Sign up:**
+1. Go to [databento.com](https://databento.com) and click Sign Up
+2. Create an account (email + password)
+3. Your API key is **auto-generated** — find it on the [API Keys page](https://databento.com/docs/portal/api-keys) in your portal
+4. The key is a 32-character string starting with `db-`
+5. You get **$125 in free credits** automatically for historical data
+
+**Install and configure:**
+```bash
+pip install -U databento
+export DATABENTO_API_KEY="db-your-key-here"
+```
+
+**Check cost before downloading** (deducted from $125 credit):
+```python
+import databento as db
+
+client = db.Historical()  # picks up DATABENTO_API_KEY env var
+
+# Check how much FX options data will cost
+cost = client.metadata.get_cost(
+    dataset="GLBX.MDP3",
+    symbols=["6A.OPT", "6J.OPT", "6M.OPT"],
+    schema="ohlcv-1d",
+    start="2010-01-01",
+    end="2026-01-01",
+)
+print(f"Estimated cost: ${cost}")
+```
+
+**Download FX futures options data:**
+```python
+data = client.timeseries.get_range(
+    dataset="GLBX.MDP3",
+    symbols=["6A.OPT", "6J.OPT", "6M.OPT", "6E.OPT"],
+    schema="ohlcv-1d",
+    start="2010-01-01",
+    end="2026-01-01",
+)
+
+df = data.to_df()
+print(f"Downloaded {len(df)} rows")
+df.to_parquet("data/fx_options_daily.parquet")
+```
+
+**Key details:**
+- Dataset for all CME products: `GLBX.MDP3`
+- FX option symbols: `6A.OPT` (AUD), `6J.OPT` (JPY), `6M.OPT` (MXN), `6E.OPT` (EUR)
+- Rate option symbols: `SR3.OPT` (SOFR), `ZN.OPT` (10yr Treasury), `ZB.OPT` (30yr Treasury)
+- Commodity option symbols: `CL.OPT` (crude oil), `ZC.OPT` (corn), `ZW.OPT` (wheat)
+- Schema `ohlcv-1d` is cheapest (daily bars). `statistics` gives settlements + OI. Both work for backtesting.
+- Pricing: ~$5/compressed GB. EOD data for a handful of products over 15 years should be well within the $125 credit.
+- Output formats: DataFrame (pandas), ndarray (numpy), CSV, Parquet
+- Docs: [API demo](https://databento.com/blog/api-demo-python) · [Python client](https://github.com/databento/databento-python) · [Historical API](https://databento.com/docs/api-reference-historical)
+
+### Why we need real option data (not synthetic)
+
+The synthetic backtest in section 8 uses Black-Scholes with realized vol — this has real limitations:
+
+1. **No skew.** Real FX put IV is 1-3 vol points above ATM due to crash risk premium. Our BS model uses flat vol, likely **underestimating put costs by 10-30%**.
+2. **No term structure.** BS scales vol by √T, but real IV term structure is flatter. This is why our 3-month results contradict Jurek's finding.
+3. **No bid-ask spreads.** Real OTM FX options on CME have 10-20% bid-ask as a fraction of premium. Zero transaction cost assumption flatters the results.
+4. **No smile.** Deep OTM options have higher IV than our model assumes. The 5-delta puts are priced too cheap in our model.
+5. **No volume/OI data.** We can't assess whether the options we're "buying" actually traded. Real data shows liquidity.
+
+Real CME option prices from Databento solve all five problems. The synthetic backtest gives us confidence the structure works (puts are net profitable on carry pairs), but the exact numbers (5.17% vs 7.72% CAGR) could shift significantly with real pricing.
