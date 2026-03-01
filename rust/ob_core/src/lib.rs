@@ -10,3 +10,5 @@ pub mod fill_model;
 pub mod signal_selector;
 pub mod risk;
 pub mod backtest;
+pub mod convexity_scoring;
+pub mod convexity_backtest;

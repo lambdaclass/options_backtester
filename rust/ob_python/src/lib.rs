@@ -3,6 +3,7 @@ use pyo3::prelude::*;
 mod arrow_bridge;
 mod py_balance;
 mod py_backtest;
+mod py_convexity;
 mod py_filter;
 mod py_entries;
 mod py_exits;
@@ -20,6 +21,8 @@ fn _ob_rust(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(py_stats::compute_stats, m)?)?;
     m.add_function(wrap_pyfunction!(py_stats::compute_full_stats, m)?)?;
     m.add_function(wrap_pyfunction!(py_sweep::parallel_sweep, m)?)?;
+    m.add_function(wrap_pyfunction!(py_convexity::compute_daily_scores, m)?)?;
+    m.add_function(wrap_pyfunction!(py_convexity::run_convexity_backtest, m)?)?;
     m.add_class::<py_filter::CompiledFilter>()?;
     Ok(())
 }

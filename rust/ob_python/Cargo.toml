@@ -12,4 +12,5 @@ ob_core = { path = "../ob_core" }
 pyo3 = { version = "0.24", features = ["extension-module"] }
 pyo3-polars = "0.21"
 polars = { version = "0.48", features = ["lazy"] }
+numpy = "0.24"
 rayon = "1.10"
