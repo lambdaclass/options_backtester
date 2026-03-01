@@ -693,9 +693,156 @@ This confirms Jurek (2014) and Caballero & Doyle (2012): FX crash protection opt
 4. **Need real option data** to resolve the tenor question and get accurate cost estimates — synthetic BS pricing isn't enough
 5. **EUR/USD confirms the control**: without carry differential, the structure adds nothing
 
-### Next step
+---
 
-Buy real CME FX option prices from Databento (~$100-300 with $125 free credit) and run through the actual backtester engine. The synthetic results are promising enough to justify the data purchase.
+## 8b. Real FX Options Backtest: AUD/USD (Databento CME Data)
+
+**Notebook:** `notebooks/fx_carry_real.ipynb`
+
+We bought real CME AUD futures options from Databento (~$5.57 total cost) and ran the backtest with actual market prices. This is the first test using real option data instead of synthetic Black-Scholes pricing.
+
+### Data
+
+| Dataset | Symbol | Rows | Date Range | Cost |
+|---------|--------|------|-----------|------|
+| AUD futures options (old) | 6A.OPT | 173K | 2010-2017 | (from initial download) |
+| AUD futures options (new) | ADU.OPT | 240K | 2016-2026 | $2.38 |
+| AUD futures (underlying) | 6A.FUT | 30K | 2010-2026 | $0.30 |
+
+**Key Databento finding:** CME FX options use different product codes than the underlying futures. AUD futures trade as `6A`, but the options trade as `ADU`. Similarly: JPY = `JPU`, EUR = `EUU`, GBP = `GBU`. The old `6A.OPT` parent symbol only resolved for pre-2017 data; `ADU.OPT` covers 2016-2026. Combined, we have 16 years of real daily option OHLCV data.
+
+### Strategy
+
+- 100% notional in front-month AUD/USD futures (rolled monthly, highest volume contract)
+- Each month, spend 0.5% of portfolio on a 1-month OTM put
+- Put settles at last traded price near expiry or intrinsic value
+
+### Main results
+
+| Strategy | Ann. Return | Ann. Vol | Sharpe | Max DD |
+|----------|-----------|---------|--------|--------|
+| AUD futures only | 0.18% | 10.84% | 0.017 | -37.06% |
+| AUD + 10% OTM puts (0.5%) | 5.27% | 26.92% | 0.196 | -36.53% |
+| AUD + 5% OTM puts (0.5%) | 4.10% | 14.14% | 0.290 | -29.52% |
+| **SPY + 0.5% puts (real)** | **16.46%** | **8.76%** | **1.879** | **-8.24%** |
+
+### Put economics
+
+For 10% OTM puts:
+- Total put P&L: +104% of portfolio over 15 years (net profitable!)
+- Win rate: 5.5% of months (10 out of 182)
+- The puts are profitable because the few winners are massive: Aug 2011 returned 2094% on premium, Sep 2011 returned 4650%
+- Most months: puts expire worthless (-100% of premium = -0.5% of portfolio)
+
+### Crisis performance
+
+| Crisis | Futures Ret | Put P&L | Combined | Puts Helped? |
+|--------|-----------|---------|----------|-------------|
+| 2011 EU debt crisis | -8.46% | +32.72% | +25.80% | YES |
+| 2013 taper tantrum | -7.87% | +106.20% | +102.23% | YES |
+| 2015 China deval | -2.28% | -1.00% | -3.27% | no |
+| 2018 trade war | -7.64% | -6.00% | -13.06% | no |
+| 2020 COVID crash | -0.34% | +2.61% | +2.41% | YES |
+| 2022 rate hikes | -13.72% | -3.00% | -16.34% | no |
+
+The puts helped in 3 of 6 crises. They failed in 2015 (AUD drop was too gradual), 2018 (slow grind, not a crash), and 2022 (steady rate-driven decline, not a panic). This confirms a key limitation: OTM puts are designed for fast, violent moves — not slow grinds.
+
+### Synthetic vs real comparison
+
+| Metric | Synthetic (BS) | Real (Databento) |
+|--------|---------------|-----------------|
+| AUD carry + puts CAGR | 5.17% | 5.27% (10% OTM) / 4.10% (5% OTM) |
+| Put win rate | ~15% | 5.5% (10% OTM) / 9.3% (5% OTM) |
+| Avg winner size | ~10-20x | ~200x (10% OTM) / ~40x (5% OTM) |
+| Put net P&L | +0.52%/yr | +6.88%/yr (10% OTM) / +4.17%/yr (5% OTM) |
+
+The synthetic model underestimates both the win size and the loss rate. Real deep OTM options are much cheaper than Black-Scholes suggests (hence the huge multipliers when they pay off), but they also expire worthless far more often. The two effects roughly cancel in total return, but the distribution is more extreme with real data.
+
+### Key takeaways
+
+1. **The puts are net profitable on real data** — confirming that FX crash protection is genuinely underpriced
+2. **AUD/USD has no equity premium** (0.18%/yr over 15 years). Without the underlying return engine, the strategy depends entirely on crisis timing
+3. **5% OTM puts are better risk-adjusted** (Sharpe 0.290 vs 0.196) — less extreme leverage, more consistent payoff
+4. **SPY + puts remains dominant** — the equity premium (11%/yr) is the key ingredient that makes the Spitznagel structure work. FX carry (2-4%/yr differential) isn't enough
+5. **The real value of FX hedges is diversification**: in 2011 and 2013, AUD puts paid massively while SPY was less affected. A portfolio holding BOTH SPY puts and FX carry puts would have broader crisis coverage
+
+---
+
+## 8c. Leveraged AUD/JPY Carry + OTM Puts (The Real Carry Trade)
+
+**Notebook:** `notebooks/fx_carry_real.ipynb` (updated)
+
+The previous section tested AUD/USD — the wrong pair. AUD/USD carry was only 0.95%/yr over 2010-2026 because the Fed hiked above the RBA in 2018-2024. The **real** carry trade is AUD/JPY, where the differential averaged 2.47%/yr over the same period (BOJ held at ~0% until 2024).
+
+### How carry traders actually make money
+
+1. **Borrow JPY** at ~0% interest
+2. **Buy AUD** assets earning 2-4%
+3. **Apply leverage** (3-10x typical for FX carry)
+4. **Pocket the rate differential × leverage**
+
+With 5x leverage on 2.5%/yr carry = 12.5%/yr income. That's comparable to equities. The catch: AUD/JPY drops 15-40% in crises (2008: -40%, 2011: -13%, 2013: -12%, 2015: -11%, 2020: -9%).
+
+### AUD/JPY spot return 2010-2026
+
+AUD/JPY went from ~75 to ~111 over the period (+48% total, +2.5%/yr annualized). This is mainly because JPY weakened massively (USD/JPY went from 92 to 156) as BOJ maintained ultra-loose monetary policy. So AUD/JPY carry traders got both carry AND appreciation — a historically favorable period.
+
+### Leveraged backtest results
+
+| Strategy | Ann. Return | Vol | Sharpe | Max DD |
+|----------|-----------|-----|--------|--------|
+| **1x AUD/JPY unhedged** | 6.81% | 11.1% | 0.616 | -28.1% |
+| **1x + 5% OTM puts (0.5%)** | **12.67%** | **15.9%** | **0.795** | **-20.8%** |
+| 1x + 8% OTM puts (0.5%) | 14.05% | 19.0% | 0.741 | -22.7% |
+| 3x AUD/JPY unhedged | 16.45% | 33.2% | 0.496 | -70.5% |
+| 3x + 5% OTM puts | 32.62% | 47.8% | 0.682 | -55.8% |
+| 5x AUD/JPY unhedged | 19.41% | 55.3% | 0.351 | -91.4% |
+| **SPY + 0.5% puts** | **16.46%** | **8.8%** | **1.879** | **-8.24%** |
+
+### P&L decomposition (1x leverage, 8% OTM puts)
+
+| Component | Total ($, starting $100) | Per Year |
+|-----------|-------------------------|----------|
+| Carry income | $130.9 | $8.3/yr |
+| Spot P&L | $315.1 | $20.0/yr |
+| Put P&L | $244.8 | $15.6/yr |
+| **Net total** | **$690.7** | **$43.9/yr** |
+
+The puts are net profitable — massively so. The biggest put payoffs came during the 2011 EU debt crisis where a single month's puts returned 2000%+ on premium.
+
+### Crisis performance (5x leverage)
+
+| Crisis | AUD/JPY | Unhedged | + 8% OTM | + 5% OTM |
+|--------|---------|----------|----------|----------|
+| 2011 EU debt | -4.9% | -22.5% | **+274.8%** | +140.8% |
+| 2013 taper tantrum | -12.3% | -49.1% | -39.5% | -39.5% |
+| 2015 China deval | -10.8% | -45.7% | -47.3% | -47.3% |
+| 2018 trade war | -12.2% | -44.2% | +8.9% | +8.9% |
+| 2020 COVID | -8.5% | -41.5% | -43.0% | -43.0% |
+| 2022 rate hikes | +3.4% | +18.0% | +12.9% | +12.9% |
+
+Puts helped in 2 of 5 crises (2011, 2018) but failed in 2013, 2015, 2020. The core issue: **our puts are on AUD/USD, not AUD/JPY**. When AUD/JPY drops because of JPY strength (not AUD weakness), the AUD/USD puts don't protect. In 2020, AUD/USD dropped briefly but recovered quickly while USD/JPY also moved — the cross-rate exposure isn't fully hedged.
+
+### Key takeaways
+
+1. **Leveraged carry works** — 1x AUD/JPY at 6.81%/yr is comparable to many equity markets
+2. **The puts improve risk-adjusted returns** — 1x + 5% OTM puts gives Sharpe 0.795 vs unhedged 0.616
+3. **But the Sharpe is half of SPY + puts** (0.795 vs 1.879) — the equity premium is a better engine than carry
+4. **Put protection is imperfect** because we're hedging AUD/USD, not AUD/JPY. CME doesn't have AUD/JPY options; you'd need OTC for perfect hedging
+5. **2010-2026 was a historically favorable period** for AUD/JPY carry — JPY weakness boosted spot returns. Going forward, if BOJ normalizes rates, the carry narrows and the trade gets worse
+6. **5x leverage is suicidal** — 91.4% max drawdown unhedged. Even 3x had -70.5% max DD. The puts don't save you from slow grinds
+
+### Why SPY + puts still wins
+
+The Sharpe ratio tells the whole story:
+
+| Strategy | Sharpe | Why |
+|----------|--------|-----|
+| SPY + 0.5% puts | 1.879 | Equity premium is large, reliable, and well-hedged |
+| 1x AUD/JPY + 5% OTM puts | 0.795 | Carry premium is smaller, hedging is imperfect |
+| 5x AUD/JPY + 8% OTM puts | 0.495 | Leverage destroys Sharpe via volatility drag |
+
+The carry trade's appeal is **diversification**, not replacement. In 2011, AUD puts paid +274% while SPY was roughly flat. Owning both hedges covers more scenarios.
 
 ---
 
