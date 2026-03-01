@@ -125,7 +125,19 @@ Spitznagel's leveraged tail hedge wins by the widest margin because crash protec
 - +1.0% budget: 21.08%/yr, DD -42.4%
 - +3.3% budget: 46.60%/yr, DD -29.2%
 
-These metrics are specific to our 2008-2025 sample, the exact roll rules in the notebook, and are shown gross of transaction costs and taxes. Different windows or implementation choices will change the magnitudes.
+**Calm-period test (2012-2018):** The calmest 7-year stretch in our sample, with no correction exceeding -19.3%. Even here, the strategy works:
+
+| Framing | Config | Annual Return | vs SPY | Max DD | Vol | Sharpe |
+|---------|--------|:------------:|:------:|:------:|:---:|:------:|
+| Spitznagel | +0.5% puts | +16.30% | +3.95% | -22.0% | 16.4% | 0.993 |
+| Spitznagel | +1.0% puts | +20.34% | +7.99% | -25.2% | 22.0% | 0.926 |
+| No-leverage | 99.5% SPY + 0.5% puts | +12.71% | +0.36% | -15.4% | 11.1% | 1.145 |
+| No-leverage | 99% SPY + 1% puts | +13.03% | +0.68% | -11.9% | 10.1% | 1.289 |
+| SPY buy-and-hold | 100% SPY | +12.35% | | -19.3% | 12.9% | 0.960 |
+
+The 0.5% Spitznagel config beat SPY in every single year from 2012 to 2018, including +6.96% excess in 2015 (a flat year with a -12% correction) and +3.55% in 2018 (SPY down -4.56%). At 3.3% budget, max DD reaches -65.5% from put premium volatility alone — confirming that small budgets are critical.
+
+These metrics are specific to our 2008-2025 sample (full period) and 2012-2018 (calm period), the exact roll rules in the notebook, and are shown gross of transaction costs and taxes. Different windows or implementation choices will change the magnitudes.
 
 Other findings:
 - Selling options (covered calls, put-writing, short strangles) harvests the Variance Risk Premium
