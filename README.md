@@ -112,15 +112,15 @@ Presets: `strangle`, `iron_condor`, `covered_call`, `cash_secured_put`, `collar`
 
 **Can a small allocation to SPY puts improve risk-adjusted returns over buy-and-hold?** Inspired by Universa Investments' approach to tail-risk hedging.
 
-**The framing matters more than the strategy.** Same deep OTM puts, opposite conclusions:
+**Both framings beat SPY with deep OTM puts.** The framing determines how much:
 
 | Framing | Setup | Return | Max DD |
 |---------|-------|--------|--------|
-| AQR (reduce equity) | 99% SPY + 1% puts | +7.38% | -48.4% |
+| AQR (reduce equity) | 99% SPY + 1% puts | +14.11% | -43.1% |
 | **Spitznagel (leverage)** | **100% SPY + 1% puts on top** | **+21.08%** | **-42.4%** |
 | SPY buy-and-hold | 100% SPY | +11.05% | -51.9% |
 
-Spitznagel's leveraged tail hedge works because crash protection allows full investment and the drawdown reduction is real:
+Spitznagel's leveraged tail hedge wins by the widest margin because crash protection allows full equity exposure:
 - +0.5% budget: 16.02%/yr, DD -47.1%
 - +1.0% budget: 21.08%/yr, DD -42.4%
 - +3.3% budget: 46.60%/yr, DD -29.2%
