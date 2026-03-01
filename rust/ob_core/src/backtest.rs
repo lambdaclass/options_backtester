@@ -362,8 +362,15 @@ pub fn run_backtest(
 
         // Rebalance stocks
         let stocks_alloc = config.allocation_stocks * total_capital;
+        let externally_funded = config.options_budget_fixed.is_some();
         stock_holdings.clear();
-        cash = stocks_alloc + total_capital * config.allocation_cash;
+        if externally_funded {
+            cash = stocks_alloc + total_capital * config.allocation_cash;
+        } else {
+            // AQR framing: keep options portion in cash so we don't create
+            // money out of thin air when buying options below.
+            cash = total_capital;
+        }
 
         // Get SMA prices for this date if configured
         let sma_prices = sma_map_by_date.as_ref().and_then(|m| m.get(&rb_date));
@@ -382,7 +389,9 @@ pub fn run_backtest(
             .unwrap_or(config.allocation_options * total_capital);
         if options_alloc >= options_cap {
             let budget = options_alloc - options_cap;
-            cash += budget;
+            if externally_funded {
+                cash += budget;
+            }
 
             let held: Vec<String> = positions.iter()
                 .flat_map(|p| p.leg_contracts.clone())
@@ -406,7 +415,9 @@ pub fn run_backtest(
                 positions.push(pos);
             } else {
                 // No entry made — revert the budget added to cash
-                cash -= budget;
+                if externally_funded {
+                    cash -= budget;
+                }
             }
         } else {
             // _sell_some_options

@@ -768,9 +768,13 @@ class BacktestEngine:
         if self.options_budget is not None:
             stocks_allocation = self._raw_allocation["stocks"] * total_capital
             self.current_cash = stocks_allocation + total_capital * self._raw_allocation["cash"]
+            externally_funded = True
         else:
             stocks_allocation = self.allocation["stocks"] * total_capital
-            self.current_cash = stocks_allocation + total_capital * self.allocation["cash"]
+            # Include the options portion in cash so _execute_option_entries
+            # can spend it without creating money out of thin air.
+            self.current_cash = total_capital
+            externally_funded = False
         self._stocks_inventory = pd.DataFrame(columns=["symbol", "price", "qty"])
         self._buy_stocks(stocks, stocks_allocation, sma_days)
 
@@ -794,6 +798,7 @@ class BacktestEngine:
                 stocks,
                 entry_filters=entry_filters,
                 total_capital=total_capital,
+                externally_funded=externally_funded,
             )
         else:
             to_sell = options_capital - options_allocation
@@ -1182,8 +1187,9 @@ class BacktestEngine:
             for leg in sell_legs
         )
 
-    def _execute_option_entries(self, date, options, options_allocation, stocks=None, entry_filters=None, total_capital=None):
-        self.current_cash += options_allocation
+    def _execute_option_entries(self, date, options, options_allocation, stocks=None, entry_filters=None, total_capital=None, externally_funded=True):
+        if externally_funded:
+            self.current_cash += options_allocation
 
         inventory_contracts = pd.concat(
             [self._options_inventory[leg.name]["contract"] for leg in self._options_strategy.legs]
@@ -1198,7 +1204,8 @@ class BacktestEngine:
                 self._log_event(date, "option_entry_filtered", "skip_day", {
                     "options_allocation": float(options_allocation),
                 })
-                self.current_cash -= options_allocation
+                if externally_funded:
+                    self.current_cash -= options_allocation
                 return
 
         entry_signals: list[pd.DataFrame] = []
@@ -1211,7 +1218,8 @@ class BacktestEngine:
                 self._log_event(date, "option_entry_no_candidates", "skip_day", {
                     "leg": leg.name,
                 })
-                self.current_cash -= options_allocation
+                if externally_funded:
+                    self.current_cash -= options_allocation
                 return
 
             if leg.entry_sort:
@@ -1290,12 +1298,14 @@ class BacktestEngine:
                 self._log_event(date, "risk_block_entry", "skip_day", {
                     "portfolio_value": float(portfolio_value),
                 })
-                self.current_cash -= options_allocation
+                if externally_funded:
+                    self.current_cash -= options_allocation
                 return
 
         if entries.empty:
             self._log_event(date, "option_entry_none_selected", "skip_day", {})
-            self.current_cash -= options_allocation
+            if externally_funded:
+                self.current_cash -= options_allocation
             return
 
         entries_df = pd.DataFrame([entries])
@@ -1817,9 +1827,11 @@ class BacktestEngine:
                 if self.options_budget is not None:
                     stocks_allocation = self._raw_allocation["stocks"] * total_capital
                     self.current_cash = stocks_allocation + total_capital * self._raw_allocation["cash"]
+                    externally_funded = True
                 else:
                     stocks_allocation = self.allocation["stocks"] * total_capital
-                    self.current_cash = stocks_allocation + total_capital * self.allocation["cash"]
+                    self.current_cash = total_capital
+                    externally_funded = False
                 self._stocks_inventory = pd.DataFrame(columns=["symbol", "price", "qty"])
                 self._buy_stocks(stocks, stocks_allocation, sma_days)
 
@@ -1838,6 +1850,7 @@ class BacktestEngine:
                                 slot_allocation - slot_capital,
                                 stocks,
                                 total_capital=total_capital,
+                                externally_funded=externally_funded,
                             )
                         else:
                             to_sell = slot_capital - slot_allocation
