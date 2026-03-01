@@ -101,23 +101,6 @@ venv.bak/
 # mypy
 .mypy_cache/
 
-# exclude data from source control by default
-data/*
-!data/README.md
-!data/fetch_data.py
-!data/fetch_signals.py
-!data/convert_optionsdx.py
-!data/databento/
-data/databento/*
-!data/databento/README.md
-!data/raw/
-data/raw/*
-!data/raw/.gitkeep
-!data/processed/
-data/processed/*
-!data/processed/.gitkeep
-!data/processed/signals.csv
-
 # Generated charts/plots
 *.png
 

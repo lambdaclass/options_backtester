@@ -37,8 +37,8 @@ from options_portfolio_backtester import (
     RiskManager, MaxDelta, MaxDrawdown,
 )
 
-options_data = HistoricalOptionsData("data/processed/options.csv")
-stocks_data = TiingoData("data/processed/stocks.csv")
+options_data = HistoricalOptionsData("options.csv")
+stocks_data = TiingoData("stocks.csv")
 schema = options_data.schema
 
 # Buy OTM puts on SPY, exit when DTE drops below 30
