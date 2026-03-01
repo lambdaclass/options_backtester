@@ -861,26 +861,35 @@ AUD/JPY = 6A / 6J. It can drop because:
 
 Same total budget (0.5% of notional/month), split 50/50: 0.25% on AUD 8% OTM puts + 0.25% on JPY 8% OTM calls.
 
-### Results — single-leg vs dual-leg hedge
+### Results — full metrics
 
-| Strategy | Ann. Return | Vol | Sharpe | Max DD |
-|----------|-----------|-----|--------|--------|
-| **1x unhedged** | 6.81% | 11.1% | 0.616 | -28.1% |
-| 1x AUD puts only | 14.05% | 19.0% | 0.741 | -22.7% |
-| 1x JPY calls only | 8.02% | 13.3% | 0.604 | -32.6% |
-| **1x dual hedge** | **11.37%** | **13.9%** | **0.817** | **-22.1%** |
-| | | | | |
-| **3x unhedged** | 16.45% | 33.2% | 0.496 | -70.5% |
-| 3x AUD puts only | 35.69% | 56.9% | 0.627 | -58.9% |
-| 3x JPY calls only | 18.67% | 39.8% | 0.469 | -78.1% |
-| **3x dual hedge** | **29.58%** | **41.8%** | **0.708** | **-63.8%** |
-| | | | | |
-| 5x unhedged | 19.41% | 55.3% | 0.351 | -91.4% |
-| 5x AUD puts only | 46.99% | 94.8% | 0.495 | -81.7% |
-| 5x JPY calls only | 20.87% | 66.3% | 0.315 | -95.5% |
-| 5x dual hedge | 39.31% | 69.6% | 0.565 | -88.2% |
-| | | | | |
-| **SPY + 0.5% puts** | **16.46%** | **8.8%** | **1.879** | **-8.24%** |
+| Strategy | Return | Vol | Sharpe | Sortino | Calmar | MaxDD | DD days | Tail | Skew | Kurt |
+|----------|--------|-----|--------|---------|--------|-------|---------|------|------|------|
+| **1x unhedged** | 6.81% | 11.1% | 0.616 | 0.840 | 0.243 | -28.1% | 2273 | 1.03 | -0.25 | 3.2 |
+| 1x AUD puts only | 14.05% | 19.0% | 0.741 | 1.711 | 0.619 | -22.7% | 1096 | 1.03 | 21.21 | 786.2 |
+| 1x JPY calls only | 8.02% | 13.3% | 0.604 | 0.978 | 0.246 | -32.6% | 2490 | 1.02 | 4.61 | 84.5 |
+| **1x dual hedge** | **11.37%** | **13.9%** | **0.817** | **1.386** | **0.515** | **-22.1%** | **1943** | **1.04** | **6.83** | **167.4** |
+| | | | | | | | | | | |
+| **3x unhedged** | 16.45% | 33.2% | 0.496 | 0.676 | 0.233 | -70.5% | 2301 | 1.03 | -0.25 | 3.2 |
+| 3x AUD puts only | 35.69% | 56.9% | 0.627 | 1.449 | 0.605 | -58.9% | 1944 | 1.03 | 21.21 | 786.2 |
+| 3x JPY calls only | 18.67% | 39.8% | 0.469 | 0.759 | 0.239 | -78.1% | 2962 | 1.02 | 4.61 | 84.5 |
+| **3x dual hedge** | **29.58%** | **41.8%** | **0.708** | **1.202** | **0.464** | **-63.8%** | **2142** | **1.04** | **6.83** | **167.4** |
+| | | | | | | | | | | |
+| **SPY + 0.5% puts** | **16.46%** | **8.8%** | **1.879** | **2.816** | **2.007** | **-8.2%** | — | — | — | — |
+
+**What the metrics reveal:**
+
+- **Sortino** (return / downside vol): The dual hedge at 1x scores 1.386 vs unhedged 0.840. The hedges specifically reduce *downside* volatility while adding *upside* volatility from option payoffs — exactly what Sortino captures that Sharpe misses. AUD puts only has the best Sortino (1.711) because the massive 2011 payoff was purely upside.
+
+- **Calmar** (return / max drawdown): Dual hedge 0.515 vs unhedged 0.243 — more than 2x better return per unit of worst loss. But SPY + puts at 2.007 is still 4x better.
+
+- **Skew**: Unhedged carry has *negative* skew (-0.25) — the classic carry trade problem of "picking up pennies in front of a steamroller." The dual hedge flips this to +6.83, creating positive skew from the option payoffs. AUD puts only has extreme +21.21 skew from the concentrated 2011 payoff.
+
+- **Kurtosis**: All hedged strategies have massive excess kurtosis (84-786 vs 3.2 for unhedged). This reflects the lumpy nature of monthly option settlements — most months the options expire worthless (near-zero P&L), but occasionally they produce enormous payoffs. The returns are far from normal.
+
+- **Tail ratio** (95th pctile / |5th pctile|): ~1.03 across all strategies — roughly symmetric tails at the daily level. The option payoffs are too infrequent (monthly) to show up in daily percentiles. This metric is more useful for strategies with daily rebalancing.
+
+- **Max DD duration**: Dual hedge at 1943 trading days (~7.7 years) vs unhedged at 2273 days (~9 years). Even the hedged strategies spend most of their time in drawdown — the carry trade grinds slowly upward with long flat/negative stretches.
 
 The dual hedge achieves the **best Sharpe ratio at every leverage level** — 0.817 at 1x vs 0.741 for AUD puts only and 0.604 for JPY calls only. By covering both crash scenarios with the same total budget, it reduces tail risk more efficiently than concentrating on one leg.
 
