@@ -100,7 +100,7 @@ Net cost: approximately -1.3%/yr versus 100% SPY with fixed puts.
 
 ## 4. The Spitznagel Trade Across Asset Classes
 
-The confirmed result from this backtester: **100% SPY + 0.5% fixed put budget = 16%/yr CAGR, Sharpe 1.879.** This works because SPY options are liquid, the put cost is tiny, and the crash protection improves geometric compounding by reducing variance drain.
+The confirmed result from this backtester: **100% SPY + 0.5% fixed put budget = 16%/yr CAGR, Sharpe 0.901 (rf=0%).** This works because SPY options are liquid, the put cost is tiny, and the crash protection improves geometric compounding by reducing variance drain.
 
 But the *structure* of this trade — earn steady carry in normal times, buy cheap tail protection for extreme moves — isn't unique to equities. The general pattern works anywhere you find: (1) steady carry in normal times, (2) extreme moves rarely but violently, (3) protection underpriced for those extremes.
 
@@ -586,7 +586,7 @@ The Spitznagel/Universa insight isn't about equities specifically. It's about **
 |------|--------|-----|----------|
 | 1 | **Rates** | Fed reaction function = institutional guarantee of asymmetry | Futures account holders |
 | 2 | **FX Carry** | Carry funds protection. Academic evidence: options are "puzzlingly cheap" | Futures/FX traders |
-| 3 | **Equities (SPY)** | 16%/yr Sharpe 1.879 backtested. Most liquid options on earth | Everyone (retail default) |
+| 3 | **Equities (SPY)** | 16%/yr Sharpe 0.901 backtested. Most liquid options on earth | Everyone (retail default) |
 | 4 | **Credit** | 4-8x spread blowouts, but thin carry and ISDA requirement for CDS | Institutions (retail via HYG puts) |
 | 5 | **Commodities** | Fat tails (oil kurtosis ~37) but contango bleed and delivery complexity | Specialists |
 | 6 | **EM Debt** | 4-5x spread blowouts but idiosyncratic risk and limited instruments | Dedicated EM investors |
@@ -600,7 +600,7 @@ Despite rates and FX having arguably better structural asymmetries, SPY wins for
 
 1. **SPY options are the most liquid derivatives on earth.** Penny-wide bid-ask, 0-DTE to 2-year expiry, strikes every $1. No other market comes close to this execution quality.
 
-2. **100% SPY + 0.5% fixed puts = 16%/yr, Sharpe 1.879** — confirmed by this backtester over 2008-2025. The equity risk premium provides the return engine. The puts improve geometric compounding by reducing variance drain. The cost is genuinely negligible.
+2. **100% SPY + 0.5% fixed puts = 16%/yr, Sharpe 0.901** — confirmed by this backtester over 2008-2025. The equity risk premium provides the return engine. The puts improve geometric compounding by reducing variance drain. The cost is genuinely negligible.
 
 3. **Everything else requires OTC markets, futures accounts, specialized data, and higher transaction costs.** SOFR swaptions? You need an ISDA master agreement. CDS? Same, plus counterparty risk management. FX options? Futures account plus understanding of settlement mechanics.
 
@@ -649,7 +649,7 @@ Before buying real FX options data, we ran a synthetic backtest using free spot 
 | **MXN/JPY carry + 10d puts** | **7.72%** | **16.99%** | **0.454** | **-35.2%** |
 | EUR/USD carry + puts | -1.25% | 11.19% | -0.112 | -39.5% |
 | SPY buy & hold | 10.61% | 19.01% | 0.558 | -55.2% |
-| **SPY + 0.5% puts (real data)** | **16.00%** | **~14%** | **1.879** | **~-20%** |
+| **SPY + 0.5% puts (real data)** | **16.02%** | **17.8%** | **0.901** | **-47.1%** |
 
 ### Put economics — the puts pay for themselves
 
@@ -687,7 +687,7 @@ This confirms Jurek (2014) and Caballero & Doyle (2012): FX crash protection opt
 
 ### Key takeaways
 
-1. **FX carry + puts works** (5-8%/yr, positive Sharpe, puts net profitable) — but it doesn't beat SPY + puts (16%/yr, Sharpe 1.879)
+1. **FX carry + puts works** (5-8%/yr, positive Sharpe, puts net profitable) — but it doesn't beat SPY + puts (16%/yr, Sharpe 0.901)
 2. **The puts pay for themselves** on carry pairs — confirming academic evidence that FX crash options are underpriced
 3. **It's a diversifier, not a replacement** for the equity strategy
 4. **Need real option data** to resolve the tenor question and get accurate cost estimates — synthetic BS pricing isn't enough
@@ -724,7 +724,7 @@ We bought real CME AUD futures options from Databento (~$5.57 total cost) and ra
 | AUD futures only | 0.18% | 10.84% | 0.017 | -37.06% |
 | AUD + 10% OTM puts (0.5%) | 5.27% | 26.92% | 0.196 | -36.53% |
 | AUD + 5% OTM puts (0.5%) | 4.10% | 14.14% | 0.290 | -29.52% |
-| **SPY + 0.5% puts (real)** | **16.46%** | **8.76%** | **1.879** | **-8.24%** |
+| **SPY + 0.5% puts (real)** | **16.02%** | **17.8%** | **0.901** | **-47.1%** |
 
 ### Put economics
 
@@ -797,7 +797,7 @@ AUD/JPY went from ~75 to ~111 over the period (+48% total, +2.5%/yr annualized).
 | 3x AUD/JPY unhedged | 16.45% | 33.2% | 0.496 | -70.5% |
 | 3x + 5% OTM puts | 32.62% | 47.8% | 0.682 | -55.8% |
 | 5x AUD/JPY unhedged | 19.41% | 55.3% | 0.351 | -91.4% |
-| **SPY + 0.5% puts** | **16.46%** | **8.8%** | **1.879** | **-8.24%** |
+| **SPY + 0.5% puts** | **16.02%** | **17.8%** | **0.901** | **-47.1%** |
 
 ### P&L decomposition (1x leverage, 8% OTM puts)
 
@@ -827,7 +827,7 @@ Puts helped in 2 of 5 crises (2011, 2018) but failed in 2013, 2015, 2020. The co
 
 1. **Leveraged carry works** — 1x AUD/JPY at 6.81%/yr is comparable to many equity markets
 2. **The puts improve risk-adjusted returns** — 1x + 5% OTM puts gives Sharpe 0.795 vs unhedged 0.616
-3. **But the Sharpe is half of SPY + puts** (0.795 vs 1.879) — the equity premium is a better engine than carry
+3. **But the Sharpe is lower than SPY + puts** (0.795 vs 0.901) — the equity premium is a better engine than carry
 4. **Put protection is imperfect** because we're hedging AUD/USD, not AUD/JPY. CME doesn't have AUD/JPY options; you'd need OTC for perfect hedging
 5. **2010-2026 was a historically favorable period** for AUD/JPY carry — JPY weakness boosted spot returns. Going forward, if BOJ normalizes rates, the carry narrows and the trade gets worse
 6. **5x leverage is suicidal** — 91.4% max drawdown unhedged. Even 3x had -70.5% max DD. The puts don't save you from slow grinds
@@ -838,7 +838,7 @@ The Sharpe ratio tells the whole story:
 
 | Strategy | Sharpe | Why |
 |----------|--------|-----|
-| SPY + 0.5% puts | 1.879 | Equity premium is large, reliable, and well-hedged |
+| SPY + 0.5% puts | 0.901 | Equity premium is large, reliable, and well-hedged |
 | 1x AUD/JPY + 5% OTM puts | 0.795 | Carry premium is smaller, hedging is imperfect |
 | 5x AUD/JPY + 8% OTM puts | 0.495 | Leverage destroys Sharpe via volatility drag |
 
@@ -875,13 +875,13 @@ Same total budget (0.5% of notional/month), split 50/50: 0.25% on AUD 8% OTM put
 | 3x JPY calls only | 18.67% | 39.8% | 0.469 | 0.759 | 0.239 | -78.1% | 2962 | 1.02 | 4.61 | 84.5 |
 | **3x dual hedge** | **29.58%** | **41.8%** | **0.708** | **1.202** | **0.464** | **-63.8%** | **2142** | **1.04** | **6.83** | **167.4** |
 | | | | | | | | | | | |
-| **SPY + 0.5% puts** | **16.46%** | **8.8%** | **1.879** | **2.816** | **2.007** | **-8.2%** | — | — | — | — |
+| **SPY + 0.5% puts** | **16.02%** | **17.8%** | **0.901** | **1.150** | **0.340** | **-47.1%** | — | — | — | — |
 
 **What the metrics reveal:**
 
 - **Sortino** (return / downside vol): The dual hedge at 1x scores 1.386 vs unhedged 0.840. The hedges specifically reduce *downside* volatility while adding *upside* volatility from option payoffs — exactly what Sortino captures that Sharpe misses. AUD puts only has the best Sortino (1.711) because the massive 2011 payoff was purely upside.
 
-- **Calmar** (return / max drawdown): Dual hedge 0.515 vs unhedged 0.243 — more than 2x better return per unit of worst loss. But SPY + puts at 2.007 is still 4x better.
+- **Calmar** (return / max drawdown): Dual hedge 0.515 vs unhedged 0.243 — more than 2x better return per unit of worst loss. SPY + puts at 0.340 is lower because SPY's max DD is much deeper (-47.1% vs -22.1%).
 
 - **Skew**: Unhedged carry has *negative* skew (-0.25) — the classic carry trade problem of "picking up pennies in front of a steamroller." The dual hedge flips this to +6.83, creating positive skew from the option payoffs. AUD puts only has extreme +21.21 skew from the concentrated 2011 payoff.
 
@@ -930,7 +930,7 @@ The core problem: **monthly settlement frequency is too low for fast V-shaped cr
 2. **JPY calls are less valuable than AUD puts** in isolation (Sharpe 0.604 vs 0.741) — AUD weakness is more frequent than JPY strength in AUD/JPY crashes.
 3. **The dual hedge has lower raw returns but higher risk-adjusted returns** — it sacrifices upside concentration for broader protection.
 4. **Monthly settlement misses fast crashes** — a serious structural limitation of this backtest approach.
-5. **SPY + puts still dominates** at Sharpe 1.879 vs 0.817. The equity risk premium remains a better engine than FX carry.
+5. **SPY + puts still dominates** at Sharpe 0.901 vs 0.817. The equity risk premium remains a better engine than FX carry, though the gap is smaller than initially thought.
 
 ---
 
