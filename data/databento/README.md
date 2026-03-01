@@ -1,7 +1,7 @@
 # Databento Market Data
 
-Historical CME futures and options data from [Databento](https://databento.com/),
-dataset `GLBX.MDP3`, schema `ohlcv-1d` (daily OHLCV bars).
+Historical futures and options data from [Databento](https://databento.com/),
+schema `ohlcv-1d` (daily OHLCV bars). Datasets: `GLBX.MDP3` (CME), `IFLL.IMPACT` (ICE Europe).
 
 All data is stored as Parquet files with `ts_event` as the index (UTC timestamps).
 
@@ -22,6 +22,16 @@ All data is stored as Parquet files with `ts_event` as the index (UTC timestamps
 | `ZB_FUT_ohlcv1d.parquet` | 30-Year T-Bond futures | 15K | 2010-06 to 2026-02 | 0.3 MB |
 | `OZN_OPT_ohlcv1d.parquet` | 10-Year T-Note options | 1.5M | 2010-07 to 2026-02 | 25 MB |
 | `OZB_OPT_ohlcv1d.parquet` | 30-Year T-Bond options | 1.3M | 2010-06 to 2026-02 | 18 MB |
+
+### UK Gilts (ICE Europe -- `IFLL.IMPACT`)
+
+| File | Instrument | Rows | Date Range | Size |
+|------|-----------|------|------------|------|
+| `R_FUT_ohlcv1d.parquet` | Long Gilt futures (10yr UK) | 7.6K | 2018-12 to 2026-02 | 0.2 MB |
+| `R_OPT_ohlcv1d.parquet` | Long Gilt options | 4.1K | 2018-12 to 2026-02 | 0.1 MB |
+
+Note: Gilt options are very sparse (4K rows vs 1.5M for OZN). Futures include outrights + calendar spreads.
+Symbol format: `R   FMH0022!` (outright), spreads contain `-`. Options: `R   FMG0019_OMPA...` (P=put, C=call).
 
 ### SOFR (Short-Term Interest Rates)
 
