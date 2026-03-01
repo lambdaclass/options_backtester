@@ -116,7 +116,7 @@ Presets: `strangle`, `iron_condor`, `covered_call`, `cash_secured_put`, `collar`
 
 | Framing | Setup | Return | Max DD |
 |---------|-------|--------|--------|
-| AQR (reduce equity) | 99% SPY + 1% puts | +14.11% | -43.1% |
+| No-leverage (reduce equity) | 99% SPY + 1% puts | +14.11% | -43.1% |
 | **Spitznagel (leverage)** | **100% SPY + 1% puts on top** | **+21.08%** | **-42.4%** |
 | SPY buy-and-hold | 100% SPY | +11.05% | -51.9% |
 
