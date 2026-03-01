@@ -107,6 +107,9 @@ data/*
 !data/fetch_data.py
 !data/fetch_signals.py
 !data/convert_optionsdx.py
+!data/databento/
+data/databento/*
+!data/databento/README.md
 !data/raw/
 data/raw/*
 !data/raw/.gitkeep
