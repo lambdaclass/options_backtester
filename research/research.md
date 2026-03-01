@@ -846,6 +846,85 @@ The carry trade's appeal is **diversification**, not replacement. In 2011, AUD p
 
 ---
 
+## 8d. Dual-Leg Hedge: AUD Puts + JPY Calls
+
+**Notebook:** `notebooks/fx_carry_real.ipynb` (updated)
+
+The imperfect hedge problem from 8c: our AUD/USD puts only protect against AUD weakness, but AUD/JPY can crash from **JPY strength** too (which doesn't move AUD/USD). The fix: add JPY calls on 6J futures — when JPY strengthens, 6J rises above strike and the calls pay off.
+
+### The dual-leg idea
+
+AUD/JPY = 6A / 6J. It can drop because:
+1. **AUD weakens** (6A drops) → AUD puts pay off
+2. **JPY strengthens** (6J rises) → JPY calls pay off
+3. **Both** → both legs pay off
+
+Same total budget (0.5% of notional/month), split 50/50: 0.25% on AUD 8% OTM puts + 0.25% on JPY 8% OTM calls.
+
+### Results — single-leg vs dual-leg hedge
+
+| Strategy | Ann. Return | Vol | Sharpe | Max DD |
+|----------|-----------|-----|--------|--------|
+| **1x unhedged** | 6.81% | 11.1% | 0.616 | -28.1% |
+| 1x AUD puts only | 14.05% | 19.0% | 0.741 | -22.7% |
+| 1x JPY calls only | 8.02% | 13.3% | 0.604 | -32.6% |
+| **1x dual hedge** | **11.37%** | **13.9%** | **0.817** | **-22.1%** |
+| | | | | |
+| **3x unhedged** | 16.45% | 33.2% | 0.496 | -70.5% |
+| 3x AUD puts only | 35.69% | 56.9% | 0.627 | -58.9% |
+| 3x JPY calls only | 18.67% | 39.8% | 0.469 | -78.1% |
+| **3x dual hedge** | **29.58%** | **41.8%** | **0.708** | **-63.8%** |
+| | | | | |
+| 5x unhedged | 19.41% | 55.3% | 0.351 | -91.4% |
+| 5x AUD puts only | 46.99% | 94.8% | 0.495 | -81.7% |
+| 5x JPY calls only | 20.87% | 66.3% | 0.315 | -95.5% |
+| 5x dual hedge | 39.31% | 69.6% | 0.565 | -88.2% |
+| | | | | |
+| **SPY + 0.5% puts** | **16.46%** | **8.8%** | **1.879** | **-8.24%** |
+
+The dual hedge achieves the **best Sharpe ratio at every leverage level** — 0.817 at 1x vs 0.741 for AUD puts only and 0.604 for JPY calls only. By covering both crash scenarios with the same total budget, it reduces tail risk more efficiently than concentrating on one leg.
+
+### P&L decomposition (3x leverage)
+
+| Component | Unhedged | AUD puts only | JPY calls only | Dual hedge |
+|-----------|----------|--------------|----------------|------------|
+| Carry income | $323/yr | $3,390 total | $335/yr | $1,365 total |
+| Spot P&L | $675/yr | $7,472 total | $697/yr | $2,917 total |
+| AUD put P&L | — | $1,198 total ($76/yr) | — | $347 total ($22/yr) |
+| JPY call P&L | — | — | $344 total ($22/yr) | $1,162 total ($74/yr) |
+| **Final capital** | **$1,098** | **$12,160** | **$1,477** | **$5,890** |
+
+Interesting asymmetry: at 3x, AUD puts only generates 121.6x total return (!) vs dual hedge at 58.9x. The AUD puts-only path-dependency is extreme — the 2011 put payoff (2000%+ on premium) compounds massively at 3x leverage. The dual hedge sacrifices that upside for more consistent protection across scenarios.
+
+### Crisis performance (3x leverage)
+
+| Crisis | AUD/JPY | Unhedged | AUD puts | JPY calls | Dual |
+|--------|---------|----------|----------|-----------|------|
+| 2011 EU debt | -4.9% | -11.0% | **+174.2%** | -14.9% | **+70.2%** |
+| 2013 taper tantrum | -12.3% | -31.8% | -24.1% | -29.3% | -26.7% |
+| 2015 China deval | -10.8% | -29.2% | -30.3% | -31.3% | -30.8% |
+| 2018 trade war | -12.2% | -27.2% | **+12.8%** | -26.5% | **-7.6%** |
+| 2020 COVID | -8.5% | -25.2% | -26.4% | -27.4% | -26.9% |
+| 2022 rate hikes | +3.4% | +14.0% | +11.1% | +4.0% | +7.5% |
+
+The dual hedge helped in 2 of 5 crises (2011, 2018) — the same ones where AUD puts alone worked. In 2013, 2015, and 2020, neither leg triggered effectively. Why?
+
+- **2013 taper tantrum:** USD strengthened vs everything. AUD/USD dropped (but not enough for 8% OTM puts to go ITM). JPY actually weakened (6J fell), so JPY calls were worthless.
+- **2015 China:** Similar — risk-off hit AUD but JPY weakened slightly against USD. The AUD/JPY drop was mostly AUD weakness, but AUD/USD puts were too far OTM.
+- **2020 COVID:** Everything crashed then recovered in weeks. AUD/USD dropped to ~0.58 briefly but monthly settlement missed the bottom. JPY strengthened briefly but 6J barely moved since USD also weakened.
+
+The core problem: **monthly settlement frequency is too low for fast V-shaped crashes**. The 2020 COVID crash lasted ~3 weeks. Monthly puts entered at the start of March and settled at March expiry — by which point AUD/USD had already bounced. Daily or weekly mark-to-market would capture more value.
+
+### What the dual hedge tells us
+
+1. **Covering both legs improves Sharpe** — 0.817 vs 0.741 at 1x. The diversification benefit is real.
+2. **JPY calls are less valuable than AUD puts** in isolation (Sharpe 0.604 vs 0.741) — AUD weakness is more frequent than JPY strength in AUD/JPY crashes.
+3. **The dual hedge has lower raw returns but higher risk-adjusted returns** — it sacrifices upside concentration for broader protection.
+4. **Monthly settlement misses fast crashes** — a serious structural limitation of this backtest approach.
+5. **SPY + puts still dominates** at Sharpe 1.879 vs 0.817. The equity risk premium remains a better engine than FX carry.
+
+---
+
 ## 9. Other Trade Structures Considered
 
 ### 9.1 Leveraged ETFs — High Convexity, Impractical
