@@ -116,14 +116,16 @@ Presets: `strangle`, `iron_condor`, `covered_call`, `cash_secured_put`, `collar`
 
 | Framing | Setup | Return | Max DD |
 |---------|-------|--------|--------|
-| AQR (reduce equity) | 99% SPY + 1% puts | +3.15% | -50.8% |
-| **Spitznagel (leverage)** | **100% SPY + 1% puts on top** | **+16.46%** | **-45.0%** |
-| SPY buy-and-hold | 100% SPY | +11.11% | -51.9% |
+| AQR (reduce equity) | 99% SPY + 1% puts | +7.38% | -48.4% |
+| **Spitznagel (leverage)** | **100% SPY + 1% puts on top** | **+21.08%** | **-42.4%** |
+| SPY buy-and-hold | 100% SPY | +11.05% | -51.9% |
 
 Spitznagel's leveraged tail hedge works because crash protection allows full investment and the drawdown reduction is real:
-- +0.5% budget: 13.79%/yr, DD -48.1%
-- +1.0% budget: 16.46%/yr, DD -45.0%
-- +3.3% budget: 28.78%/yr, DD -31.9%
+- +0.5% budget: 16.02%/yr, DD -47.1%
+- +1.0% budget: 21.08%/yr, DD -42.4%
+- +3.3% budget: 46.60%/yr, DD -29.2%
+
+These metrics are specific to our 2008-2025 sample, the exact roll rules in the notebook, and are shown gross of transaction costs and taxes. Different windows or implementation choices will change the magnitudes.
 
 Other findings:
 - Selling options (covered calls, put-writing, short strangles) harvests the Variance Risk Premium
