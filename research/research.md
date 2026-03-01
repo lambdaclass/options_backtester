@@ -629,73 +629,7 @@ Both would require downloading historical options data from CME DataMine or Data
 
 ---
 
-## 8. Synthetic FX Carry Backtest Results (Preliminary)
-
-**Notebook:** `notebooks/fx_carry_synthetic.ipynb`
-
-Before buying real FX options data, we ran a synthetic backtest using free spot FX data (yfinance, 2005-2026) and Black-Scholes put pricing with trailing 60-day realized vol as an implied vol proxy. This gives a rough estimate — not rigorous enough for trading decisions, but useful for validating whether the structure is worth pursuing with real data.
-
-**Important caveat:** This uses modeled option prices, not real market data. Real FX options have skew (puts cost more than ATM), term structure, and bid-ask spreads that this model ignores. The results below need validation with actual CME FX option prices.
-
-### Main results
-
-| Strategy | CAGR | Volatility | Sharpe | Max DD |
-|----------|------|-----------|--------|--------|
-| AUD/JPY spot only | 1.51% | 15.38% | 0.098 | -47.6% |
-| AUD/JPY carry (unhedged) | 4.68% | 15.38% | 0.305 | -44.9% |
-| **AUD/JPY carry + 10d puts** | **5.17%** | **15.76%** | **0.328** | **-41.3%** |
-| MXN/JPY spot only | -0.04% | 16.47% | -0.003 | -62.9% |
-| MXN/JPY carry (unhedged) | 6.62% | 16.47% | 0.402 | -41.9% |
-| **MXN/JPY carry + 10d puts** | **7.72%** | **16.99%** | **0.454** | **-35.2%** |
-| EUR/USD carry + puts | -1.25% | 11.19% | -0.112 | -39.5% |
-| SPY buy & hold | 10.61% | 19.01% | 0.558 | -55.2% |
-| **SPY + 0.5% puts (real data)** | **16.02%** | **17.8%** | **0.901** | **-47.1%** |
-
-### Put economics — the puts pay for themselves
-
-| Pair | Put Cost/yr | Put Payoff/yr | Net |
-|------|-----------|-------------|-----|
-| AUD/JPY | 2.12% | 2.64% | **+0.52%/yr** (puts are profitable) |
-| MXN/JPY | 2.41% | 3.52% | **+1.11%/yr** (puts are profitable) |
-| EUR/USD | 1.47% | 1.39% | -0.08%/yr (roughly break-even) |
-
-This confirms Jurek (2014) and Caballero & Doyle (2012): FX crash protection options are underpriced relative to what they pay. On both carry pairs, the hedged trade beats unhedged on both CAGR and Sharpe.
-
-### Delta sensitivity (AUD/JPY and MXN/JPY)
-
-| Pair | Delta | CAGR | Sharpe | Put Cost/yr | Net Cost/yr |
-|------|-------|------|--------|-----------|------------|
-| AUD/JPY | 5d | 5.44% | 0.349 | 0.93% | **-0.75%** (cheapest) |
-| AUD/JPY | 10d | 5.17% | 0.328 | 2.12% | -0.52% |
-| AUD/JPY | 25d | 3.87% | 0.237 | 6.72% | +0.64% (too expensive) |
-| MXN/JPY | 5d | 7.70% | 0.459 | 1.06% | **-1.06%** |
-| MXN/JPY | 10d | 7.72% | 0.454 | 2.41% | -1.11% |
-| MXN/JPY | 25d | 6.23% | 0.353 | 7.63% | +0.18% |
-
-5-delta and 10-delta puts are the sweet spot — cheap enough that payoffs exceed costs. 25-delta is too expensive and eats the carry.
-
-### Tenor sensitivity — 3-month vs 1-month
-
-| Pair | Tenor | CAGR | Sharpe | Put Cost/yr |
-|------|-------|------|--------|-----------|
-| AUD/JPY | 1m | 5.17% | 0.328 | 2.12% |
-| AUD/JPY | 3m | 1.60% | 0.104 | 3.74% |
-| MXN/JPY | 1m | 7.72% | 0.454 | 2.41% |
-| MXN/JPY | 3m | 3.06% | 0.184 | 4.24% |
-
-3-month tenor is worse here, contradicting Jurek's finding that quarterly hedging is 1-2%/yr cheaper. This is likely a model artifact — our BS pricing with realized vol overestimates 3-month costs because it scales vol by √T, while real implied vol term structure is flatter. **This is exactly the discrepancy that real option data would resolve.**
-
-### Key takeaways
-
-1. **FX carry + puts works** (5-8%/yr, positive Sharpe, puts net profitable) — but it doesn't beat SPY + puts (16%/yr, Sharpe 0.901)
-2. **The puts pay for themselves** on carry pairs — confirming academic evidence that FX crash options are underpriced
-3. **It's a diversifier, not a replacement** for the equity strategy
-4. **Need real option data** to resolve the tenor question and get accurate cost estimates — synthetic BS pricing isn't enough
-5. **EUR/USD confirms the control**: without carry differential, the structure adds nothing
-
----
-
-## 8b. Real FX Options Backtest: AUD/USD (Databento CME Data)
+## 8. Real FX Options Backtest: AUD/USD (Databento CME Data)
 
 **Notebook:** `notebooks/fx_carry_real.ipynb`
 
@@ -747,17 +681,6 @@ For 10% OTM puts:
 
 The puts helped in 3 of 6 crises. They failed in 2015 (AUD drop was too gradual), 2018 (slow grind, not a crash), and 2022 (steady rate-driven decline, not a panic). This confirms a key limitation: OTM puts are designed for fast, violent moves — not slow grinds.
 
-### Synthetic vs real comparison
-
-| Metric | Synthetic (BS) | Real (Databento) |
-|--------|---------------|-----------------|
-| AUD carry + puts CAGR | 5.17% | 5.27% (10% OTM) / 4.10% (5% OTM) |
-| Put win rate | ~15% | 5.5% (10% OTM) / 9.3% (5% OTM) |
-| Avg winner size | ~10-20x | ~200x (10% OTM) / ~40x (5% OTM) |
-| Put net P&L | +0.52%/yr | +6.88%/yr (10% OTM) / +4.17%/yr (5% OTM) |
-
-The synthetic model underestimates both the win size and the loss rate. Real deep OTM options are much cheaper than Black-Scholes suggests (hence the huge multipliers when they pay off), but they also expire worthless far more often. The two effects roughly cancel in total return, but the distribution is more extreme with real data.
-
 ### Key takeaways
 
 1. **The puts are net profitable on real data** — confirming that FX crash protection is genuinely underpriced
@@ -768,7 +691,7 @@ The synthetic model underestimates both the win size and the loss rate. Real dee
 
 ---
 
-## 8c. Leveraged AUD/JPY Carry + OTM Puts (The Real Carry Trade)
+## 8b. Leveraged AUD/JPY Carry + OTM Puts (The Real Carry Trade)
 
 **Notebook:** `notebooks/fx_carry_real.ipynb` (updated)
 
@@ -846,11 +769,11 @@ The carry trade's appeal is **diversification**, not replacement. In 2011, AUD p
 
 ---
 
-## 8d. Dual-Leg Hedge: AUD Puts + JPY Calls
+## 8c. Dual-Leg Hedge: AUD Puts + JPY Calls
 
 **Notebook:** `notebooks/fx_carry_real.ipynb` (updated)
 
-The imperfect hedge problem from 8c: our AUD/USD puts only protect against AUD weakness, but AUD/JPY can crash from **JPY strength** too (which doesn't move AUD/USD). The fix: add JPY calls on 6J futures — when JPY strengthens, 6J rises above strike and the calls pay off.
+The imperfect hedge problem from 8b: our AUD/USD puts only protect against AUD weakness, but AUD/JPY can crash from **JPY strength** too (which doesn't move AUD/USD). The fix: add JPY calls on 6J futures — when JPY strengthens, 6J rises above strike and the calls pay off.
 
 ### The dual-leg idea
 
@@ -1063,7 +986,7 @@ SOFR (SR3), ZN, ZB, 6A, 6J, 6M, 6E, CL, ZC, ZW
 **Phase 3 — credit derivatives:**
 CDX is institutional-only ($10k+/yr via Markit). Skip — use HYG puts from Phase 1 instead.
 
-**Spot FX rates (for synthetic backtests):** Free via yfinance/FRED.
+**Spot FX rates:** Free via yfinance/FRED.
 
 ### Cost breakdown
 
@@ -1151,9 +1074,8 @@ audjpy = usdaud * usdjpy  # construct cross
 ### Recommended starting path
 
 1. **Sign up for Databento** (free, $125 credit). Pull daily settlement data for 6A, 6J, 6E options to see data format and coverage.
-2. **Download free spot FX** via yfinance. Run a synthetic carry + tail protection backtest immediately (no money needed). **Done** — see section 8 for results.
-3. **Buy HistoricalOptionData.com Level 2** ($575) when ready for the convexity scanner Phase 1.
-4. **Add IVolatility** ($60/mo) when you want proper IV surfaces for Level 2+ scoring.
+2. **Buy HistoricalOptionData.com Level 2** ($575) when ready for the convexity scanner Phase 1.
+3. **Add IVolatility** ($60/mo) when you want proper IV surfaces for Level 2+ scoring.
 
 ### Databento setup guide
 
@@ -1212,14 +1134,3 @@ df.to_parquet("data/fx_options_daily.parquet")
 - Output formats: DataFrame (pandas), ndarray (numpy), CSV, Parquet
 - Docs: [API demo](https://databento.com/blog/api-demo-python) · [Python client](https://github.com/databento/databento-python) · [Historical API](https://databento.com/docs/api-reference-historical)
 
-### Why we need real option data (not synthetic)
-
-The synthetic backtest in section 8 uses Black-Scholes with realized vol — this has real limitations:
-
-1. **No skew.** Real FX put IV is 1-3 vol points above ATM due to crash risk premium. Our BS model uses flat vol, likely **underestimating put costs by 10-30%**.
-2. **No term structure.** BS scales vol by √T, but real IV term structure is flatter. This is why our 3-month results contradict Jurek's finding.
-3. **No bid-ask spreads.** Real OTM FX options on CME have 10-20% bid-ask as a fraction of premium. Zero transaction cost assumption flatters the results.
-4. **No smile.** Deep OTM options have higher IV than our model assumes. The 5-delta puts are priced too cheap in our model.
-5. **No volume/OI data.** We can't assess whether the options we're "buying" actually traded. Real data shows liquidity.
-
-Real CME option prices from Databento solve all five problems. The synthetic backtest gives us confidence the structure works (puts are net profitable on carry pairs), but the exact numbers (5.17% vs 7.72% CAGR) could shift significantly with real pricing.
