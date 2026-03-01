@@ -108,44 +108,6 @@ strangle = Strangle(schema, "short", "SPY",
 
 Presets: `strangle`, `iron_condor`, `covered_call`, `cash_secured_put`, `collar`, `butterfly`.
 
-## Tail-Risk Hedge Research
-
-**Can a small allocation to SPY puts improve risk-adjusted returns over buy-and-hold?** Inspired by Universa Investments' approach to tail-risk hedging.
-
-**Both framings beat SPY with deep OTM puts.** The framing determines how much:
-
-| Framing | Setup | Return | Max DD |
-|---------|-------|--------|--------|
-| No-leverage (reduce equity) | 99% SPY + 1% puts | +14.11% | -43.1% |
-| **Spitznagel (leverage)** | **100% SPY + 1% puts on top** | **+21.08%** | **-42.4%** |
-| SPY buy-and-hold | 100% SPY | +11.05% | -51.9% |
-
-Spitznagel's leveraged tail hedge wins by the widest margin because crash protection allows full equity exposure:
-- +0.5% budget: 16.02%/yr, DD -47.1%
-- +1.0% budget: 21.08%/yr, DD -42.4%
-- +3.3% budget: 46.60%/yr, DD -29.2%
-
-**Calm-period test (2012-2018):** The calmest 7-year stretch in our sample, with no correction exceeding -19.3%. Even here, the strategy works:
-
-| Framing | Config | Annual Return | vs SPY | Max DD | Vol | Sharpe |
-|---------|--------|:------------:|:------:|:------:|:---:|:------:|
-| Spitznagel | +0.5% puts | +16.30% | +3.95% | -22.0% | 16.4% | 0.993 |
-| Spitznagel | +1.0% puts | +20.34% | +7.99% | -25.2% | 22.0% | 0.926 |
-| No-leverage | 99.5% SPY + 0.5% puts | +12.71% | +0.36% | -15.4% | 11.1% | 1.145 |
-| No-leverage | 99% SPY + 1% puts | +13.03% | +0.68% | -11.9% | 10.1% | 1.289 |
-| SPY buy-and-hold | 100% SPY | +12.35% | | -19.3% | 12.9% | 0.960 |
-
-The 0.5% Spitznagel config beat SPY in every single year from 2012 to 2018, including +6.96% excess in 2015 (a flat year with a -12% correction) and +3.55% in 2018 (SPY down -4.56%). At 3.3% budget, max DD reaches -65.5% from put premium volatility alone — confirming that small budgets are critical.
-
-These metrics are specific to our 2008-2025 sample (full period) and 2012-2018 (calm period), the exact roll rules in the notebook, and are shown gross of transaction costs and taxes. Different windows or implementation choices will change the magnitudes.
-
-Other findings:
-- Selling options (covered calls, put-writing, short strangles) harvests the Variance Risk Premium
-- Buying OTM calls adds ~0.8-1.4%/yr in the no-leverage framing
-- Macro signals (VIX, Buffett Indicator, Tobin's Q) don't improve put timing
-
-See the [notebooks](#notebooks) and [scripts](#scripts) for the full analysis.
-
 ## Setup
 
 ### With Nix (recommended)
@@ -170,16 +132,6 @@ For the optional Rust extension:
 ```shell
 maturin develop --manifest-path rust/ob_python/Cargo.toml --release
 ```
-
-### Fetch data
-
-Download SPY options and stock data (2008-2025):
-
-```shell
-python data/fetch_data.py all --symbols SPY --start 2008-01-01 --end 2025-12-31
-```
-
-This fetches from the [self-hosted GitHub Release](https://github.com/lambdaclass/options_backtester/releases/tag/data-v1), falling back to external sources. See [data/README.md](data/README.md) for details.
 
 ### Run tests
 
@@ -323,41 +275,9 @@ make rust-build
 # or: maturin develop --manifest-path rust/ob_python/Cargo.toml --release
 ```
 
-## Notebooks
+## Research
 
-| Notebook | Description |
-|----------|-------------|
-| [quickstart](notebooks/quickstart.ipynb) | Load data, define strategy, run backtest, plot results |
-| [paper_comparison](notebooks/paper_comparison.ipynb) | 10 strategies vs academic paper claims, VRP math, crash heatmap |
-| [findings](notebooks/findings.ipynb) | Allocation sweep, puts vs calls, macro signals, crash-period analysis |
-| [volatility_premium](notebooks/volatility_premium.ipynb) | Sell vol vs buy vol (Carr & Wu 2009, Berman 2014) |
-| [strategies](notebooks/strategies.ipynb) | OTM puts, OTM calls, long straddle, short strangle |
-| [trade_analysis](notebooks/trade_analysis.ipynb) | Per-trade P&L, cumulative P&L, crash breakdowns |
-| [iron_condor](notebooks/iron_condor.ipynb) | 4-leg iron condor income strategy |
-| [ivy_portfolio](notebooks/ivy_portfolio.ipynb) | Endowment-style portfolio with straddle hedge overlay |
-| [gold_sp500](notebooks/gold_sp500.ipynb) | Multi-asset portfolio with gold proxy + options overlay |
-| [comparison_with_bt](notebooks/comparison_with_bt.ipynb) | Side-by-side comparison with bt: runtime, return parity, feature gap |
-| [spitznagel_case](notebooks/spitznagel_case.ipynb) | AQR vs Spitznagel with real data, multi-dimensional parameter sweep |
-
-## Scripts
-
-| Script | Purpose |
-|--------|---------|
-| `scripts/analyze_entries_exits.py` | Per-trade analysis with signal overlay |
-| `scripts/run_spy_otm_puts.py` | 6 hedge variants vs SPY buy-and-hold |
-| `scripts/parallel_sweep.py` | Parallel grid sweep across all CPU cores |
-| `scripts/sweep_otm.py` | Delta band sweep: near-ATM to deep OTM |
-| `scripts/sweep_allocation.py` | Stock/options allocation splits |
-| `scripts/sweep_comprehensive.py` | Puts, calls, strangles with macro signal filters |
-| `scripts/sweep_volatility.py` | Long vol vs short vol across allocations |
-
-## Data
-
-Data is hosted on [GitHub Releases](https://github.com/lambdaclass/options_backtester/releases/tag/data-v1) and downloaded on demand by `data/fetch_data.py`. Available symbols: SPY, IWM, QQQ (options + underlying, 2008-2025).
-
-Fallback sources: [philippdubach/options-data](https://github.com/philippdubach/options-data), [philippdubach/options-dataset-hist](https://github.com/philippdubach/options-dataset-hist), yfinance.
-
-See [data/README.md](data/README.md) for the full data pipeline documentation.
+Research notebooks, scripts, and data live in a separate repo: [finance_research](https://github.com/unbalancedparentheses/finance_research).
 
 ## Recommended reading
 
