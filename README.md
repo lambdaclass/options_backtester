@@ -136,12 +136,16 @@ maturin develop --manifest-path rust/ob_python/Cargo.toml --release
 ### Run tests
 
 ```shell
-make test          # all tests
-make test-bench    # benchmark/property tests (explicit opt-in)
-make lint          # ruff linter
-make typecheck     # mypy type checking
-make rust-test     # Rust unit tests
-make rust-build    # build Rust extension
+make test            # all tests
+make test-bench      # benchmark/property tests (explicit opt-in)
+make test-regression # regression snapshot tests (locked golden values)
+make test-chaos      # chaos/fault-injection tests (corrupted data)
+make muttest         # mutation testing on high-value modules
+make muttest-results # show mutation testing results
+make lint            # ruff linter
+make typecheck       # mypy type checking
+make rust-test       # Rust unit tests
+make rust-build      # build Rust extension
 ```
 
 ## Architecture
@@ -275,7 +279,34 @@ make rust-build
 # or: maturin develop --manifest-path rust/ob_python/Cargo.toml --release
 ```
 
+## Data
+
+Pre-built SPY data (stocks + options) is available as a [GitHub Release](https://github.com/lambdaclass/options_portfolio_backtester/releases/tag/data-v1). Download `stocks.csv` and `options.csv` from the release assets and place them wherever you like:
+
+```python
+options_data = HistoricalOptionsData("path/to/options.csv")
+stocks_data = TiingoData("path/to/stocks.csv")
+```
+
+You can also bring your own CSVs. Expected schemas:
+
+- **Stocks**: columns `date`, `symbol`, `adjClose` (and optionally `close`, `high`, `low`, `volume`)
+- **Options**: columns `quotedate`, `underlying`, `type`, `strike`, `expiration`, `dte`, `bid`, `ask`, `volume`, `openinterest`, `delta` (and optionally `gamma`, `theta`, `vega`, `impliedvol`)
+
+For CME futures and options data, see the Databento setup in [finance_research](https://github.com/unbalancedparentheses/finance_research).
+
 ## Research
 
 Research notebooks, scripts, and data live in a separate repo: [finance_research](https://github.com/unbalancedparentheses/finance_research).
+
+## Documentation
+
+TODO: write proper docs from scratch. The old `docs/` directory contained stale notebook exports with broken paths and embedded JS blobs. It was deleted. Docs to write:
+
+- Getting started guide with a working end-to-end example (including where to get data)
+- Strategy cookbook: strangle, iron condor, tail hedge, covered call
+- Execution model reference: cost models, fill models, sizers, signal selectors
+- Pipeline algo reference with examples
+- Rust extension: build, deploy, benchmarks, troubleshooting
+- Multi-strategy and walk-forward optimization guide
 
