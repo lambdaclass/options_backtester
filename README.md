@@ -211,4 +211,4 @@ rust/
 
 ## Research
 
-Research notebooks and CME/Databento data: [finance_research](https://github.com/unbalancedparentheses/finance_research).
+Research notebooks and analysis: [finance_research](https://github.com/unbalancedparentheses/finance_research).
