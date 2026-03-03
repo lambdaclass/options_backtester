@@ -9,6 +9,8 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: cachix/install-nix-action@v30
+      - name: Download data
+        run: nix develop --command python data/fetch_data.py all --symbols SPY --force
       - name: Run tests
         run: nix develop --command python -m pytest -v tests/ --ignore=tests/bench --ignore=tests/compat
       - name: Type check
