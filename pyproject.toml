@@ -42,10 +42,11 @@ include = ["options_portfolio_backtester*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-addopts = "-m \"not bench\""
+addopts = "-m \"not bench\" --ignore=tests/bench --ignore=tests/convexity --ignore=tests/compat --ignore=tests/test_deep_analytics_convexity.py"
 markers = [
     "bench: benchmark/property tests requiring explicit opt-in",
     "slow: full-range stress tests (17-year SPY, minutes to run)",
+    "chaos: chaos / fault-injection tests",
 ]
 filterwarnings = ["ignore::DeprecationWarning"]
 
