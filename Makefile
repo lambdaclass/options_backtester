@@ -25,13 +25,13 @@ notebooks: ## Execute all notebooks
 	done
 
 rust-build: ## Build Rust extension with maturin (release)
-	$(RUNCMD) maturin develop --manifest-path rust/ob_python/Cargo.toml --release
+	$(RUNCMD) bash -c 'cd rust && maturin develop --manifest-path ob_python/Cargo.toml --release'
 
 rust-test: ## Run Rust unit tests
-	$(RUNCMD) bash -c 'cd rust && PYO3_USE_ABI3_FORWARD_COMPATIBILITY=1 cargo test'
+	$(RUNCMD) bash -c 'cd rust && cargo test'
 
 rust-bench: ## Run Rust benchmarks (criterion)
-	$(RUNCMD) bash -c 'cd rust && PYO3_USE_ABI3_FORWARD_COMPATIBILITY=1 cargo bench'
+	$(RUNCMD) bash -c 'cd rust && cargo bench'
 
 bench: rust-build ## Run Python benchmarks (requires Rust build)
 	$(RUNCMD) $(PYTHON) -m pytest tests/bench/ -v -m bench --benchmark-only 2>/dev/null || \
