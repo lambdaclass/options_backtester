@@ -17,7 +17,7 @@ def _dummy_run_fn(param_a=1, param_b=2):
         capital.append(capital[-1] * (1 + 0.001 * param_a))
     bal = pd.DataFrame({"total capital": capital}, index=dates)
     bal["% change"] = bal["total capital"].pct_change()
-    stats = BacktestStats._from_balance_python(bal)
+    stats = BacktestStats.from_balance(bal)
     return stats, bal
 
 
@@ -36,7 +36,7 @@ def _dummy_wf_fn(start_date, end_date):
     capital = np.linspace(100000, 105000, len(dates))
     bal = pd.DataFrame({"total capital": capital}, index=dates)
     bal["% change"] = bal["total capital"].pct_change()
-    stats = BacktestStats._from_balance_python(bal)
+    stats = BacktestStats.from_balance(bal)
     return stats, bal
 
 

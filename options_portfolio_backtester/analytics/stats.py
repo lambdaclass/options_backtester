@@ -18,34 +18,7 @@ from typing import Any
 import numpy as np
 import pandas as pd
 
-
-TRADING_DAYS_PER_YEAR = 252
-MONTHS_PER_YEAR = 12
-
-
-def _sharpe(returns: pd.Series, risk_free_rate: float, periods_per_year: int) -> float:
-    if len(returns) < 2:
-        return 0.0
-    rf_per_period = (1 + risk_free_rate) ** (1 / periods_per_year) - 1
-    excess = returns - rf_per_period
-    std = excess.std()
-    if std == 0 or np.isnan(std):
-        return 0.0
-    return float(excess.mean() / std * np.sqrt(periods_per_year))
-
-
-def _sortino(returns: pd.Series, risk_free_rate: float, periods_per_year: int) -> float:
-    if len(returns) < 2:
-        return 0.0
-    rf_per_period = (1 + risk_free_rate) ** (1 / periods_per_year) - 1
-    excess = returns - rf_per_period
-    downside = excess[excess < 0]
-    if len(downside) == 0:
-        return 0.0
-    std = downside.std()
-    if std == 0 or np.isnan(std):
-        return 0.0
-    return float(excess.mean() / std * np.sqrt(periods_per_year))
+from options_portfolio_backtester._ob_rust import compute_full_stats
 
 
 @dataclass
@@ -145,29 +118,9 @@ class BacktestStats:
         trade_pnls: np.ndarray | None = None,
         risk_free_rate: float = 0.0,
     ) -> "BacktestStats":
-        """Compute stats from a balance DataFrame and optional trade P&Ls.
-
-        Tries Rust backend first for speed, falls back to pure Python.
-        """
+        """Compute stats from a balance DataFrame and optional trade P&Ls."""
         if balance.empty:
             return cls()
-
-        try:
-            return cls._from_balance_rust(balance, trade_pnls, risk_free_rate)
-        except Exception:
-            pass
-
-        return cls._from_balance_python(balance, trade_pnls, risk_free_rate)
-
-    @classmethod
-    def _from_balance_rust(
-        cls,
-        balance: pd.DataFrame,
-        trade_pnls: np.ndarray | None = None,
-        risk_free_rate: float = 0.0,
-    ) -> "BacktestStats":
-        """Compute stats via Rust backend."""
-        from options_portfolio_backtester._ob_rust import compute_full_stats
 
         total_capital = balance["total capital"].values.astype(np.float64)
         timestamps_ns = balance.index.astype(np.int64).tolist()
@@ -225,117 +178,6 @@ class BacktestStats:
             one_year=lb["one_year"], three_year=lb["three_year"],
             five_year=lb["five_year"], ten_year=lb["ten_year"],
         )
-
-        return stats
-
-    @classmethod
-    def _from_balance_python(
-        cls,
-        balance: pd.DataFrame,
-        trade_pnls: np.ndarray | None = None,
-        risk_free_rate: float = 0.0,
-    ) -> "BacktestStats":
-        """Compute stats via pure Python (fallback)."""
-        stats = cls()
-
-        total_capital = balance["total capital"]
-        returns = balance["% change"].dropna()
-
-        # -- Return metrics --
-        stats.total_return = (total_capital.iloc[-1] / total_capital.iloc[0]) - 1.0
-        n_days = len(returns)
-        if n_days > 0:
-            stats.annualized_return = (
-                (1 + stats.total_return) ** (TRADING_DAYS_PER_YEAR / n_days) - 1
-            )
-            stats.volatility = float(returns.std() * np.sqrt(TRADING_DAYS_PER_YEAR))
-            stats.sharpe_ratio = _sharpe(returns, risk_free_rate, TRADING_DAYS_PER_YEAR)
-            stats.sortino_ratio = _sortino(returns, risk_free_rate, TRADING_DAYS_PER_YEAR)
-
-        # -- Drawdown --
-        cummax = total_capital.cummax()
-        drawdown = (total_capital - cummax) / cummax
-        stats.max_drawdown = float(abs(drawdown.min()))
-
-        in_drawdown = drawdown < 0
-        if in_drawdown.any():
-            groups = (~in_drawdown).cumsum()
-            dd_lengths = in_drawdown.groupby(groups).sum()
-            dd_lengths_pos = dd_lengths[dd_lengths > 0]
-            stats.max_drawdown_duration = int(dd_lengths.max())
-            if len(dd_lengths_pos) > 0:
-                stats.avg_drawdown_duration = int(dd_lengths_pos.mean())
-            # Average drawdown depth (of each drawdown episode)
-            dd_depths = drawdown.groupby(groups).min()
-            dd_depths_neg = dd_depths[dd_depths < 0]
-            if len(dd_depths_neg) > 0:
-                stats.avg_drawdown = float(abs(dd_depths_neg.mean()))
-
-        # Calmar
-        if stats.max_drawdown > 0:
-            stats.calmar_ratio = stats.annualized_return / stats.max_drawdown
-
-        # Tail ratio
-        if len(returns) > 20:
-            p95 = np.percentile(returns, 95)
-            p5 = abs(np.percentile(returns, 5))
-            if p5 > 0:
-                stats.tail_ratio = float(p95 / p5)
-
-        # -- Daily period stats --
-        if n_days > 0:
-            stats.daily = _compute_period_stats(
-                returns, risk_free_rate, TRADING_DAYS_PER_YEAR,
-            )
-
-        # -- Monthly period stats --
-        if hasattr(total_capital.index, 'to_period'):
-            monthly_cap = total_capital.resample("ME").last().dropna()
-            if len(monthly_cap) > 1:
-                monthly_returns = monthly_cap.pct_change().dropna()
-                if len(monthly_returns) > 0:
-                    stats.monthly = _compute_period_stats(
-                        monthly_returns, risk_free_rate, MONTHS_PER_YEAR,
-                    )
-
-        # -- Yearly period stats --
-        if hasattr(total_capital.index, 'to_period'):
-            yearly_cap = total_capital.resample("YE").last().dropna()
-            if len(yearly_cap) > 1:
-                yearly_returns = yearly_cap.pct_change().dropna()
-                if len(yearly_returns) > 0:
-                    stats.yearly = _compute_period_stats(
-                        yearly_returns, risk_free_rate, 1,
-                    )
-
-        # -- Lookback returns --
-        if hasattr(total_capital.index, 'month'):
-            stats.lookback = _compute_lookback(total_capital)
-
-        # -- Turnover --
-        stats.turnover = _compute_turnover(balance)
-
-        # -- Herfindahl --
-        stats.herfindahl = _compute_herfindahl(balance)
-
-        # -- Trade stats --
-        if trade_pnls is not None and len(trade_pnls) > 0:
-            stats.total_trades = len(trade_pnls)
-            winning = trade_pnls[trade_pnls > 0]
-            losing = trade_pnls[trade_pnls <= 0]
-            stats.wins = len(winning)
-            stats.losses = len(losing)
-            stats.win_pct = (stats.wins / stats.total_trades * 100) if stats.total_trades > 0 else 0
-
-            gross_profit = winning.sum() if len(winning) > 0 else 0
-            gross_loss = abs(losing.sum()) if len(losing) > 0 else 0
-            stats.profit_factor = (gross_profit / gross_loss) if gross_loss > 0 else float("inf")
-
-            stats.largest_win = float(winning.max()) if len(winning) > 0 else 0
-            stats.largest_loss = float(losing.min()) if len(losing) > 0 else 0
-            stats.avg_win = float(winning.mean()) if len(winning) > 0 else 0
-            stats.avg_loss = float(losing.mean()) if len(losing) > 0 else 0
-            stats.avg_trade = float(trade_pnls.mean())
 
         return stats
 
@@ -444,87 +286,3 @@ class BacktestStats:
         if not data:
             return pd.DataFrame()
         return pd.DataFrame([data])
-
-
-def _compute_period_stats(
-    returns: pd.Series, risk_free_rate: float, periods_per_year: int,
-) -> PeriodStats:
-    ps = PeriodStats()
-    if len(returns) == 0:
-        return ps
-    ps.mean = float(returns.mean())
-    ps.vol = float(returns.std())
-    ps.sharpe = _sharpe(returns, risk_free_rate, periods_per_year)
-    ps.sortino = _sortino(returns, risk_free_rate, periods_per_year)
-    if len(returns) >= 8:
-        ps.skew = float(returns.skew())
-        ps.kurtosis = float(returns.kurtosis())
-    ps.best = float(returns.max())
-    ps.worst = float(returns.min())
-    return ps
-
-
-def _compute_lookback(total_capital: pd.Series) -> LookbackReturns:
-    """Compute trailing-period returns as of the last date."""
-    lb = LookbackReturns()
-    if len(total_capital) < 2:
-        return lb
-    end_date = total_capital.index[-1]
-    end_val = total_capital.iloc[-1]
-
-    def _return_since(dt: pd.Timestamp) -> float | None:
-        mask = total_capital.index >= dt
-        if not mask.any():
-            return None
-        start_val = total_capital.loc[mask].iloc[0]
-        if start_val == 0:
-            return None
-        return float(end_val / start_val - 1)
-
-    # MTD: start of current month
-    lb.mtd = _return_since(end_date.replace(day=1))
-
-    # YTD: start of current year
-    lb.ytd = _return_since(pd.Timestamp(year=end_date.year, month=1, day=1))
-
-    # Fixed offsets
-    for attr, months in [
-        ("three_month", 3), ("six_month", 6), ("one_year", 12),
-        ("three_year", 36), ("five_year", 60), ("ten_year", 120),
-    ]:
-        offset = pd.DateOffset(months=months)
-        target = end_date - offset
-        setattr(lb, attr, _return_since(target))
-
-    return lb
-
-
-def _compute_turnover(balance: pd.DataFrame) -> float:
-    """Portfolio turnover: average of |weight changes| per period."""
-    # Find stock value columns (columns that have a matching "X qty" column)
-    stock_cols = [c for c in balance.columns if f"{c} qty" in balance.columns]
-    if not stock_cols:
-        return 0.0
-    total = balance.get("total capital")
-    if total is None or (total == 0).all():
-        return 0.0
-    weights = balance[stock_cols].div(total, axis=0).fillna(0)
-    changes = weights.diff().abs()
-    if len(changes) < 2:
-        return 0.0
-    # Turnover = average per-period sum of absolute weight changes / 2
-    per_period = changes.sum(axis=1).iloc[1:]
-    return float(per_period.mean() / 2)
-
-
-def _compute_herfindahl(balance: pd.DataFrame) -> float:
-    """Herfindahl-Hirschman Index: average portfolio concentration."""
-    stock_cols = [c for c in balance.columns if f"{c} qty" in balance.columns]
-    if not stock_cols:
-        return 0.0
-    total = balance.get("total capital")
-    if total is None or (total == 0).all():
-        return 0.0
-    weights = balance[stock_cols].div(total, axis=0).fillna(0)
-    hhi = (weights ** 2).sum(axis=1)
-    return float(hhi.mean())

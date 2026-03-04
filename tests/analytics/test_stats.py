@@ -6,7 +6,6 @@ import pytest
 
 from options_portfolio_backtester.analytics.stats import (
     BacktestStats, PeriodStats, LookbackReturns,
-    _compute_period_stats, _compute_lookback, _compute_turnover, _compute_herfindahl,
 )
 
 
@@ -182,9 +181,10 @@ class TestPeriodStats:
         assert stats.daily.kurtosis != 0
 
     def test_skew_kurtosis_not_computed_with_few_points(self):
-        returns = pd.Series([0.01, 0.02, -0.01])
-        ps = _compute_period_stats(returns, 0.0, 252)
-        assert ps.skew == 0  # not enough data (< 8)
+        # With only 3 data points, skew/kurtosis should be 0
+        balance = _make_balance([0.01, 0.02, -0.01])
+        stats = BacktestStats.from_balance(balance)
+        assert stats.daily.skew == 0  # not enough data (< 8)
 
 
 class TestAvgDrawdown:
@@ -240,7 +240,8 @@ class TestLookbackReturns:
 class TestTurnover:
     def test_turnover_zero_for_no_stocks(self):
         balance = _make_balance([0.01] * 10)
-        assert _compute_turnover(balance) == 0.0
+        stats = BacktestStats.from_balance(balance)
+        assert stats.turnover == 0.0
 
     def test_turnover_computed_with_stocks(self):
         rng = np.random.RandomState(42)
@@ -252,8 +253,9 @@ class TestTurnover:
             "SPY": spy,
             "SPY qty": spy / 300,
         }, index=dates)
-        turnover = _compute_turnover(balance)
-        assert turnover >= 0
+        balance["% change"] = balance["total capital"].pct_change()
+        stats = BacktestStats.from_balance(balance)
+        assert stats.turnover >= 0
 
 
 class TestHerfindahl:
@@ -264,8 +266,9 @@ class TestHerfindahl:
             "SPY": [100_000] * 10,
             "SPY qty": [300] * 10,
         }, index=dates)
-        hhi = _compute_herfindahl(balance)
-        assert abs(hhi - 1.0) < 0.01
+        balance["% change"] = balance["total capital"].pct_change()
+        stats = BacktestStats.from_balance(balance)
+        assert abs(stats.herfindahl - 1.0) < 0.01
 
     def test_two_equal_stocks_hhi(self):
         dates = pd.date_range("2020-01-01", periods=10, freq="B")
@@ -276,9 +279,10 @@ class TestHerfindahl:
             "QQQ": [50_000] * 10,
             "QQQ qty": [200] * 10,
         }, index=dates)
-        hhi = _compute_herfindahl(balance)
+        balance["% change"] = balance["total capital"].pct_change()
+        stats = BacktestStats.from_balance(balance)
         # 0.5^2 + 0.5^2 = 0.5
-        assert abs(hhi - 0.5) < 0.01
+        assert abs(stats.herfindahl - 0.5) < 0.01
 
 
 class TestFromBalanceRange:
