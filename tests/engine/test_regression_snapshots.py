@@ -94,11 +94,11 @@ class TestSnapshotBuyPutNoCosts:
 
     def test_final_capital(self):
         final = self.engine.balance["total capital"].iloc[-1]
-        assert abs(final - 932225.0) < 0.01, f"Regression: final_capital={final}"
+        assert abs(final - 948325.0) < 0.01, f"Regression: final_capital={final}"
 
     def test_trade_count(self):
         n = len(self.engine.trade_log)
-        assert n == 7, f"Regression: trade_count={n}"
+        assert n == 2, f"Regression: trade_count={n}"
 
     def test_balance_rows(self):
         n = len(self.engine.balance)
@@ -107,14 +107,14 @@ class TestSnapshotBuyPutNoCosts:
     def test_total_return(self):
         bal = self.engine.balance["total capital"]
         ret = (bal.iloc[-1] - bal.iloc[0]) / bal.iloc[0]
-        assert abs(ret - (-0.067775)) < 1e-4, f"Regression: total_return={ret}"
+        assert abs(ret - (-0.051675)) < 1e-4, f"Regression: total_return={ret}"
 
     def test_max_drawdown(self):
         bal = self.engine.balance["total capital"]
         running_max = bal.cummax()
         dd = (running_max - bal) / running_max
         max_dd = dd.max()
-        assert abs(max_dd - 0.067775) < 1e-4, f"Regression: max_drawdown={max_dd}"
+        assert abs(max_dd - 0.051675) < 1e-4, f"Regression: max_drawdown={max_dd}"
 
 
 class TestSnapshotBuyPutWithCommission:
@@ -132,7 +132,7 @@ class TestSnapshotBuyPutWithCommission:
 
     def test_final_capital(self):
         final = self.engine_cost.balance["total capital"].iloc[-1]
-        assert abs(final - 929824.225) < 0.01, f"Regression: final_capital={final}"
+        assert abs(final - 946336.9) < 0.01, f"Regression: final_capital={final}"
 
 
 class TestSnapshotSellPut:
@@ -144,11 +144,11 @@ class TestSnapshotSellPut:
 
     def test_final_capital(self):
         final = self.engine.balance["total capital"].iloc[-1]
-        assert abs(final - 874135.0) < 1.0, f"Regression: final_capital={final}"
+        assert abs(final - 869300.0) < 1.0, f"Regression: final_capital={final}"
 
     def test_trade_count(self):
         n = len(self.engine.trade_log)
-        assert n == 7, f"Regression: trade_count={n}"
+        assert n == 2, f"Regression: trade_count={n}"
 
     def test_sell_vs_buy_differ(self):
         buy_engine = _run(direction=Direction.BUY)
@@ -172,7 +172,7 @@ class TestSnapshotMonthlyRebalance:
 
     def test_final_capital(self):
         final = self.engine_monthly.balance["total capital"].iloc[-1]
-        assert abs(final - 932225.0) < 0.01, f"Regression: final_capital={final}"
+        assert abs(final - 948325.0) < 0.01, f"Regression: final_capital={final}"
 
     def test_balance_rows(self):
         n = len(self.engine_monthly.balance)

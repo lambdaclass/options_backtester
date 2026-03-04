@@ -109,22 +109,22 @@ class TestRustVsPythonParity:
         self.rs = _run_rust_path()
 
     def test_trade_log_shape(self):
-        assert self.rs.trade_log.shape == (7, 10)
+        assert self.rs.trade_log.shape == (2, 10)
 
     def test_regression_costs(self):
-        """Known regression values — full liquidation adds sell/rebuy trades."""
+        """Known regression values — positions persist across rebalances."""
         tol = 0.0001
         costs = self.rs.trade_log["totals"]["cost"].values
-        assert np.allclose(costs, [100, -50, 260, -50, 280, -50, 260], rtol=tol)
+        assert np.allclose(costs, [100, 150], rtol=tol)
 
     def test_regression_qtys(self):
         tol = 0.0001
         qtys = self.rs.trade_log["totals"]["qty"].values
-        assert np.allclose(qtys, [300, 300, 113, 113, 102, 102, 108], rtol=tol)
+        assert np.allclose(qtys, [300, 97], rtol=tol)
 
     def test_final_capital(self):
         final = self.rs.balance["total capital"].iloc[-1]
-        assert abs(final - 910270.0) < 1.0
+        assert abs(final - 957920.0) < 1.0
 
     def test_balance_row_count(self):
         assert len(self.rs.balance) == 61

@@ -283,6 +283,10 @@ pub fn run_backtest(
     let entry_filters: Vec<Option<CompiledFilter>> = config.legs.iter()
         .map(|leg| leg.entry_filter_query.as_ref().and_then(|q| CompiledFilter::new(q).ok()))
         .collect();
+    let exit_filters: Vec<Option<CompiledFilter>> = config.legs.iter()
+        .map(|leg| leg.exit_filter_query.as_ref().and_then(|q| CompiledFilter::new(q).ok()))
+        .collect();
+
     let mut cash = config.initial_capital;
     let mut positions: Vec<Position> = Vec::new();
     let mut stock_holdings: Vec<StockHolding> = Vec::new();
@@ -330,21 +334,25 @@ pub fn run_backtest(
         }
         let day_stocks = partitioned.stocks.get(&rb_date);
 
-        // Full liquidation: sell all options before rebalancing.
-        // Ensures clean accounting — no stale option value to track.
-        liquidate_all_positions(
+        // Run exit filters (preserve non-matching positions)
+        execute_exits(
             &mut positions, &mut cash, day_opts,
             config.shares_per_contract,
-            &config.legs, schema, rb_date, &mut trade_rows,
+            &config.legs, &exit_filters,
+            config.profit_pct, config.loss_pct,
+            schema, rb_date, &mut trade_rows,
             &config.cost_model, day_stocks,
+        )?;
+
+        // Recompute portfolio greeks from current market data after exits
+        portfolio_greeks = compute_portfolio_greeks_from_market(
+            &positions, day_opts, &config.legs,
         );
 
-        // Portfolio greeks are zero after full liquidation
-        portfolio_greeks = Greeks::default();
-
-        // Compute total capital — positions empty so options = 0
+        // Compute total capital including held options
         let stock_cap = compute_stock_capital(&stock_holdings, day_stocks);
-        let total_capital = cash + stock_cap;
+        let options_cap = compute_options_capital(&positions, day_opts, config.shares_per_contract, day_stocks);
+        let total_capital = cash + stock_cap + options_cap;
 
         // Track peak for drawdown risk checks
         peak_value = peak_value.max(total_capital);
@@ -356,7 +364,7 @@ pub fn run_backtest(
         if externally_funded {
             cash = stocks_alloc + total_capital * config.allocation_cash;
         } else {
-            cash = total_capital;
+            cash = total_capital - options_cap;
         }
 
         // Get SMA prices for this date if configured
@@ -371,17 +379,22 @@ pub fn run_backtest(
             sma_prices,
         );
 
-        // Options: buy fresh with full allocation (no delta — positions are empty)
+        // Options: buy with remaining budget only
         let options_alloc = config.options_budget_fixed
             .unwrap_or(config.allocation_options * total_capital);
-        {
+        let remaining_budget = options_alloc - options_cap;
+        if remaining_budget > 0.0 {
+            let held: Vec<String> = positions.iter()
+                .flat_map(|p| p.leg_contracts.clone())
+                .collect();
+
             if externally_funded {
-                cash += options_alloc;
+                cash += remaining_budget;
             }
 
             if let Some(pos) = execute_entries(
-                &config.legs, &entry_filters, day_opts, &[],
-                config.shares_per_contract, options_alloc,
+                &config.legs, &entry_filters, day_opts, &held,
+                config.shares_per_contract, remaining_budget,
                 schema, rb_date, &mut trade_rows,
                 &config.fill_model, &config.signal_selector,
                 &config.risk_constraints, &portfolio_greeks,
@@ -397,7 +410,7 @@ pub fn run_backtest(
             } else {
                 // No entry made — revert the budget added to cash
                 if externally_funded {
-                    cash -= options_alloc;
+                    cash -= remaining_budget;
                 }
             }
         }
@@ -534,9 +547,123 @@ fn prepartition_data(
 }
 
 // ---------------------------------------------------------------------------
+// Execute exits.
+// ---------------------------------------------------------------------------
+
+fn execute_exits(
+    positions: &mut Vec<Position>,
+    cash: &mut f64,
+    day_opts: &DayOptions,
+    spc: i64,
+    legs: &[LegConfig],
+    exit_filters: &[Option<CompiledFilter>],
+    profit_pct: Option<f64>,
+    loss_pct: Option<f64>,
+    schema: &SchemaMapping,
+    date: i64,
+    trade_rows: &mut Vec<TradeRow>,
+    cost_model: &CostModel,
+    day_stocks: Option<&DayStocks>,
+) -> PolarsResult<()> {
+    let mut to_remove = Vec::new();
+
+    for (i, pos) in positions.iter().enumerate() {
+        let mut should_exit = false;
+
+        // Check exit filters per leg
+        for (j, _leg) in legs.iter().enumerate() {
+            if let Some(ref flt) = exit_filters[j] {
+                let contract = &pos.leg_contracts[j];
+                if let Some(&row_idx) = day_opts.contract_idx.get(contract.as_str()) {
+                    // Contract exists today — check exit filter on its row.
+                    let one_row = day_opts.df.slice(row_idx as i64, 1);
+                    if flt.apply(&one_row)?.height() > 0 {
+                        should_exit = true;
+                    }
+                } else {
+                    // Contract not in today's data → exit.
+                    should_exit = true;
+                }
+            }
+        }
+
+        // Check threshold exits — mirrors Python's Strategy.filter_thresholds:
+        //   excess_return = (current_cost / entry_cost + 1) * -sign(entry_cost)
+        if !should_exit {
+            let curr = compute_position_exit_cost(pos, day_opts, spc, day_stocks);
+            let entry = pos.entry_cost;
+            if entry != 0.0 {
+                let excess_return = (curr / entry + 1.0) * -entry.signum();
+                if profit_pct.is_some_and(|p| excess_return >= p)
+                    || loss_pct.is_some_and(|l| excess_return <= -l)
+                {
+                    should_exit = true;
+                }
+            }
+        }
+
+        if should_exit {
+            let exit_cost = compute_position_exit_cost(pos, day_opts, spc, day_stocks);
+            *cash -= exit_cost * pos.quantity;
+
+            // Apply exit commission
+            let commission = cost_model.option_cost(
+                exit_cost.abs(), pos.quantity.abs(), spc,
+            );
+            *cash -= commission;
+
+            // Build trade row for exit
+            let mut leg_data = Vec::new();
+            for (j, leg) in legs.iter().enumerate() {
+                let exit_price_col = leg.direction.invert().price_column();
+                let price = day_opts.get_f64(&pos.leg_contracts[j], exit_price_col)
+                    .unwrap_or_else(|| {
+                        let spot = day_stocks
+                            .and_then(|ds| ds.get_price(&pos.leg_underlyings[j]))
+                            .unwrap_or(0.0);
+                        intrinsic_value(&pos.leg_types[j], pos.leg_strikes[j], spot)
+                    });
+                // Cash flow sign: BUY receives (-1), SELL pays (+1)
+                let cash_sign = if leg.direction == Direction::Buy { -1.0 } else { 1.0 };
+                let cost = cash_sign * price * spc as f64;
+                let order = match leg.direction {
+                    Direction::Buy => "STC",
+                    Direction::Sell => "BTC",
+                };
+                leg_data.push(LegTradeData {
+                    contract: pos.leg_contracts[j].clone(),
+                    underlying: day_opts.get_str(&pos.leg_contracts[j], &schema.underlying)
+                        .unwrap_or_else(|| pos.leg_underlyings[j].clone()),
+                    expiration: day_opts.get_str(&pos.leg_contracts[j], &schema.expiration)
+                        .unwrap_or_else(|| pos.leg_expirations[j].clone()),
+                    opt_type: pos.leg_types[j].clone(),
+                    strike: day_opts.get_f64(&pos.leg_contracts[j], &schema.strike)
+                        .unwrap_or(pos.leg_strikes[j]),
+                    cost,
+                    order: order.to_string(),
+                });
+            }
+            trade_rows.push(TradeRow {
+                date,
+                leg_data,
+                total_cost: exit_cost,
+                qty: pos.quantity,
+            });
+            to_remove.push(i);
+        }
+    }
+
+    for &i in to_remove.iter().rev() {
+        positions.remove(i);
+    }
+    Ok(())
+}
+
+// ---------------------------------------------------------------------------
 // Liquidate all remaining option positions (full rebalance).
 // ---------------------------------------------------------------------------
 
+#[allow(dead_code)]
 fn liquidate_all_positions(
     positions: &mut Vec<Position>,
     cash: &mut f64,
@@ -1098,6 +1225,42 @@ fn compute_stock_capital(holdings: &[StockHolding], day_stocks: Option<&DayStock
     holdings.iter().map(|h| {
         ds.get_price(&h.symbol).unwrap_or(0.0) * h.qty
     }).sum()
+}
+
+fn compute_options_capital(
+    positions: &[Position], day_opts: &DayOptions, spc: i64, day_stocks: Option<&DayStocks>,
+) -> f64 {
+    positions.iter().map(|pos| {
+        -compute_position_exit_cost(pos, day_opts, spc, day_stocks) * pos.quantity
+    }).sum()
+}
+
+/// Compute aggregate portfolio greeks from CURRENT market data, matching
+/// Python's `_compute_portfolio_greeks(options)` which merges inventory
+/// contracts with today's options to get current delta/gamma/theta/vega.
+fn compute_portfolio_greeks_from_market(
+    positions: &[Position],
+    day_opts: &DayOptions,
+    legs: &[LegConfig],
+) -> Greeks {
+    let mut total = Greeks::default();
+    for pos in positions {
+        for (j, leg) in legs.iter().enumerate() {
+            if j >= pos.leg_contracts.len() { continue; }
+            let contract = &pos.leg_contracts[j];
+            let dir_sign = if leg.direction == Direction::Buy { 1.0 } else { -1.0 };
+            let delta = day_opts.get_f64(contract, "delta").unwrap_or(0.0);
+            let gamma = day_opts.get_f64(contract, "gamma").unwrap_or(0.0);
+            let theta = day_opts.get_f64(contract, "theta").unwrap_or(0.0);
+            let vega = day_opts.get_f64(contract, "vega").unwrap_or(0.0);
+
+            total.delta += delta * dir_sign * pos.quantity;
+            total.gamma += gamma * dir_sign * pos.quantity;
+            total.theta += theta * dir_sign * pos.quantity;
+            total.vega += vega * dir_sign * pos.quantity;
+        }
+    }
+    total
 }
 
 fn buy_stocks(

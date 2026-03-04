@@ -754,13 +754,13 @@ class BacktestEngine:
         entry_filters: list | None = None,
         exit_threshold_override: tuple[float, float] | None = None,
     ):
-        # Full liquidation: sell all options at rebalance. Fresh entries always
-        # match current market conditions, and accounting is clean.
-        self._liquidate_all_options(date, options, stocks)
+        # Run exit filters on held positions (NOT full liquidation)
+        self._execute_option_exits(date, options, stocks, exit_threshold_override=exit_threshold_override)
 
-        # After full liquidation, options_capital = 0.
+        # Compute capital INCLUDING held options
         stock_capital = self._current_stock_capital(stocks)
-        total_capital = self.current_cash + stock_capital
+        options_capital = self._current_options_capital(options, stocks)
+        total_capital = self.current_cash + stock_capital + options_capital
 
         # When options_budget is set, options are funded separately (not from the
         # allocation split).  Use the raw allocation values for stocks/cash so
@@ -772,7 +772,7 @@ class BacktestEngine:
             externally_funded = True
         else:
             stocks_allocation = self.allocation["stocks"] * total_capital
-            self.current_cash = total_capital
+            self.current_cash = total_capital - options_capital
             externally_funded = False
         self._stocks_inventory = pd.DataFrame(columns=["symbol", "price", "qty"])
         self._buy_stocks(stocks, stocks_allocation, sma_days)
@@ -787,16 +787,19 @@ class BacktestEngine:
         self._log_event(date, "target_allocation", "ok", {
             "total_capital": float(total_capital),
             "options_allocation": float(options_allocation),
+            "options_capital": float(options_capital),
         })
-        self._execute_option_entries(
-            date,
-            options,
-            options_allocation,
-            stocks,
-            entry_filters=entry_filters,
-            total_capital=total_capital,
-            externally_funded=externally_funded,
-        )
+        remaining_budget = options_allocation - options_capital
+        if remaining_budget > 0:
+            self._execute_option_entries(
+                date,
+                options,
+                remaining_budget,
+                stocks,
+                entry_filters=entry_filters,
+                total_capital=total_capital,
+                externally_funded=externally_funded,
+            )
 
     def _current_stock_capital(self, stocks):
         current_stocks = self._stocks_inventory.merge(
@@ -1759,14 +1762,15 @@ class BacktestEngine:
                     "slots_rebalancing": [s.name for s in slots_rebalancing],
                 })
 
-                # Phase 1: full liquidation for each rebalancing slot
+                # Phase 1: exit filters for each rebalancing slot (NOT full liquidation)
                 for slot in slots_rebalancing:
                     with self._strategy_context(slot):
-                        self._liquidate_all_options(date, options, stocks)
+                        self._execute_option_exits(date, options, stocks)
 
-                # Phase 2: compute aggregate capital (options = 0 after liquidation)
+                # Phase 2: compute aggregate capital including held options
                 stock_capital = self._current_stock_capital(stocks)
-                total_capital = self.current_cash + stock_capital
+                options_capital = self._current_options_capital_multi(options, stocks)
+                total_capital = self.current_cash + stock_capital + options_capital
 
                 if self.options_budget is not None and not callable(self.options_budget):
                     options_allocation = float(self.options_budget)
@@ -1807,22 +1811,29 @@ class BacktestEngine:
                     externally_funded = True
                 else:
                     stocks_allocation = self.allocation["stocks"] * total_capital
-                    self.current_cash = total_capital
+                    self.current_cash = total_capital - options_capital
                     externally_funded = False
                 self._stocks_inventory = pd.DataFrame(columns=["symbol", "price", "qty"])
                 self._buy_stocks(stocks, stocks_allocation, sma_days)
 
-                # Phase 5: entries for each rebalancing slot (weighted allocation)
+                # Phase 5: entries for each rebalancing slot (remaining budget)
                 for slot in slots_rebalancing:
                     with self._strategy_context(slot):
-                        slot_allocation = slot.weight * options_allocation
-                        self._execute_option_entries(
-                            date, options,
-                            slot_allocation,
-                            stocks,
-                            total_capital=total_capital,
-                            externally_funded=externally_funded,
+                        slot_options_capital = (
+                            self._current_options_capital(options, stocks)
+                            if not self._options_inventory.empty
+                            else 0.0
                         )
+                        slot_allocation = slot.weight * options_allocation
+                        remaining_budget = slot_allocation - slot_options_capital
+                        if remaining_budget > 0:
+                            self._execute_option_entries(
+                                date, options,
+                                remaining_budget,
+                                stocks,
+                                total_capital=total_capital,
+                                externally_funded=externally_funded,
+                            )
 
                 # Track peak for drawdown risk checks
                 total = self._total_capital_estimate_multi(stocks, options)

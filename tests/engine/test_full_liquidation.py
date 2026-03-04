@@ -1,11 +1,11 @@
-"""Tests for full options liquidation at rebalance.
+"""Tests for option rebalance accounting.
 
 Verifies that at every rebalance:
-1. All existing option positions are sold (liquidated)
-2. Fresh options matching entry criteria are purchased
-3. No ghost positions carry over between rebalances
-4. Cash accounting is clean (no money creation)
-5. Max drawdown never exceeds 100%
+1. Exit filters run on held positions (positions persist if not matched)
+2. Fresh options matching entry criteria are purchased with remaining budget
+3. Cash accounting is clean (no money creation via double-counting)
+4. Max drawdown never exceeds 100%
+5. Total capital = cash + stocks capital + options capital
 """
 
 import os
@@ -83,34 +83,30 @@ def _run(cost_model=None, direction=Direction.BUY, signal_selector=None):
 # Liquidation trade pattern
 # ---------------------------------------------------------------------------
 
-class TestLiquidationTradePattern:
-    """Verify trade log shows sell-then-rebuy pattern at rebalances."""
+class TestTradePattern:
+    """Verify trade log reflects positions persisting across rebalances."""
 
     @pytest.fixture(autouse=True)
     def setup(self):
         self.engine = _run()
 
-    def test_more_than_initial_entry(self):
-        """Full liquidation generates more trades than just the initial entry."""
-        assert len(self.engine.trade_log) > 2
-
-    def test_liquidation_events_logged(self):
-        """Engine event log contains liquidate_all_options events (Python path)."""
-        engine = _make_python_engine()
-        logs = engine.events_dataframe()
-        assert (logs["event"] == "liquidate_all_options").any()
-
-    def test_sell_trades_alternate_with_buy(self):
-        """Trade log alternates: BUY entry, STC liquidation, BUY entry, ..."""
+    def test_trades_are_entries(self):
+        """With no exit filter triggers, trades should all be BTO entries."""
         tl = self.engine.trade_log
         orders = tl["leg_1"]["order"].values
-        # First trade should be entry (BTO for BUY direction)
+        assert all(o == "BTO" for o in orders), f"Expected all BTO, got {orders}"
+
+    def test_exit_filter_events_logged(self):
+        """Engine event log contains option_exit events (Python path)."""
+        engine = _make_python_engine()
+        logs = engine.events_dataframe()
+        assert (logs["event"] == "option_exit").any()
+
+    def test_first_trade_is_entry(self):
+        """First trade should be an entry (BTO for BUY direction)."""
+        tl = self.engine.trade_log
+        orders = tl["leg_1"]["order"].values
         assert orders[0] == "BTO"
-        # Subsequent trades alternate between STC (liquidation) and BTO (new entry)
-        for i in range(1, len(orders) - 1, 2):
-            assert orders[i] == "STC", f"Trade {i} should be STC, got {orders[i]}"
-            if i + 1 < len(orders):
-                assert orders[i + 1] == "BTO", f"Trade {i+1} should be BTO, got {orders[i+1]}"
 
 
 # ---------------------------------------------------------------------------

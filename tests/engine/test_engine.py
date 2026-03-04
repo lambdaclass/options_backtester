@@ -87,19 +87,18 @@ class TestEngineRegressionValues:
     def test_regression_costs(self):
         tol = 0.0001
         bt = self.engine
-        # Full liquidation at rebalance: sell all options then rebuy fresh.
-        # 7 trades: entry, liquidation+entry x3 rebalances, final liquidation
+        # Positions persist across rebalances — only new entries, no liquidation churn.
         assert np.allclose(bt.trade_log["totals"]["cost"].values,
-                           [100, -50, 260, -50, 280, -50, 260], rtol=tol)
+                           [100, 150], rtol=tol)
         assert np.allclose(bt.trade_log["leg_1"]["cost"].values,
-                           [100, -50, 260, -50, 280, -50, 260], rtol=tol)
+                           [100, 150], rtol=tol)
 
     def test_regression_qtys(self):
         tol = 0.0001
         bt = self.engine
         assert np.allclose(
             bt.trade_log["totals"]["qty"].values,
-            [300, 300, 113, 113, 102, 102, 108],
+            [300, 97],
             rtol=tol,
         )
 
