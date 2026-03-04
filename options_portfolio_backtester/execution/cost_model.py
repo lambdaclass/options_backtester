@@ -4,6 +4,10 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 
+from options_portfolio_backtester.execution._rust_bridge import (
+    rust_option_cost, rust_stock_cost,
+)
+
 
 class TransactionCostModel(ABC):
     """Base class for all transaction cost models."""
@@ -40,10 +44,10 @@ class PerContractCommission(TransactionCostModel):
         self.stock_rate = stock_rate  # per-share
 
     def option_cost(self, price: float, quantity: int, shares_per_contract: int) -> float:
-        return self.rate * abs(quantity)
+        return rust_option_cost("PerContract", self.rate, self.stock_rate, [], price, float(quantity), shares_per_contract)
 
     def stock_cost(self, price: float, quantity: float) -> float:
-        return self.stock_rate * abs(quantity)
+        return rust_stock_cost("PerContract", self.rate, self.stock_rate, [], price, float(quantity))
 
     def to_rust_config(self) -> dict:
         return {"type": "PerContract", "rate": self.rate, "stock_rate": self.stock_rate}
@@ -67,26 +71,10 @@ class TieredCommission(TransactionCostModel):
         self.stock_rate = stock_rate
 
     def option_cost(self, price: float, quantity: int, shares_per_contract: int) -> float:
-        qty = abs(quantity)
-        total = 0.0
-        remaining = qty
-        prev_bound = 0
-        for max_qty, rate in self.tiers:
-            tier_qty = min(remaining, max_qty - prev_bound)
-            if tier_qty <= 0:
-                prev_bound = max_qty
-                continue
-            total += tier_qty * rate
-            remaining -= tier_qty
-            prev_bound = max_qty
-            if remaining <= 0:
-                break
-        if remaining > 0:
-            total += remaining * self.tiers[-1][1]
-        return total
+        return rust_option_cost("Tiered", 0.0, self.stock_rate, self.tiers, price, float(quantity), shares_per_contract)
 
     def stock_cost(self, price: float, quantity: float) -> float:
-        return self.stock_rate * abs(quantity)
+        return rust_stock_cost("Tiered", 0.0, self.stock_rate, self.tiers, price, float(quantity))
 
     def to_rust_config(self) -> dict:
         return {

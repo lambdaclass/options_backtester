@@ -6,6 +6,10 @@ from abc import ABC, abstractmethod
 
 import pandas as pd
 
+from options_portfolio_backtester.execution._rust_bridge import (
+    rust_nearest_delta_index, rust_max_value_index,
+)
+
 
 class SignalSelector(ABC):
     """Picks one entry signal from a DataFrame of candidates."""
@@ -55,8 +59,9 @@ class NearestDelta(SignalSelector):
     def select(self, candidates: pd.DataFrame) -> pd.Series:
         if self.delta_column not in candidates.columns:
             return candidates.iloc[0]
-        diffs = (candidates[self.delta_column] - self.target_delta).abs()
-        return candidates.loc[diffs.idxmin()]
+        values = candidates[self.delta_column].tolist()
+        idx = rust_nearest_delta_index(values, self.target_delta)
+        return candidates.iloc[idx]
 
     def to_rust_config(self) -> dict:
         return {"type": "NearestDelta", "target": self.target_delta, "column": self.delta_column}
@@ -78,7 +83,9 @@ class MaxOpenInterest(SignalSelector):
     def select(self, candidates: pd.DataFrame) -> pd.Series:
         if self.oi_column not in candidates.columns:
             return candidates.iloc[0]
-        return candidates.loc[candidates[self.oi_column].idxmax()]
+        values = candidates[self.oi_column].astype(float).tolist()
+        idx = rust_max_value_index(values)
+        return candidates.iloc[idx]
 
     def to_rust_config(self) -> dict:
         return {"type": "MaxOpenInterest", "column": self.oi_column}

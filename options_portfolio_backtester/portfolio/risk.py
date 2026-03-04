@@ -6,6 +6,7 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass
 
 from options_portfolio_backtester.core.types import Greeks
+from options_portfolio_backtester.execution._rust_bridge import rust_risk_check
 
 
 class RiskConstraint(ABC):
@@ -23,6 +24,10 @@ class RiskConstraint(ABC):
         ...
 
 
+def _greeks_list(g: Greeks) -> list[float]:
+    return [g.delta, g.gamma, g.theta, g.vega]
+
+
 class MaxDelta(RiskConstraint):
     """Reject trades that would push portfolio delta beyond a limit."""
 
@@ -31,8 +36,11 @@ class MaxDelta(RiskConstraint):
 
     def check(self, current_greeks: Greeks, proposed_greeks: Greeks,
               portfolio_value: float, peak_value: float) -> bool:
-        new_delta = current_greeks.delta + proposed_greeks.delta
-        return abs(new_delta) <= self.limit
+        return rust_risk_check(
+            "MaxDelta", self.limit,
+            _greeks_list(current_greeks), _greeks_list(proposed_greeks),
+            portfolio_value, peak_value,
+        )
 
     def describe(self) -> str:
         return f"MaxDelta(limit={self.limit})"
@@ -49,8 +57,11 @@ class MaxVega(RiskConstraint):
 
     def check(self, current_greeks: Greeks, proposed_greeks: Greeks,
               portfolio_value: float, peak_value: float) -> bool:
-        new_vega = current_greeks.vega + proposed_greeks.vega
-        return abs(new_vega) <= self.limit
+        return rust_risk_check(
+            "MaxVega", self.limit,
+            _greeks_list(current_greeks), _greeks_list(proposed_greeks),
+            portfolio_value, peak_value,
+        )
 
     def describe(self) -> str:
         return f"MaxVega(limit={self.limit})"
@@ -67,10 +78,11 @@ class MaxDrawdown(RiskConstraint):
 
     def check(self, current_greeks: Greeks, proposed_greeks: Greeks,
               portfolio_value: float, peak_value: float) -> bool:
-        if peak_value <= 0:
-            return True
-        dd = (peak_value - portfolio_value) / peak_value
-        return dd < self.max_dd_pct
+        return rust_risk_check(
+            "MaxDrawdown", self.max_dd_pct,
+            _greeks_list(current_greeks), _greeks_list(proposed_greeks),
+            portfolio_value, peak_value,
+        )
 
     def describe(self) -> str:
         return f"MaxDrawdown(max_dd_pct={self.max_dd_pct})"

@@ -7,6 +7,7 @@ from abc import ABC, abstractmethod
 import pandas as pd
 
 from options_portfolio_backtester.core.types import Direction
+from options_portfolio_backtester.execution._rust_bridge import rust_fill_price
 
 
 class FillModel(ABC):
@@ -53,16 +54,10 @@ class VolumeAwareFill(FillModel):
     def get_fill_price(self, row: pd.Series, direction: Direction) -> float:
         bid = float(row["bid"])
         ask = float(row["ask"])
-        volume = float(row.get("volume", self.full_volume_threshold))
-        mid = (bid + ask) / 2.0
-        target = ask if direction == Direction.BUY else bid
-
-        if volume >= self.full_volume_threshold:
-            return target
-
-        # Linear interpolation: at volume=0 fill at mid, at threshold fill at target
-        ratio = volume / self.full_volume_threshold
-        return mid + ratio * (target - mid)
+        is_buy = direction == Direction.BUY
+        vol_raw = row.get("volume")
+        volume = None if vol_raw is None or (isinstance(vol_raw, float) and vol_raw != vol_raw) else float(vol_raw)
+        return rust_fill_price("VolumeAware", self.full_volume_threshold, bid, ask, volume, is_buy)
 
     def to_rust_config(self) -> dict:
         return {"type": "VolumeAware", "full_volume_threshold": self.full_volume_threshold}
