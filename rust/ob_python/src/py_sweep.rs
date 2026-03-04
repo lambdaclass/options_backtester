@@ -9,7 +9,9 @@ use pyo3::types::{PyDict, PyList};
 use pyo3_polars::PyDataFrame;
 use rayon::prelude::*;
 
-use ob_core::backtest::{run_backtest, BacktestConfig, SchemaMapping};
+use ob_core::backtest::{
+    prepartition_data, run_backtest_prepartitioned, BacktestConfig, PartitionedData, SchemaMapping,
+};
 use ob_core::cost_model::CostModel;
 use ob_core::fill_model::FillModel;
 use ob_core::risk::RiskConstraint;
@@ -91,8 +93,7 @@ fn merge_config(base: &BacktestConfig, overrides: &SweepOverrides) -> BacktestCo
 }
 
 fn run_single_sweep(
-    opts: &polars::prelude::DataFrame,
-    stocks: &polars::prelude::DataFrame,
+    partitioned: &PartitionedData,
     base: &BacktestConfig,
     schema: &SchemaMapping,
     overrides: &SweepOverrides,
@@ -101,7 +102,7 @@ fn run_single_sweep(
     let cfg = merge_config(base, overrides);
     let start = std::time::Instant::now();
 
-    match run_backtest(&cfg, opts, stocks, schema) {
+    match run_backtest_prepartitioned(&cfg, partitioned, schema) {
         Ok(result) => SweepResult {
             label,
             final_cash: result.final_cash,
@@ -252,6 +253,10 @@ pub fn parallel_sweep(
         })
         .collect::<PyResult<Vec<_>>>()?;
 
+    // Pre-partition data once — shared across all parallel configs via &ref.
+    let partitioned = prepartition_data(&opts, &stocks, &schema)
+        .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(format!("prepartition error: {e}")))?;
+
     // Release GIL and run parallel computation with scoped Rayon pool
     let results: Vec<SweepResult> = py.allow_threads(|| {
         let pool = rayon::ThreadPoolBuilder::new()
@@ -261,7 +266,7 @@ pub fn parallel_sweep(
         pool.install(|| {
             overrides
                 .par_iter()
-                .map(|ov| run_single_sweep(&opts, &stocks, &base, &schema, ov))
+                .map(|ov| run_single_sweep(&partitioned, &base, &schema, ov))
                 .collect()
         })
     });

@@ -249,7 +249,7 @@ impl DayStocks {
 }
 
 /// All data pre-partitioned by date.
-struct PartitionedData {
+pub struct PartitionedData {
     options: HashMap<i64, DayOptions>,
     stocks: HashMap<i64, DayStocks>,
     /// All option dates as nanoseconds, sorted ascending.
@@ -280,6 +280,16 @@ pub fn run_backtest(
     stocks_data: &DataFrame,
     schema: &SchemaMapping,
 ) -> PolarsResult<BacktestResult> {
+    let partitioned = prepartition_data(options_data, stocks_data, schema)?;
+    run_backtest_prepartitioned(config, &partitioned, schema)
+}
+
+/// Run a backtest using pre-partitioned data (avoids re-partitioning in sweeps).
+pub fn run_backtest_prepartitioned(
+    config: &BacktestConfig,
+    partitioned: &PartitionedData,
+    schema: &SchemaMapping,
+) -> PolarsResult<BacktestResult> {
     let entry_filters: Vec<Option<CompiledFilter>> = config.legs.iter()
         .map(|leg| leg.entry_filter_query.as_ref().and_then(|q| CompiledFilter::new(q).ok()))
         .collect();
@@ -295,10 +305,6 @@ pub fn run_backtest(
 
     let mut trade_rows: Vec<TradeRow> = Vec::new();
     let mut balance_days: Vec<BalanceDay> = Vec::new();
-
-    // Pre-partition all data by date — single O(n) pass instead of
-    // O(n) per-date filter calls throughout the backtest.
-    let partitioned = prepartition_data(options_data, stocks_data, schema)?;
 
     // Pre-compute SMA per stock symbol if sma_days is set
     let sma_map_by_date = config.sma_days
@@ -361,11 +367,11 @@ pub fn run_backtest(
         let stocks_alloc = config.allocation_stocks * total_capital;
         let externally_funded = config.options_budget_fixed.is_some();
         stock_holdings.clear();
-        if externally_funded {
-            cash = stocks_alloc + total_capital * config.allocation_cash;
-        } else {
-            cash = total_capital - options_cap;
-        }
+        // Set cash to liquid capital (total minus held options) regardless of
+        // mode. Options retain their value; only cash + stock_capital gets
+        // redistributed.  Leverage in budget mode comes from stocks_alloc
+        // being based on total_capital (which includes options_cap).
+        cash = total_capital - options_cap;
 
         // Get SMA prices for this date if configured
         let sma_prices = sma_map_by_date.as_ref().and_then(|m| m.get(&rb_date));
@@ -443,7 +449,7 @@ pub fn run_backtest(
 // Data pre-partitioning — called once at startup.
 // ---------------------------------------------------------------------------
 
-fn prepartition_data(
+pub fn prepartition_data(
     options_data: &DataFrame,
     stocks_data: &DataFrame,
     schema: &SchemaMapping,
