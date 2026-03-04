@@ -125,7 +125,10 @@ class TestRustVsPythonParity:
 
     def test_final_capital(self):
         final = self.rs.balance["total capital"].iloc[-1]
-        assert abs(final - 957920.0) < 1.0
+        # Updated from 957920.0 after the money-creation bug fix (229227f):
+        # the old Rust path unconditionally added options_allocation to cash
+        # even in AQR framing (options_budget=None), inflating capital.
+        assert abs(final - 1032020.0) < 1.0
 
     def test_balance_row_count(self):
         assert len(self.rs.balance) == 61

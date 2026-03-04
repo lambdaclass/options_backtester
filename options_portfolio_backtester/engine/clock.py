@@ -63,12 +63,12 @@ class TradingClock:
 
     @staticmethod
     def _monthly_iter(data: pd.DataFrame, date_col: str):
-        return (
-            data.groupby(pd.Grouper(key=date_col, freq="MS"))
-            .apply(lambda g: g[g[date_col] == g[date_col].min()])
-            .reset_index(drop=True)
-            .groupby(date_col)
+        first_date_per_month = (
+            data.groupby(data[date_col].dt.to_period('M'))[date_col]
+            .min()
         )
+        mask = data[date_col].isin(first_date_per_month.values)
+        return data[mask].groupby(date_col)
 
     @property
     def all_dates(self) -> pd.DatetimeIndex:

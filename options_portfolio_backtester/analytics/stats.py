@@ -123,7 +123,7 @@ class BacktestStats:
             return cls()
 
         total_capital = balance["total capital"].values.astype(np.float64)
-        timestamps_ns = balance.index.astype(np.int64).tolist()
+        timestamps_ns = balance.index.values.astype("datetime64[ns]").view("int64").astype(np.int64).tolist()
         pnls = trade_pnls.astype(np.float64).tolist() if trade_pnls is not None else []
 
         # Build stock weight matrix

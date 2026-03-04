@@ -44,10 +44,12 @@ class TiingoData:
     def iter_months(self) -> pd.core.groupby.DataFrameGroupBy:
         """Returns `pd.DataFrameGroupBy` that groups stocks by month"""
         date_col = self.schema['date']
-        iterator = self._data.groupby(pd.Grouper(
-            key=date_col,
-            freq="MS")).apply(lambda g: g[g[date_col] == g[date_col].min()]).reset_index(drop=True).groupby(date_col)
-        return iterator
+        first_date_per_month = (
+            self._data.groupby(self._data[date_col].dt.to_period('M'))[date_col]
+            .min()
+        )
+        mask = self._data[date_col].isin(first_date_per_month.values)
+        return self._data[mask].groupby(date_col)
 
     def __getattr__(self, attr: str) -> Any:
         """Pass method invocation to `self._data`"""
@@ -130,10 +132,12 @@ class HistoricalOptionsData:
     def iter_months(self) -> pd.core.groupby.DataFrameGroupBy:
         """Returns `pd.DataFrameGroupBy` that groups contracts by month"""
         date_col = self.schema['date']
-        iterator = self._data.groupby(pd.Grouper(
-            key=date_col,
-            freq="MS")).apply(lambda g: g[g[date_col] == g[date_col].min()]).reset_index(drop=True).groupby(date_col)
-        return iterator
+        first_date_per_month = (
+            self._data.groupby(self._data[date_col].dt.to_period('M'))[date_col]
+            .min()
+        )
+        mask = self._data[date_col].isin(first_date_per_month.values)
+        return self._data[mask].groupby(date_col)
 
     def __getattr__(self, attr: str) -> Any:
         """Pass method invocation to `self._data`"""
