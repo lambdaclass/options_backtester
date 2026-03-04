@@ -480,6 +480,115 @@ impl CompiledFilter {
         let bool_mask = mask.column("_mask")?.bool()?.clone();
         df.filter(&bool_mask)
     }
+
+    /// Evaluate filter against a single row — O(1) per comparison, no Polars overhead.
+    #[inline]
+    pub fn eval_row(&self, df: &DataFrame, row_idx: usize) -> bool {
+        eval_expr_row(&self.expr, df, row_idx)
+    }
+}
+
+/// Read a numeric value from a column at a given row index.
+#[inline]
+fn read_f64(col: &Column, row: usize) -> Option<f64> {
+    if let Ok(ca) = col.f64() {
+        return ca.get(row);
+    }
+    if let Ok(ca) = col.i64() {
+        return ca.get(row).map(|v| v as f64);
+    }
+    if let Ok(ca) = col.i32() {
+        return ca.get(row).map(|v| v as f64);
+    }
+    None
+}
+
+/// Read a string value from a column at a given row index.
+#[inline]
+fn read_str<'a>(col: &'a Column, row: usize) -> Option<&'a str> {
+    col.str().ok().and_then(|ca| ca.get(row))
+}
+
+/// Compare two f64 values with the given operator.
+#[inline]
+fn cmp_f64(lhs: f64, op: CmpOp, rhs: f64) -> bool {
+    match op {
+        CmpOp::Eq => (lhs - rhs).abs() < f64::EPSILON,
+        CmpOp::Ne => (lhs - rhs).abs() >= f64::EPSILON,
+        CmpOp::Lt => lhs < rhs,
+        CmpOp::Le => lhs <= rhs,
+        CmpOp::Gt => lhs > rhs,
+        CmpOp::Ge => lhs >= rhs,
+    }
+}
+
+/// Resolve a Value to f64 given a DataFrame and row index.
+#[inline]
+fn resolve_f64(val: &Value, df: &DataFrame, row: usize) -> Option<f64> {
+    match val {
+        Value::Int(n) => Some(*n as f64),
+        Value::Float(f) => Some(*f),
+        Value::Column(name) => df.column(name).ok().and_then(|c| read_f64(c, row)),
+        Value::Str(_) => None,
+    }
+}
+
+/// Evaluate a filter expression against a single row directly.
+fn eval_expr_row(expr: &FilterExpr, df: &DataFrame, row: usize) -> bool {
+    match expr {
+        FilterExpr::Cmp(col_name, op, val) => {
+            let col = match df.column(col_name) {
+                Ok(c) => c,
+                Err(_) => return false,
+            };
+            match val {
+                Value::Str(s) => {
+                    match read_str(col, row) {
+                        Some(cell) => match op {
+                            CmpOp::Eq => cell == s.as_str(),
+                            CmpOp::Ne => cell != s.as_str(),
+                            _ => false,
+                        },
+                        None => false,
+                    }
+                }
+                _ => {
+                    match (read_f64(col, row), resolve_f64(val, df, row)) {
+                        (Some(lhs), Some(rhs)) => cmp_f64(lhs, *op, rhs),
+                        _ => false,
+                    }
+                }
+            }
+        }
+        FilterExpr::ColArith(col_name, arith_op, arith_val, cmp_op, cmp_val) => {
+            let col = match df.column(col_name) {
+                Ok(c) => c,
+                Err(_) => return false,
+            };
+            let base = match read_f64(col, row) {
+                Some(v) => v,
+                None => return false,
+            };
+            let operand = match resolve_f64(arith_val, df, row) {
+                Some(v) => v,
+                None => return false,
+            };
+            let arith_result = match arith_op {
+                ArithOp::Add => base + operand,
+                ArithOp::Sub => base - operand,
+                ArithOp::Mul => base * operand,
+                ArithOp::Div => base / operand,
+            };
+            let rhs = match resolve_f64(cmp_val, df, row) {
+                Some(v) => v,
+                None => return false,
+            };
+            cmp_f64(arith_result, *cmp_op, rhs)
+        }
+        FilterExpr::And(l, r) => eval_expr_row(l, df, row) && eval_expr_row(r, df, row),
+        FilterExpr::Or(l, r) => eval_expr_row(l, df, row) || eval_expr_row(r, df, row),
+        FilterExpr::Not(inner) => !eval_expr_row(inner, df, row),
+    }
 }
 
 #[cfg(test)]
@@ -665,5 +774,80 @@ mod tests {
         let f = CompiledFilter::new("(delta >= -0.30) & (delta <= -0.10)").unwrap();
         let result = f.apply(&df).unwrap();
         assert_eq!(result.height(), 2); // -0.25 and -0.15
+    }
+
+    // --- eval_row tests ---
+
+    #[test]
+    fn eval_row_simple_eq() {
+        let df = DataFrame::new(vec![
+            Column::new("type".into(), &["call", "put", "put"]),
+            Column::new("ask".into(), &[1.0f64, 2.0, 0.0]),
+        ]).unwrap();
+
+        let f = CompiledFilter::new("type == 'put'").unwrap();
+        assert!(!f.eval_row(&df, 0)); // call
+        assert!(f.eval_row(&df, 1));  // put
+        assert!(f.eval_row(&df, 2));  // put
+    }
+
+    #[test]
+    fn eval_row_and_filter() {
+        let df = DataFrame::new(vec![
+            Column::new("type".into(), &["call", "put", "put"]),
+            Column::new("ask".into(), &[1.0f64, 2.0, 0.0]),
+        ]).unwrap();
+
+        let f = CompiledFilter::new("(type == 'put') & (ask > 0)").unwrap();
+        assert!(!f.eval_row(&df, 0)); // call
+        assert!(f.eval_row(&df, 1));  // put, ask=2
+        assert!(!f.eval_row(&df, 2)); // put, ask=0
+    }
+
+    #[test]
+    fn eval_row_col_arith() {
+        let df = DataFrame::new(vec![
+            Column::new("strike".into(), &[110.0f64, 95.0, 105.0]),
+            Column::new("underlying_last".into(), &[100.0f64, 100.0, 100.0]),
+        ]).unwrap();
+
+        // strike >= underlying_last * 1.02 → ColArith("underlying_last", Mul, 1.02, Le, Column("strike"))
+        let f = CompiledFilter::new("strike >= underlying_last * 1.02").unwrap();
+        assert!(f.eval_row(&df, 0));  // 110 >= 102
+        assert!(!f.eval_row(&df, 1)); // 95 < 102
+        assert!(f.eval_row(&df, 2));  // 105 >= 102
+    }
+
+    #[test]
+    fn eval_row_negative_delta() {
+        let df = DataFrame::new(vec![
+            Column::new("delta".into(), &[-0.40f64, -0.25, -0.15, -0.05, 0.10]),
+        ]).unwrap();
+
+        let f = CompiledFilter::new("(delta >= -0.30) & (delta <= -0.10)").unwrap();
+        assert!(!f.eval_row(&df, 0)); // -0.40
+        assert!(f.eval_row(&df, 1));  // -0.25
+        assert!(f.eval_row(&df, 2));  // -0.15
+        assert!(!f.eval_row(&df, 3)); // -0.05
+        assert!(!f.eval_row(&df, 4)); // 0.10
+    }
+
+    #[test]
+    fn eval_row_matches_apply() {
+        // Verify eval_row matches apply for all rows
+        let df = DataFrame::new(vec![
+            Column::new("underlying".into(), &["SPX", "SPX", "AAPL", "SPX"]),
+            Column::new("dte".into(), &[30i32, 90, 90, 150]),
+        ]).unwrap();
+
+        let f = CompiledFilter::new("(underlying == 'SPX') & (dte >= 60) & (dte <= 120)").unwrap();
+        let apply_result = f.apply(&df).unwrap();
+        assert_eq!(apply_result.height(), 1);
+
+        // eval_row should match
+        assert!(!f.eval_row(&df, 0)); // SPX, dte=30
+        assert!(f.eval_row(&df, 1));  // SPX, dte=90
+        assert!(!f.eval_row(&df, 2)); // AAPL
+        assert!(!f.eval_row(&df, 3)); // SPX, dte=150
     }
 }

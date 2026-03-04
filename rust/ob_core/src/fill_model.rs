@@ -17,6 +17,7 @@ impl FillModel {
     /// Compute fill price given bid, ask, volume, and whether this is a buy.
     ///
     /// `is_buy`: true for BUY direction (fills at ask), false for SELL (fills at bid).
+    #[inline]
     pub fn fill_price(&self, bid: f64, ask: f64, volume: Option<f64>, is_buy: bool) -> f64 {
         match self {
             FillModel::MarketAtBidAsk => {

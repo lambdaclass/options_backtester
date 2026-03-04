@@ -26,6 +26,7 @@ impl SignalSelector {
     }
 
     /// Select one row index from a DataFrame of candidates. Returns 0-based row index.
+    #[inline]
     pub fn select_index(&self, candidates: &DataFrame) -> usize {
         if candidates.height() == 0 {
             return 0;

@@ -16,6 +16,7 @@ pub enum CostModel {
 
 impl CostModel {
     /// Compute option trade commission.
+    #[inline]
     pub fn option_cost(&self, _price: f64, quantity: f64, _spc: i64) -> f64 {
         let qty = quantity.abs();
         match self {
@@ -49,6 +50,7 @@ impl CostModel {
     }
 
     /// Compute stock trade commission.
+    #[inline]
     pub fn stock_cost(&self, _price: f64, quantity: f64) -> f64 {
         let qty = quantity.abs();
         match self {

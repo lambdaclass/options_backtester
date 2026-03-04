@@ -7,6 +7,7 @@ pub enum Direction {
 }
 
 impl Direction {
+    #[inline]
     pub fn sign(self) -> f64 {
         match self {
             Direction::Buy => -1.0,
@@ -14,6 +15,7 @@ impl Direction {
         }
     }
 
+    #[inline]
     pub fn price_column(self) -> &'static str {
         match self {
             Direction::Buy => "ask",
@@ -21,6 +23,7 @@ impl Direction {
         }
     }
 
+    #[inline]
     pub fn invert(self) -> Direction {
         match self {
             Direction::Buy => Direction::Sell,

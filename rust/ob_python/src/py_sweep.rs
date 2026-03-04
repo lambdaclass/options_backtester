@@ -10,7 +10,8 @@ use pyo3_polars::PyDataFrame;
 use rayon::prelude::*;
 
 use ob_core::backtest::{
-    prepartition_data, run_backtest_prepartitioned, BacktestConfig, PartitionedData, SchemaMapping,
+    prepartition_data, run_backtest_with_filters, BacktestConfig, PartitionedData,
+    PrecompiledFilters, SchemaMapping,
 };
 use ob_core::cost_model::CostModel;
 use ob_core::fill_model::FillModel;
@@ -97,12 +98,24 @@ fn run_single_sweep(
     base: &BacktestConfig,
     schema: &SchemaMapping,
     overrides: &SweepOverrides,
+    base_filters: &PrecompiledFilters,
 ) -> SweepResult {
     let label = overrides.label.clone();
     let cfg = merge_config(base, overrides);
     let start = std::time::Instant::now();
 
-    match run_backtest_prepartitioned(&cfg, partitioned, schema) {
+    // Reuse base filters if this override didn't change any filter strings.
+    let needs_recompile = overrides.leg_entry_filters.is_some()
+        || overrides.leg_exit_filters.is_some();
+    let local_filters;
+    let filters = if needs_recompile {
+        local_filters = PrecompiledFilters::from_config(&cfg);
+        &local_filters
+    } else {
+        base_filters
+    };
+
+    match run_backtest_with_filters(&cfg, partitioned, schema, filters) {
         Ok(result) => SweepResult {
             label,
             final_cash: result.final_cash,
@@ -257,6 +270,9 @@ pub fn parallel_sweep(
     let partitioned = prepartition_data(&opts, &stocks, &schema)
         .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(format!("prepartition error: {e}")))?;
 
+    // Pre-compile base filters once — reused by configs that don't override filters.
+    let base_filters = PrecompiledFilters::from_config(&base);
+
     // Release GIL and run parallel computation with scoped Rayon pool
     let results: Vec<SweepResult> = py.allow_threads(|| {
         let pool = rayon::ThreadPoolBuilder::new()
@@ -266,7 +282,7 @@ pub fn parallel_sweep(
         pool.install(|| {
             overrides
                 .par_iter()
-                .map(|ov| run_single_sweep(&partitioned, &base, &schema, ov))
+                .map(|ov| run_single_sweep(&partitioned, &base, &schema, ov, &base_filters))
                 .collect()
         })
     });

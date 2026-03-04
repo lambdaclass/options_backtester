@@ -196,7 +196,7 @@ struct DayOptions {
 
 impl DayOptions {
     fn new(df: DataFrame, contract_col: &str) -> Self {
-        let mut contract_idx = HashMap::new();
+        let mut contract_idx = HashMap::with_capacity(df.height());
         if let Ok(col) = df.column(contract_col) {
             if let Ok(ca) = col.str() {
                 for (i, val) in ca.into_iter().enumerate() {
@@ -284,18 +284,45 @@ pub fn run_backtest(
     run_backtest_prepartitioned(config, &partitioned, schema)
 }
 
+/// Pre-compiled entry and exit filters for a backtest config.
+/// Avoids redundant filter parsing when running multiple configs in a sweep.
+pub struct PrecompiledFilters {
+    pub entry: Vec<Option<CompiledFilter>>,
+    pub exit: Vec<Option<CompiledFilter>>,
+}
+
+impl PrecompiledFilters {
+    /// Compile filters from a BacktestConfig's legs.
+    pub fn from_config(config: &BacktestConfig) -> Self {
+        let entry = config.legs.iter()
+            .map(|leg| leg.entry_filter_query.as_ref().and_then(|q| CompiledFilter::new(q).ok()))
+            .collect();
+        let exit = config.legs.iter()
+            .map(|leg| leg.exit_filter_query.as_ref().and_then(|q| CompiledFilter::new(q).ok()))
+            .collect();
+        PrecompiledFilters { entry, exit }
+    }
+}
+
 /// Run a backtest using pre-partitioned data (avoids re-partitioning in sweeps).
 pub fn run_backtest_prepartitioned(
     config: &BacktestConfig,
     partitioned: &PartitionedData,
     schema: &SchemaMapping,
 ) -> PolarsResult<BacktestResult> {
-    let entry_filters: Vec<Option<CompiledFilter>> = config.legs.iter()
-        .map(|leg| leg.entry_filter_query.as_ref().and_then(|q| CompiledFilter::new(q).ok()))
-        .collect();
-    let exit_filters: Vec<Option<CompiledFilter>> = config.legs.iter()
-        .map(|leg| leg.exit_filter_query.as_ref().and_then(|q| CompiledFilter::new(q).ok()))
-        .collect();
+    let filters = PrecompiledFilters::from_config(config);
+    run_backtest_with_filters(config, partitioned, schema, &filters)
+}
+
+/// Run a backtest with pre-compiled filters (used by sweep to avoid redundant compilation).
+pub fn run_backtest_with_filters(
+    config: &BacktestConfig,
+    partitioned: &PartitionedData,
+    schema: &SchemaMapping,
+    filters: &PrecompiledFilters,
+) -> PolarsResult<BacktestResult> {
+    let entry_filters = &filters.entry;
+    let exit_filters = &filters.exit;
 
     let mut cash = config.initial_capital;
     let mut positions: Vec<Position> = Vec::new();
@@ -497,8 +524,9 @@ pub fn prepartition_data(
     };
     let n_opts = sorted_opts.height();
 
-    let mut options_map: HashMap<i64, DayOptions> = HashMap::new();
-    let mut all_dates: Vec<i64> = Vec::new();
+    // Estimate ~500 unique dates for typical datasets (avoids HashMap reallocations).
+    let mut options_map: HashMap<i64, DayOptions> = HashMap::with_capacity(512);
+    let mut all_dates: Vec<i64> = Vec::with_capacity(512);
 
     if n_opts > 0 {
         let mut start = 0;
@@ -533,7 +561,7 @@ pub fn prepartition_data(
     let price_ca = price_casted.f64()?;
     let n_stocks = stocks_data.height();
 
-    let mut stocks_map: HashMap<i64, DayStocks> = HashMap::new();
+    let mut stocks_map: HashMap<i64, DayStocks> = HashMap::with_capacity(512);
 
     for i in 0..n_stocks {
         let date_ns = extract_date_ns(stocks_date_series, i);
@@ -576,14 +604,13 @@ fn execute_exits(
     for (i, pos) in positions.iter().enumerate() {
         let mut should_exit = false;
 
-        // Check exit filters per leg
+        // Check exit filters per leg — direct row evaluation, no Polars lazy overhead.
         for (j, _leg) in legs.iter().enumerate() {
             if let Some(ref flt) = exit_filters[j] {
                 let contract = &pos.leg_contracts[j];
                 if let Some(&row_idx) = day_opts.contract_idx.get(contract.as_str()) {
                     // Contract exists today — check exit filter on its row.
-                    let one_row = day_opts.df.slice(row_idx as i64, 1);
-                    if flt.apply(&one_row)?.height() > 0 {
+                    if flt.eval_row(&day_opts.df, row_idx) {
                         should_exit = true;
                     }
                 } else {
