@@ -60,11 +60,25 @@ def _dummy_ctx(**overrides) -> EnginePipelineContext:
 # ---------------------------------------------------------------------------
 
 def test_engine_algo_monthly_gate_logs_skip():
-    engine = _run_with_algos([EngineRunMonthly()])
+    stocks = _ivy_stocks()
+    stocks_data = _stocks_data()
+    options_data = _options_data()
+    schema = options_data.schema
+    engine = BacktestEngine(
+        {"stocks": 0.97, "options": 0.03, "cash": 0.0},
+        algos=[EngineRunMonthly()],
+    )
+    engine.stocks = stocks
+    engine.stocks_data = stocks_data
+    engine.options_data = options_data
+    engine.options_strategy = _buy_strategy(schema)
+    # Use daily rebalancing so EngineRunMonthly actually skips intra-month days
+    engine.run(rebalance_freq=1, rebalance_unit="B")
     logs = engine.events_dataframe()
     assert not logs.empty
-    assert (logs["event"] == "algo_step").any()
-    assert (logs["status"] == "skip_day").any()
+    algo_logs = logs[logs["event"] == "algo_step"]
+    assert len(algo_logs) > 0
+    assert (logs["event"] == "algo_skip_day").any()
 
 
 def test_engine_run_monthly_reset():

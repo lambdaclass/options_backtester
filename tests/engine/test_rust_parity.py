@@ -109,26 +109,22 @@ class TestRustVsPythonParity:
         self.rs = _run_rust_path()
 
     def test_trade_log_shape(self):
-        assert self.rs.trade_log.shape == (2, 10)
+        assert self.rs.trade_log.shape == (7, 10)
 
     def test_regression_costs(self):
-        """Known regression values from the original Backtest test suite."""
+        """Known regression values — full liquidation adds sell/rebuy trades."""
         tol = 0.0001
         costs = self.rs.trade_log["totals"]["cost"].values
-        assert np.allclose(costs, [100, 150], rtol=tol)
+        assert np.allclose(costs, [100, -50, 260, -50, 280, -50, 260], rtol=tol)
 
     def test_regression_qtys(self):
         tol = 0.0001
         qtys = self.rs.trade_log["totals"]["qty"].values
-        expected_qty_2 = (((97 + 3 * 0.5) * 0.03 - 1.5) / 1.5) * 100
-        assert np.allclose(qtys, [300, expected_qty_2], rtol=tol)
+        assert np.allclose(qtys, [300, 300, 113, 113, 102, 102, 108], rtol=tol)
 
     def test_final_capital(self):
         final = self.rs.balance["total capital"].iloc[-1]
-        # Updated from 957920.0 after the money-creation bug fix (229227f):
-        # the old Rust path unconditionally added options_allocation to cash
-        # even in AQR framing (options_budget=None), inflating capital.
-        assert abs(final - 1032020.0) < 1.0
+        assert abs(final - 910270.0) < 1.0
 
     def test_balance_row_count(self):
         assert len(self.rs.balance) == 61
@@ -343,10 +339,13 @@ class TestPerLegSellDirection:
         engine.run(rebalance_freq=1)
 
         if not engine.trade_log.empty:
-            # SELL leg costs should be negative (credit received)
-            costs = engine.trade_log["leg_1"]["cost"].values
-            assert all(c < 0 for c in costs if c != 0), (
-                f"SELL leg costs should be negative, got: {costs}"
+            tl = engine.trade_log
+            # SELL-to-open (STO) entries should have negative cost (credit)
+            # Buy-to-close (BTC) liquidation trades will have positive cost
+            sto_mask = tl["leg_1"]["order"] == "STO"
+            sto_costs = tl.loc[sto_mask, ("leg_1", "cost")].values
+            assert all(c < 0 for c in sto_costs if c != 0), (
+                f"STO costs should be negative, got: {sto_costs}"
             )
 
 

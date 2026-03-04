@@ -134,6 +134,24 @@ Every component is swappable. Pass them to `BacktestEngine(...)` or override per
 **Risk constraints** — pre-trade gating:
 `MaxDelta(limit)`, `MaxVega(limit)`, `MaxDrawdown(max_dd_pct)`
 
+## Rebalancing model
+
+At each rebalance date, the engine follows a **full liquidation** approach:
+
+1. **Liquidate all options** — every open option position is sold at current market price (bid for long, ask for short)
+2. **Compute total capital** — cash + stock value (options are zero after liquidation)
+3. **Rebalance stocks** — sell all stocks, buy fresh at target allocation (e.g. 97%)
+4. **Buy new options** — use the full options allocation (e.g. 3%) to purchase contracts matching entry criteria (DTE, delta, etc.)
+
+This ensures:
+- **Clean accounting** — no stale option value carried across rebalances, no money creation
+- **Fresh positions** — every rebalance picks the best available contracts for current market conditions
+- **Simple math** — `total_capital = cash + stocks` at the point of redeployment, no complex delta tracking
+
+Between rebalance dates, positions are held (mark-to-market for balance tracking). If `check_exits_daily=True`, exit filters run daily but no new entries are made until the next rebalance.
+
+For the **Spitznagel leverage** model (`options_budget` parameter), options are funded separately from the stock allocation so `{stocks: 1.0, options: 0.005}` means 100% equity + 0.5% put budget on top.
+
 ## Rust acceleration
 
 Optional. Falls back to Python when not installed.

@@ -754,11 +754,13 @@ class BacktestEngine:
         entry_filters: list | None = None,
         exit_threshold_override: tuple[float, float] | None = None,
     ):
-        self._execute_option_exits(date, options, stocks, exit_threshold_override=exit_threshold_override)
+        # Full liquidation: sell all options at rebalance. Fresh entries always
+        # match current market conditions, and accounting is clean.
+        self._liquidate_all_options(date, options, stocks)
 
+        # After full liquidation, options_capital = 0.
         stock_capital = self._current_stock_capital(stocks)
-        options_capital = self._current_options_capital(options, stocks)
-        total_capital = self.current_cash + stock_capital + options_capital
+        total_capital = self.current_cash + stock_capital
 
         # When options_budget is set, options are funded separately (not from the
         # allocation split).  Use the raw allocation values for stocks/cash so
@@ -770,8 +772,6 @@ class BacktestEngine:
             externally_funded = True
         else:
             stocks_allocation = self.allocation["stocks"] * total_capital
-            # Include the options portion in cash so _execute_option_entries
-            # can spend it without creating money out of thin air.
             self.current_cash = total_capital
             externally_funded = False
         self._stocks_inventory = pd.DataFrame(columns=["symbol", "price", "qty"])
@@ -787,88 +787,16 @@ class BacktestEngine:
         self._log_event(date, "target_allocation", "ok", {
             "total_capital": float(total_capital),
             "options_allocation": float(options_allocation),
-            "options_capital": float(options_capital),
         })
-        if options_allocation >= options_capital:
-            self._execute_option_entries(
-                date,
-                options,
-                options_allocation - options_capital,
-                stocks,
-                entry_filters=entry_filters,
-                total_capital=total_capital,
-                externally_funded=externally_funded,
-            )
-        else:
-            to_sell = options_capital - options_allocation
-            current_options = self._get_current_option_quotes(options)
-            self._sell_some_options(date, to_sell, current_options, stocks)
-
-    def _sell_some_options(self, date, to_sell, current_options, stocks):
-        sold: float = 0
-        sym_col = self._stocks_schema["symbol"]
-        # Use unadjusted close for intrinsic value — strikes are raw prices
-        # Use unadjusted close for intrinsic value — strikes are raw prices
-        _close_col = self._stocks_schema["close"] if "close" in self._stocks_schema else None
-        price_col = _close_col if (_close_col and _close_col in stocks.columns) else self._stocks_schema["adjClose"]
-        for i, leg in enumerate(self._options_strategy.legs):
-            cost_series = current_options[i]["cost"]
-            if cost_series.isna().any():
-                inv_leg = self._options_inventory[leg.name]
-                for idx in cost_series.index[cost_series.isna()]:
-                    opt_type = inv_leg.at[idx, "type"]
-                    strike = inv_leg.at[idx, "strike"]
-                    underlying = inv_leg.at[idx, "underlying"]
-                    spot_match = stocks.loc[stocks[sym_col] == underlying, price_col]
-                    spot = spot_match.iloc[0] if len(spot_match) > 0 else 0.0
-                    iv = _intrinsic_value(opt_type, float(strike), float(spot))
-                    cash_sign = -1.0 if ~leg.direction == Direction.SELL else 1.0
-                    current_options[i].at[idx, "cost"] = cash_sign * iv * self.shares_per_contract
-        total_costs = sum([current_options[i]["cost"] for i in range(len(current_options))])
-        trade_rows: list[pd.Series] = []
-        for exit_cost, (row_index, inventory_row) in zip(
-            total_costs, self._options_inventory.iterrows()
-        ):
-            if exit_cost == 0:
-                continue
-            if (to_sell - sold > -exit_cost) and (to_sell - sold) > 0:
-                qty_to_sell = (to_sell - sold) // exit_cost
-                if -qty_to_sell <= inventory_row["totals"]["qty"]:
-                    qty_to_sell = (to_sell - sold) // exit_cost
-                else:
-                    if qty_to_sell != 0:
-                        qty_to_sell = -inventory_row["totals"]["qty"]
-                if qty_to_sell != 0:
-                    trade_log_append = self._options_inventory.loc[row_index].copy()
-                    trade_log_append["totals", "qty"] = -qty_to_sell
-                    trade_log_append["totals", "date"] = date
-                    trade_log_append["totals", "cost"] = exit_cost
-                    for i, leg in enumerate(self._options_strategy.legs):
-                        trade_log_append[leg.name, "order"] = ~trade_log_append[leg.name, "order"]
-                        trade_log_append[leg.name, "cost"] = current_options[i].loc[row_index]["cost"]
-                    trade_rows.append(trade_log_append)
-                    self._options_inventory.at[row_index, ("totals", "date")] = date
-                    self._options_inventory.at[row_index, ("totals", "qty")] += qty_to_sell
-                sold += qty_to_sell * exit_cost
-
-        # Remove fully-sold positions (qty == 0) from inventory.
-        # Without this, zero-qty ghost positions block contract re-entry.
-        zero_qty = self._options_inventory[
-            self._options_inventory["totals"]["qty"] == 0
-        ].index
-        if len(zero_qty) > 0:
-            self._options_inventory.drop(zero_qty, inplace=True)
-            for idx in zero_qty:
-                self._portfolio.remove_option_position(idx)
-
-        if trade_rows:
-            self._trade_log_parts.append(pd.DataFrame(trade_rows))
-        self._log_event(date, "partial_option_delever", "ok", {
-            "target_to_sell": float(to_sell),
-            "sold": float(sold),
-            "trade_rows": int(len(trade_rows)),
-        })
-        self.current_cash += sold - to_sell
+        self._execute_option_entries(
+            date,
+            options,
+            options_allocation,
+            stocks,
+            entry_filters=entry_filters,
+            total_capital=total_capital,
+            externally_funded=externally_funded,
+        )
 
     def _current_stock_capital(self, stocks):
         current_stocks = self._stocks_inventory.merge(
@@ -1393,6 +1321,58 @@ class BacktestEngine:
 
         self.current_cash -= sum(total_costs)
 
+    def _liquidate_all_options(self, date, options, stocks):
+        """Sell all remaining option positions at current market prices.
+
+        Called at rebalance to fully liquidate before rebuying fresh positions.
+        """
+        if self._options_inventory.empty:
+            return
+
+        strategy = self._options_strategy
+        current_options_quotes = self._get_current_option_quotes(options)
+
+        for i, leg in enumerate(strategy.legs):
+            fields = self._signal_fields((~leg.direction).price_column)
+            current_options_quotes[i] = current_options_quotes[i].reindex(columns=fields.values())
+            current_options_quotes[i].rename(columns=fields, inplace=True)
+            current_options_quotes[i].columns = pd.MultiIndex.from_product(
+                [[leg.name], current_options_quotes[i].columns]
+            )
+
+        exit_candidates = pd.concat(current_options_quotes, axis=1)
+        exit_candidates = self._impute_missing_option_values(exit_candidates, stocks)
+
+        qtys = self._options_inventory["totals"]["qty"]
+        total_costs = sum(
+            [exit_candidates[leg.name]["cost"] for leg in strategy.legs]
+        )
+        totals = pd.DataFrame.from_dict({"cost": total_costs, "qty": qtys, "date": date})
+        totals.columns = pd.MultiIndex.from_product([["totals"], totals.columns])
+        exit_candidates = pd.concat([exit_candidates, totals], axis=1)
+
+        position_costs = total_costs * qtys
+        for _, row in exit_candidates.iterrows():
+            commission = self.cost_model.option_cost(
+                abs(row["totals"]["cost"]),
+                int(abs(row["totals"]["qty"])),
+                self.shares_per_contract,
+            )
+            self.current_cash -= commission
+        self.current_cash -= sum(position_costs)
+
+        if not exit_candidates.empty:
+            self._trade_log_parts.append(pd.DataFrame(exit_candidates))
+
+        indices = self._options_inventory.index.tolist()
+        self._options_inventory.drop(indices, inplace=True)
+        for idx in indices:
+            self._portfolio.remove_option_position(idx)
+
+        self._log_event(date, "liquidate_all_options", "ok", {
+            "positions_sold": int(len(exit_candidates)),
+        })
+
     def _apply_algos(self, ctx: EnginePipelineContext) -> tuple[bool, bool]:
         should_stop = False
         skip_day = False
@@ -1779,15 +1759,14 @@ class BacktestEngine:
                     "slots_rebalancing": [s.name for s in slots_rebalancing],
                 })
 
-                # Phase 1: exits for each rebalancing slot
+                # Phase 1: full liquidation for each rebalancing slot
                 for slot in slots_rebalancing:
                     with self._strategy_context(slot):
-                        self._execute_option_exits(date, options, stocks)
+                        self._liquidate_all_options(date, options, stocks)
 
-                # Phase 2: compute aggregate capital post-exits
+                # Phase 2: compute aggregate capital (options = 0 after liquidation)
                 stock_capital = self._current_stock_capital(stocks)
-                options_capital = self._current_options_capital_multi(options, stocks)
-                total_capital = self.current_cash + stock_capital + options_capital
+                total_capital = self.current_cash + stock_capital
 
                 if self.options_budget is not None and not callable(self.options_budget):
                     options_allocation = float(self.options_budget)
@@ -1836,24 +1815,14 @@ class BacktestEngine:
                 # Phase 5: entries for each rebalancing slot (weighted allocation)
                 for slot in slots_rebalancing:
                     with self._strategy_context(slot):
-                        slot_capital = (
-                            self._current_options_capital(options, stocks)
-                            if not self._options_inventory.empty
-                            else 0.0
-                        )
                         slot_allocation = slot.weight * options_allocation
-                        if slot_allocation >= slot_capital:
-                            self._execute_option_entries(
-                                date, options,
-                                slot_allocation - slot_capital,
-                                stocks,
-                                total_capital=total_capital,
-                                externally_funded=externally_funded,
-                            )
-                        else:
-                            to_sell = slot_capital - slot_allocation
-                            current_options = self._get_current_option_quotes(options)
-                            self._sell_some_options(date, to_sell, current_options, stocks)
+                        self._execute_option_entries(
+                            date, options,
+                            slot_allocation,
+                            stocks,
+                            total_capital=total_capital,
+                            externally_funded=externally_funded,
+                        )
 
                 # Track peak for drawdown risk checks
                 total = self._total_capital_estimate_multi(stocks, options)
