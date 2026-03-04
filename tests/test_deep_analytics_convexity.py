@@ -43,7 +43,7 @@ from options_portfolio_backtester.convexity.allocator import (
     allocate_equal_weight,
     allocate_inverse_vol,
 )
-from options_portfolio_backtester.engine._dispatch import use_rust, _RustProxy
+from options_portfolio_backtester.engine._dispatch import use_rust
 from options_portfolio_backtester.data.schema import Schema, Field, Filter
 
 
@@ -549,20 +549,8 @@ class TestAllocator:
 
 
 class TestDispatch:
-    def test_use_rust_returns_bool(self):
-        assert isinstance(use_rust(), bool)
-
-    def test_rust_proxy_attribute_error_without_module(self):
-        """If Rust module is None, proxy should raise RuntimeError."""
-        proxy = _RustProxy()
-        import options_portfolio_backtester.engine._dispatch as d
-        saved = d._rust_module
-        try:
-            d._rust_module = None
-            with pytest.raises(RuntimeError, match="Rust extension not available"):
-                _ = proxy.nonexistent_function
-        finally:
-            d._rust_module = saved
+    def test_use_rust_returns_true(self):
+        assert use_rust() is True
 
 
 # ===========================================================================

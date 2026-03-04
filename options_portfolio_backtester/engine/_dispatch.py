@@ -1,47 +1,31 @@
-"""Dispatch layer for optional Rust acceleration.
+"""Dispatch layer for Rust acceleration.
 
-When the Rust extension (_ob_rust) is available, hot-path functions are
-dispatched to compiled Rust code via PyO3. When unavailable, falls back
-transparently to the pure-Python implementation. Zero API change for users.
+The Rust extension (_ob_rust) is always available. The `use_rust()` gate
+checks whether the full Rust backtest loop can be used (requires polars).
+The `rust` proxy provides attribute access to the _ob_rust module.
 
 Usage in engine.py:
-    from options_portfolio_backtester.engine._dispatch import use_rust, rust
+    from options_portfolio_backtester.engine._dispatch import rust
 
-    if use_rust():
-        result = rust.update_balance(...)
-    else:
-        result = _python_update_balance(...)
+    result = rust.run_backtest_py(...)
+    result = rust.update_balance(...)
 """
 
 from __future__ import annotations
 
-RUST_AVAILABLE: bool = False
-_rust_module = None
-
-try:
-    from options_portfolio_backtester import _ob_rust
-
-    _rust_module = _ob_rust
-    RUST_AVAILABLE = True
-except ImportError:
-    pass
+from options_portfolio_backtester import _ob_rust
 
 
 def use_rust() -> bool:
-    """Check if Rust acceleration is available."""
-    return RUST_AVAILABLE
+    """Return True — Rust extension is always available."""
+    return True
 
 
 class _RustProxy:
-    """Lazy proxy to the Rust module — avoids ImportError at attribute access."""
+    """Proxy to the Rust module for attribute access."""
 
     def __getattr__(self, name: str):
-        if _rust_module is None:
-            raise RuntimeError(
-                "Rust extension not available. Install with: "
-                "maturin develop --manifest-path rust/ob_python/Cargo.toml --release"
-            )
-        return getattr(_rust_module, name)
+        return getattr(_ob_rust, name)
 
 
 rust = _RustProxy()

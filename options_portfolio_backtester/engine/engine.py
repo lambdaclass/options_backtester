@@ -251,8 +251,7 @@ class BacktestEngine:
             return obj is None or hasattr(obj, 'to_rust_config')
 
         _rust_compatible = (
-            use_rust()
-            and not self.algos
+            not self.algos
             and self.max_notional_pct is None
             and (self.options_budget is None or isinstance(self.options_budget, (int, float)))
             and hasattr(self.cost_model, 'to_rust_config')
@@ -938,12 +937,11 @@ class BacktestEngine:
         )
 
     def _update_balance(self, start_date, end_date):
-        # Per-method Rust dispatch for balance computation
-        if use_rust():
-            try:
-                return self._update_balance_rust(start_date, end_date)
-            except Exception:
-                pass  # polars not installed, fall through to Python
+        # Try Rust+Polars path first, fall back to Python if polars not installed
+        try:
+            return self._update_balance_rust(start_date, end_date)
+        except Exception:
+            pass
 
         stocks_date_col = self._stocks_schema["date"]
         sd = self._stocks_data._data

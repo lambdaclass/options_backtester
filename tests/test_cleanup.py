@@ -83,19 +83,6 @@ def test_safe_ratio_removed():
 
 def test_dispatch_module():
     """_dispatch module exposes use_rust() and rust proxy."""
-    from options_portfolio_backtester.engine._dispatch import use_rust, rust, RUST_AVAILABLE
-    # use_rust returns a bool
-    assert isinstance(use_rust(), bool)
-    assert use_rust() == RUST_AVAILABLE
-    # rust is a proxy object
+    from options_portfolio_backtester.engine._dispatch import use_rust, rust
+    assert use_rust() is True
     assert rust is not None
-
-
-def test_dispatch_proxy_error_when_no_rust():
-    """RustProxy raises RuntimeError when Rust is not available."""
-    from options_portfolio_backtester.engine._dispatch import _RustProxy, _rust_module
-    if _rust_module is None:
-        import pytest
-        proxy = _RustProxy()
-        with pytest.raises(RuntimeError, match="Rust extension not available"):
-            proxy.some_function()
