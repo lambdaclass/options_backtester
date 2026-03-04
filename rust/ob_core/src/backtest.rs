@@ -391,14 +391,18 @@ pub fn run_backtest_with_filters(
         peak_value = peak_value.max(total_capital);
 
         // Rebalance stocks
-        let stocks_alloc = config.allocation_stocks * total_capital;
         let externally_funded = config.options_budget_fixed.is_some();
+        let liquid_capital = total_capital - options_cap;
+        // In budget mode, stocks invest only the liquid portion (cash + stock
+        // value). Options are funded externally; using total_capital here would
+        // over-invest in stocks by options_cap, creating unintended leverage.
+        let stocks_alloc = if externally_funded {
+            config.allocation_stocks * liquid_capital
+        } else {
+            config.allocation_stocks * total_capital
+        };
         stock_holdings.clear();
-        // Set cash to liquid capital (total minus held options) regardless of
-        // mode. Options retain their value; only cash + stock_capital gets
-        // redistributed.  Leverage in budget mode comes from stocks_alloc
-        // being based on total_capital (which includes options_cap).
-        cash = total_capital - options_cap;
+        cash = liquid_capital;
 
         // Get SMA prices for this date if configured
         let sma_prices = sma_map_by_date.as_ref().and_then(|m| m.get(&rb_date));

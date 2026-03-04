@@ -767,8 +767,12 @@ class BacktestEngine:
         # that {stocks:1.0, options:0.005} really means 100% equity + 0.5% puts
         # on top (Spitznagel leverage), rather than being normalized to 99.5%.
         if self.options_budget is not None:
-            stocks_allocation = self._raw_allocation["stocks"] * total_capital
-            self.current_cash = total_capital - options_capital
+            # Use liquid capital (excluding held options) for stock allocation.
+            # Options are funded externally; stocks should only invest what's
+            # actually available as cash, not the illiquid options value.
+            liquid_capital = total_capital - options_capital
+            stocks_allocation = self._raw_allocation["stocks"] * liquid_capital
+            self.current_cash = liquid_capital
             externally_funded = True
         else:
             stocks_allocation = self.allocation["stocks"] * total_capital
@@ -1806,8 +1810,9 @@ class BacktestEngine:
 
                 # Phase 4: buy stocks (shared pool)
                 if self.options_budget is not None:
-                    stocks_allocation = self._raw_allocation["stocks"] * total_capital
-                    self.current_cash = stocks_allocation + total_capital * self._raw_allocation["cash"]
+                    liquid_capital = total_capital - options_capital
+                    stocks_allocation = self._raw_allocation["stocks"] * liquid_capital
+                    self.current_cash = liquid_capital
                     externally_funded = True
                 else:
                     stocks_allocation = self.allocation["stocks"] * total_capital
