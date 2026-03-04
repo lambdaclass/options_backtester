@@ -768,7 +768,7 @@ class BacktestEngine:
         # on top (Spitznagel leverage), rather than being normalized to 99.5%.
         if self.options_budget is not None:
             stocks_allocation = self._raw_allocation["stocks"] * total_capital
-            self.current_cash = stocks_allocation + total_capital * self._raw_allocation["cash"]
+            self.current_cash = total_capital - options_capital
             externally_funded = True
         else:
             stocks_allocation = self.allocation["stocks"] * total_capital
