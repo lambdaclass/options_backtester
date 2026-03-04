@@ -804,6 +804,10 @@ class BacktestEngine:
                 total_capital=total_capital,
                 externally_funded=externally_funded,
             )
+        elif remaining_budget < 0:
+            to_sell = options_capital - options_allocation
+            current_options = self._get_current_option_quotes(options)
+            self._sell_some_options(date, to_sell, current_options, stocks)
 
     def _current_stock_capital(self, stocks):
         current_stocks = self._stocks_inventory.merge(
@@ -839,6 +843,77 @@ class BacktestEngine:
         else:
             total = 0
         return total
+
+    def _sell_some_options(self, date, to_sell, current_options, stocks):
+        """Sell excess options when options_capital exceeds allocation target.
+
+        Trims positions to lock in crash profits instead of letting them decay.
+        """
+        sold: float = 0
+        sym_col = self._stocks_schema["symbol"]
+        _close_col = self._stocks_schema["close"] if "close" in self._stocks_schema else None
+        price_col = _close_col if (_close_col and _close_col in stocks.columns) else self._stocks_schema["adjClose"]
+
+        # Impute NaN costs with intrinsic value (same logic as _current_options_capital)
+        for i, leg in enumerate(self._options_strategy.legs):
+            cost_series = current_options[i]["cost"]
+            if cost_series.isna().any():
+                inv_leg = self._options_inventory[leg.name]
+                for idx in cost_series.index[cost_series.isna()]:
+                    opt_type = inv_leg.at[idx, "type"]
+                    strike = inv_leg.at[idx, "strike"]
+                    underlying = inv_leg.at[idx, "underlying"]
+                    spot_match = stocks.loc[stocks[sym_col] == underlying, price_col]
+                    spot = spot_match.iloc[0] if len(spot_match) > 0 else 0.0
+                    iv = _intrinsic_value(opt_type, float(strike), float(spot))
+                    cash_sign = -1.0 if ~leg.direction == Direction.SELL else 1.0
+                    current_options[i].at[idx, "cost"] = cash_sign * iv * self.shares_per_contract
+
+        total_costs = sum([current_options[i]["cost"] for i in range(len(current_options))])
+
+        trade_rows: list[pd.Series] = []
+        for exit_cost, (row_index, inventory_row) in zip(
+            total_costs, self._options_inventory.iterrows()
+        ):
+            if exit_cost == 0:
+                continue
+            if (to_sell - sold > -exit_cost) and (to_sell - sold) > 0:
+                qty_to_sell = (to_sell - sold) // exit_cost
+                if -qty_to_sell <= inventory_row["totals"]["qty"]:
+                    qty_to_sell = (to_sell - sold) // exit_cost
+                else:
+                    if qty_to_sell != 0:
+                        qty_to_sell = -inventory_row["totals"]["qty"]
+                if qty_to_sell != 0:
+                    trade_log_append = self._options_inventory.loc[row_index].copy()
+                    trade_log_append["totals", "qty"] = -qty_to_sell
+                    trade_log_append["totals", "date"] = date
+                    trade_log_append["totals", "cost"] = exit_cost
+                    for i, leg in enumerate(self._options_strategy.legs):
+                        trade_log_append[leg.name, "order"] = ~trade_log_append[leg.name, "order"]
+                        trade_log_append[leg.name, "cost"] = current_options[i].loc[row_index]["cost"]
+                    trade_rows.append(trade_log_append)
+                    self._options_inventory.at[row_index, ("totals", "date")] = date
+                    self._options_inventory.at[row_index, ("totals", "qty")] += qty_to_sell
+                sold += qty_to_sell * exit_cost
+
+        # Remove fully sold positions
+        zero_qty = self._options_inventory[
+            self._options_inventory["totals"]["qty"] == 0
+        ].index
+        if len(zero_qty) > 0:
+            self._options_inventory.drop(zero_qty, inplace=True)
+            for idx in zero_qty:
+                self._portfolio.remove_option_position(idx)
+
+        if trade_rows:
+            self._trade_log_parts.append(pd.DataFrame(trade_rows))
+        self._log_event(date, "partial_option_delever", "ok", {
+            "target_to_sell": float(to_sell),
+            "sold": float(sold),
+            "trade_rows": int(len(trade_rows)),
+        })
+        self.current_cash += sold - to_sell
 
     def _buy_stocks(self, stocks, allocation, sma_days):
         stock_symbols = [stock.symbol for stock in self.stocks]
