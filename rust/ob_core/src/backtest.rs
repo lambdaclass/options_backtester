@@ -463,6 +463,10 @@ pub fn run_backtest_with_filters(
                         cost.abs(), pos.quantity, $config.shares_per_contract,
                     );
                     $cash -= cost + commission;
+                    if externally_funded {
+                        // Claw back unspent portion of externally-funded budget
+                        $cash -= remaining_budget - cost - commission;
+                    }
                     $portfolio_greeks += pos.greeks;
                     $positions.push(pos);
                 } else if externally_funded {
@@ -716,6 +720,9 @@ pub fn run_multi_strategy(
                             cost.abs(), pos.quantity, config.shares_per_contract,
                         );
                         cash -= cost + commission;
+                        if externally_funded {
+                            cash -= remaining_budget - cost - commission;
+                        }
                         slot_positions[si].push(pos);
                     } else if externally_funded {
                         cash -= remaining_budget;

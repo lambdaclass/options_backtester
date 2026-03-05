@@ -562,3 +562,76 @@ class TestAQRvsSpitznagelZeroBudget:
             f"AQR cash ratio too low -- options money was destroyed.\n"
             f"Min ratio: {ratio.min():.4f}, expected ~0.03"
         )
+
+
+class TestExternallyFundedNoLeakage:
+    """Verify that the externally-funded (budget_pct) path does not leak cash.
+
+    When budget_pct is set, the engine injects `remaining_budget` into cash
+    before buying puts, then must claw back the full unspent amount.  If the
+    put trade costs less than remaining_budget (due to floor(qty) rounding),
+    the difference must be removed from cash — not left as phantom money.
+
+    Uses flat stock prices (all 10) so any growth in total capital beyond
+    option MTM is evidence of a cash leak.
+    """
+
+    @pytest.fixture(
+        params=[0.005, 0.01, 0.03, 0.10],
+        ids=["0.5%", "1%", "3%", "10%"],
+    )
+    def engine(self, request):
+        stocks_data = _stocks_data()
+        options_data = _options_data()
+        schema = options_data.schema
+
+        eng = BacktestEngine(
+            {"stocks": 1.0, "options": 0.0, "cash": 0},
+            cost_model=NoCosts(),
+            initial_capital=100_000,
+        )
+        eng.options_budget_pct = request.param
+        eng.stocks = _ivy_stocks()
+        eng.stocks_data = stocks_data
+        eng.options_data = options_data
+        eng.options_strategy = _buy_strategy(schema)
+        eng.run(rebalance_freq=1)
+        return eng
+
+    def test_components_sum_to_total(self, engine):
+        _assert_balance_components_sum(engine.balance)
+
+    def test_no_phantom_cash_growth(self, engine):
+        """With flat stock prices, total capital changes should come only from
+        option MTM, not from cash leaking in.  Cash should never exceed the
+        non-options portion of total capital."""
+        bal = engine.balance
+        # In externally-funded mode, stocks get liquid_capital (= cash + stock_cap).
+        # Cash after buying stocks should be ~0 (all deployed to stocks), plus
+        # any unspent options budget should be clawed back.
+        # On days with no option positions, total ~= stock_cap ~= initial.
+        # Any row where cash > budget_amount suggests a leak.
+        total = bal["total capital"].iloc[1:]
+        cash = bal["cash"].iloc[1:]
+        # Cash should never be a significant fraction of total
+        # (it should be near 0 after buying stocks, with only rounding leftovers)
+        max_cash_ratio = (cash / total).max()
+        assert max_cash_ratio < 0.05, (
+            f"Cash/total ratio reached {max_cash_ratio:.4f} — possible cash leak "
+            f"from externally-funded budget injection."
+        )
+
+    def test_cash_never_negative(self, engine):
+        bal = engine.balance
+        bad = bal["cash"] < -0.01
+        assert not bad.any(), (
+            f"Cash went negative at {bad.sum()} rows."
+        )
+
+    def test_total_capital_bounded(self, engine):
+        """With flat prices and OTM puts that mostly expire worthless,
+        total capital should not grow significantly above initial."""
+        final = engine.balance["total capital"].iloc[-1]
+        assert final < 100_000 * 1.5, (
+            f"Final capital {final:.0f} suspiciously high for flat stock prices."
+        )
