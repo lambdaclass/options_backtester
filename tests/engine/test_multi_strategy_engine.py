@@ -183,8 +183,8 @@ class TestSameFrequency:
                    "total capital", "% change", "accumulated return"]:
             assert c in cols, f"Missing column: {c}"
 
-    def test_dispatch_mode_is_python_multi(self):
-        assert self.engine.run_metadata["dispatch_mode"] == "python-multi"
+    def test_dispatch_mode_is_rust_multi(self):
+        assert self.engine.run_metadata["dispatch_mode"] == "rust-multi"
 
     def test_trade_log_type(self):
         # May be empty if no candidates, but must be a DataFrame
@@ -331,14 +331,14 @@ class TestStopIfBroke:
 # ---------------------------------------------------------------------------
 
 class TestRustGate:
-    def test_multi_strategy_uses_python_dispatch(self):
+    def test_multi_strategy_uses_rust_dispatch(self):
         engine = _make_engine()
         schema = engine.options_data.schema
         engine.add_strategy(
             _buy_put_strategy(schema), weight=1.0, rebalance_freq=1
         )
         engine.run()
-        assert engine.run_metadata["dispatch_mode"] == "python-multi"
+        assert engine.run_metadata["dispatch_mode"] == "rust-multi"
 
 
 # ---------------------------------------------------------------------------
@@ -376,7 +376,8 @@ class TestOptionsBudget:
         engine.run()
         assert not engine.balance.empty
 
-    def test_callable_options_budget(self):
+    def test_callable_options_budget_raises(self):
+        """Callable options_budget is no longer supported."""
         engine = _make_engine()
         engine.options_budget = lambda date, capital: 3000.0
         schema = engine.options_data.schema
@@ -386,5 +387,5 @@ class TestOptionsBudget:
         engine.add_strategy(
             _buy_put_strategy(schema), weight=0.5, rebalance_freq=1, name="b"
         )
-        engine.run()
-        assert not engine.balance.empty
+        with pytest.raises(ValueError, match="Callable options_budget"):
+            engine.run()

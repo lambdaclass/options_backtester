@@ -149,7 +149,7 @@ class TestCapitalConservationSpitznagel:
             cost_model=NoCosts(),
             initial_capital=100_000,
         )
-        self.engine.options_budget = lambda date, tc: tc * 0.03
+        self.engine.options_budget_pct = 0.03
         self.engine.stocks = _ivy_stocks()
         self.engine.stocks_data = stocks_data
         self.engine.options_data = options_data
@@ -511,7 +511,7 @@ class TestAQRvsSpitznagelZeroBudget:
             cost_model=NoCosts(),
             initial_capital=100_000,
         )
-        self.spitz_engine.options_budget = lambda date, tc: tc * 0.03
+        self.spitz_engine.options_budget_pct = 0.03
         self.spitz_engine.stocks = _ivy_stocks()
         self.spitz_engine.stocks_data = stocks_data
         self.spitz_engine.options_data = options_data

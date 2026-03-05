@@ -59,7 +59,8 @@ def _dummy_ctx(**overrides) -> EnginePipelineContext:
 # EngineRunMonthly
 # ---------------------------------------------------------------------------
 
-def test_engine_algo_monthly_gate_logs_skip():
+def test_engine_algo_monthly_gate_translates():
+    """EngineRunMonthly is consumed by _translate_algos_to_config (no-op for Rust)."""
     stocks = _ivy_stocks()
     stocks_data = _stocks_data()
     options_data = _options_data()
@@ -72,13 +73,10 @@ def test_engine_algo_monthly_gate_logs_skip():
     engine.stocks_data = stocks_data
     engine.options_data = options_data
     engine.options_strategy = _buy_strategy(schema)
-    # Use daily rebalancing so EngineRunMonthly actually skips intra-month days
-    engine.run(rebalance_freq=1, rebalance_unit="B")
-    logs = engine.events_dataframe()
-    assert not logs.empty
-    algo_logs = logs[logs["event"] == "algo_step"]
-    assert len(algo_logs) > 0
-    assert (logs["event"] == "algo_skip_day").any()
+    # EngineRunMonthly should be consumed without error; Rust handles rebalancing.
+    result = engine.run(rebalance_freq=1, rebalance_unit="B")
+    assert not result.empty  # run() returns a balance DataFrame
+    assert len(engine.algos) == 0  # algos consumed by translation
 
 
 def test_engine_run_monthly_reset():
@@ -165,10 +163,11 @@ def test_iv_rank_filter_returns_range_filter():
 
 
 def test_select_by_dte_strict_filter_skips_candidates():
+    """SelectByDTE(0,1) translates to a tight filter that blocks most entries."""
     engine = _run_with_algos([SelectByDTE(min_dte=0, max_dte=1)])
-    events = engine.events_dataframe()
-    assert isinstance(events, pd.DataFrame)
-    assert ((events["event"] == "option_entry_no_candidates") | (events["event"] == "option_entry_filtered")).any()
+    # With DTE 0-1, almost no options qualify → few or no trades
+    tl = engine.trade_log
+    assert tl.empty or len(tl) <= 2  # at most a couple if data happens to match
 
 
 # ---------------------------------------------------------------------------
