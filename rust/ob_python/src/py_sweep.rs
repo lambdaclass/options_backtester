@@ -37,6 +37,7 @@ struct SweepOverrides {
     signal_selector: Option<SignalSelector>,
     risk_constraints: Option<Vec<RiskConstraint>>,
     sma_days: Option<Option<usize>>,
+    options_budget_pct: Option<Option<f64>>,
 }
 
 struct SweepResult {
@@ -88,6 +89,9 @@ fn merge_config(base: &BacktestConfig, overrides: &SweepOverrides) -> BacktestCo
     }
     if let Some(ref sma) = overrides.sma_days {
         cfg.sma_days = *sma;
+    }
+    if let Some(ref bp) = overrides.options_budget_pct {
+        cfg.options_budget_pct = *bp;
     }
 
     cfg
@@ -217,6 +221,8 @@ fn parse_overrides(dict: &Bound<'_, PyDict>) -> PyResult<SweepOverrides> {
         Some(v) => Some(Some(v.extract::<usize>()?)),
     };
 
+    let options_budget_pct = parse_opt_f64(dict, "options_budget_pct")?;
+
     Ok(SweepOverrides {
         label,
         profit_pct,
@@ -229,6 +235,7 @@ fn parse_overrides(dict: &Bound<'_, PyDict>) -> PyResult<SweepOverrides> {
         signal_selector,
         risk_constraints,
         sma_days,
+        options_budget_pct,
     })
 }
 

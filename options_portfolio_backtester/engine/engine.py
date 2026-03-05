@@ -117,6 +117,7 @@ class BacktestEngine:
         self.max_notional_pct = max_notional_pct
 
         self.options_budget: Union[Callable[[pd.Timestamp, float], float], float, None] = None
+        self.options_budget_pct: float | None = None
         self._stocks: list[Stock] = []
         self._options_strategy: Strategy | None = None
         self._stocks_data: TiingoData | None = None
@@ -253,7 +254,8 @@ class BacktestEngine:
         _rust_compatible = (
             not self.algos
             and self.max_notional_pct is None
-            and (self.options_budget is None or isinstance(self.options_budget, (int, float)))
+            and (self.options_budget is None or isinstance(self.options_budget, (int, float))
+                 or self.options_budget_pct is not None)
             and hasattr(self.cost_model, 'to_rust_config')
             and hasattr(self.fill_model, 'to_rust_config')
             and hasattr(self.signal_selector, 'to_rust_config')
@@ -315,7 +317,9 @@ class BacktestEngine:
                 stock_capital = self._current_stock_capital(stocks)
                 options_capital = self._current_options_capital(options, stocks)
                 total_capital = self.current_cash + stock_capital + options_capital
-                if self.options_budget is not None and not callable(self.options_budget):
+                if self.options_budget_pct is not None:
+                    options_allocation = total_capital * self.options_budget_pct
+                elif self.options_budget is not None and not callable(self.options_budget):
                     options_allocation = float(self.options_budget)
                 elif self.options_budget is not None and callable(self.options_budget):
                     options_allocation = self.options_budget(date, total_capital)
@@ -523,6 +527,7 @@ class BacktestEngine:
                 if isinstance(self.options_budget, (int, float))
                 else None
             ),
+            "options_budget_pct": self.options_budget_pct,
             "stop_if_broke": self.stop_if_broke,
         }
 
@@ -762,7 +767,7 @@ class BacktestEngine:
         # allocation split).  Use the raw allocation values for stocks/cash so
         # that {stocks:1.0, options:0.005} really means 100% equity + 0.5% puts
         # on top (Spitznagel leverage), rather than being normalized to 99.5%.
-        if self.options_budget is not None:
+        if self.options_budget is not None or self.options_budget_pct is not None:
             # Spitznagel leverage: stocks = 100% of total_capital, puts on top.
             # During crashes puts appreciate; we still invest fully in stocks
             # so the put profits get redeployed into cheap equities.
@@ -778,6 +783,8 @@ class BacktestEngine:
 
         if options_allocation_override is not None:
             options_allocation = float(options_allocation_override)
+        elif self.options_budget_pct is not None:
+            options_allocation = total_capital * self.options_budget_pct
         elif self.options_budget is not None:
             budget = self.options_budget
             options_allocation: float = budget(date, total_capital) if callable(budget) else budget
@@ -1755,7 +1762,9 @@ class BacktestEngine:
                 options_capital = self._current_options_capital_multi(options, stocks)
                 total_capital = self.current_cash + stock_capital + options_capital
 
-                if self.options_budget is not None and not callable(self.options_budget):
+                if self.options_budget_pct is not None:
+                    options_allocation = total_capital * self.options_budget_pct
+                elif self.options_budget is not None and not callable(self.options_budget):
                     options_allocation = float(self.options_budget)
                 elif self.options_budget is not None and callable(self.options_budget):
                     options_allocation = self.options_budget(date, total_capital)

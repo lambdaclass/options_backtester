@@ -52,6 +52,8 @@ pub struct BacktestConfig {
     pub sma_days: Option<usize>,
     /// Fixed options budget in dollars (overrides allocation_options * total_capital).
     pub options_budget_fixed: Option<f64>,
+    /// Options budget as a percentage of total capital (overrides allocation_options).
+    pub options_budget_pct: Option<f64>,
     /// Stop the backtest if cash goes negative (mirrors Python's stop_if_broke).
     pub stop_if_broke: bool,
 }
@@ -391,7 +393,8 @@ pub fn run_backtest_with_filters(
         peak_value = peak_value.max(total_capital);
 
         // Rebalance stocks
-        let externally_funded = config.options_budget_fixed.is_some();
+        let externally_funded = config.options_budget_fixed.is_some()
+            || config.options_budget_pct.is_some();
         let liquid_capital = total_capital - options_cap;
         // In budget mode, stocks invest only the liquid portion (cash + stock
         // value). Options are funded externally; using total_capital here would
@@ -417,8 +420,13 @@ pub fn run_backtest_with_filters(
         );
 
         // Options: buy with remaining budget only
-        let options_alloc = config.options_budget_fixed
-            .unwrap_or(config.allocation_options * total_capital);
+        let options_alloc = if let Some(fixed) = config.options_budget_fixed {
+            fixed
+        } else if let Some(pct) = config.options_budget_pct {
+            total_capital * pct
+        } else {
+            config.allocation_options * total_capital
+        };
         let remaining_budget = options_alloc - options_cap;
         if remaining_budget > 0.0 {
             let held: Vec<String> = positions.iter()
