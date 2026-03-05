@@ -253,7 +253,6 @@ class BacktestEngine:
 
         _rust_compatible = (
             not self.algos
-            and self.max_notional_pct is None
             and (self.options_budget is None or isinstance(self.options_budget, (int, float))
                  or self.options_budget_pct is not None)
             and hasattr(self.cost_model, 'to_rust_config')
@@ -272,6 +271,7 @@ class BacktestEngine:
                 monthly=monthly,
                 sma_days=sma_days,
                 rebalance_unit=rebalance_unit,
+                check_exits_daily=check_exits_daily,
             )
 
         self._initialize_inventories()
@@ -437,6 +437,7 @@ class BacktestEngine:
         monthly: bool,
         sma_days: int | None,
         rebalance_unit: str = 'BMS',
+        check_exits_daily: bool = False,
     ) -> pd.DataFrame:
         """Run the backtest using the Rust full-loop implementation."""
         import math
@@ -529,6 +530,8 @@ class BacktestEngine:
             ),
             "options_budget_pct": self.options_budget_pct,
             "stop_if_broke": self.stop_if_broke,
+            "max_notional_pct": self.max_notional_pct,
+            "check_exits_daily": check_exits_daily,
         }
 
         schema_mapping = {

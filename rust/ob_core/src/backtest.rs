@@ -56,6 +56,10 @@ pub struct BacktestConfig {
     pub options_budget_pct: Option<f64>,
     /// Stop the backtest if cash goes negative (mirrors Python's stop_if_broke).
     pub stop_if_broke: bool,
+    /// Maximum short notional as fraction of total capital (None = no limit).
+    pub max_notional_pct: Option<f64>,
+    /// Check exits on every trading day, not just rebalance dates.
+    pub check_exits_daily: bool,
 }
 
 pub struct BacktestResult {
@@ -344,125 +348,167 @@ pub fn run_backtest_with_filters(
         return build_result(&trade_rows, &balance_days, &config.legs, cash);
     }
 
-    // Mirror Python: for each rebalance date, first compute balance since
-    // previous rebalance date, then rebalance.
-    for (rb_idx, &rb_date) in rb_dates.iter().enumerate() {
-        let prev_rb_date = if rb_idx == 0 { rb_date } else { rb_dates[rb_idx - 1] };
+    // Rebalance helper: executes full rebalance logic for a single date.
+    // Extracted as a macro to avoid duplicating 60 lines across the two loop
+    // variants (rb-only vs all-dates).
+    macro_rules! rebalance_date {
+        ($rb_date:expr, $prev_rb_date:expr, $partitioned:expr,
+         $config:expr, $entry_filters:expr, $exit_filters:expr,
+         $schema:expr, $sma_map_by_date:expr,
+         $positions:expr, $stock_holdings:expr, $cash:expr,
+         $peak_value:expr, $portfolio_greeks:expr,
+         $trade_rows:expr, $balance_days:expr) => {{
+            let rb_date = $rb_date;
+            let prev_rb_date = $prev_rb_date;
 
-        // _update_balance(prev_rb_date, rb_date)
-        compute_balance_period(
-            &positions, &stock_holdings,
-            &partitioned,
-            prev_rb_date, rb_date,
-            config.shares_per_contract, cash,
-            &config.legs,
-            &mut balance_days,
-        );
+            // _update_balance(prev_rb_date, rb_date)
+            compute_balance_period(
+                &$positions, &$stock_holdings,
+                $partitioned,
+                prev_rb_date, rb_date,
+                $config.shares_per_contract, $cash,
+                &$config.legs,
+                &mut $balance_days,
+            );
 
-        // _rebalance_portfolio(rb_date, ...)
-        let day_opts = match partitioned.options.get(&rb_date) {
-            Some(d) => d,
-            None => continue,
-        };
-        if day_opts.height() == 0 {
-            continue;
-        }
-        let day_stocks = partitioned.stocks.get(&rb_date);
+            let day_opts = match $partitioned.options.get(&rb_date) {
+                Some(d) if d.height() > 0 => d,
+                _ => { continue; }
+            };
+            let day_stocks = $partitioned.stocks.get(&rb_date);
 
-        // Run exit filters (preserve non-matching positions)
-        execute_exits(
-            &mut positions, &mut cash, day_opts,
-            config.shares_per_contract,
-            &config.legs, &exit_filters,
-            config.profit_pct, config.loss_pct,
-            schema, rb_date, &mut trade_rows,
-            &config.cost_model, day_stocks,
-        )?;
+            // Run exit filters
+            execute_exits(
+                &mut $positions, &mut $cash, day_opts,
+                $config.shares_per_contract,
+                &$config.legs, $exit_filters,
+                $config.profit_pct, $config.loss_pct,
+                $schema, rb_date, &mut $trade_rows,
+                &$config.cost_model, day_stocks,
+            )?;
 
-        // Recompute portfolio greeks from current market data after exits
-        portfolio_greeks = compute_portfolio_greeks_from_market(
-            &positions, day_opts, &config.legs,
-        );
+            // Recompute portfolio greeks from current market data after exits
+            $portfolio_greeks = compute_portfolio_greeks_from_market(
+                &$positions, day_opts, &$config.legs,
+            );
 
-        // Compute total capital including held options
-        let stock_cap = compute_stock_capital(&stock_holdings, day_stocks);
-        let options_cap = compute_options_capital(&positions, day_opts, config.shares_per_contract, day_stocks);
-        let total_capital = cash + stock_cap + options_cap;
+            // Compute total capital including held options
+            let stock_cap = compute_stock_capital(&$stock_holdings, day_stocks);
+            let options_cap = compute_options_capital(
+                &$positions, day_opts, $config.shares_per_contract, day_stocks,
+            );
+            let total_capital = $cash + stock_cap + options_cap;
+            $peak_value = $peak_value.max(total_capital);
 
-        // Track peak for drawdown risk checks
-        peak_value = peak_value.max(total_capital);
+            // Rebalance stocks
+            let externally_funded = $config.options_budget_fixed.is_some()
+                || $config.options_budget_pct.is_some();
+            let liquid_capital = total_capital - options_cap;
+            let stocks_alloc = if externally_funded {
+                $config.allocation_stocks * liquid_capital
+            } else {
+                $config.allocation_stocks * total_capital
+            };
+            $stock_holdings.clear();
+            $cash = liquid_capital;
 
-        // Rebalance stocks
-        let externally_funded = config.options_budget_fixed.is_some()
-            || config.options_budget_pct.is_some();
-        let liquid_capital = total_capital - options_cap;
-        // In budget mode, stocks invest only the liquid portion (cash + stock
-        // value). Options are funded externally; using total_capital here would
-        // over-invest in stocks by options_cap, creating unintended leverage.
-        let stocks_alloc = if externally_funded {
-            config.allocation_stocks * liquid_capital
-        } else {
-            config.allocation_stocks * total_capital
-        };
-        stock_holdings.clear();
-        cash = liquid_capital;
+            let sma_prices = $sma_map_by_date.as_ref().and_then(|m| m.get(&rb_date));
+            buy_stocks(
+                &$config.stock_symbols, &$config.stock_percentages,
+                day_stocks, stocks_alloc, &mut $stock_holdings,
+                &$config.cost_model, &mut $cash, sma_prices,
+            );
 
-        // Get SMA prices for this date if configured
-        let sma_prices = sma_map_by_date.as_ref().and_then(|m| m.get(&rb_date));
+            // Options: buy with remaining budget only
+            let options_alloc = if let Some(fixed) = $config.options_budget_fixed {
+                fixed
+            } else if let Some(pct) = $config.options_budget_pct {
+                total_capital * pct
+            } else {
+                $config.allocation_options * total_capital
+            };
+            let remaining_budget = options_alloc - options_cap;
+            if remaining_budget > 0.0 {
+                let held: Vec<String> = $positions.iter()
+                    .flat_map(|p| p.leg_contracts.clone())
+                    .collect();
 
-        buy_stocks(
-            &config.stock_symbols, &config.stock_percentages,
-            day_stocks,
-            stocks_alloc, &mut stock_holdings,
-            &config.cost_model,
-            &mut cash,
-            sma_prices,
-        );
+                if externally_funded {
+                    $cash += remaining_budget;
+                }
 
-        // Options: buy with remaining budget only
-        let options_alloc = if let Some(fixed) = config.options_budget_fixed {
-            fixed
-        } else if let Some(pct) = config.options_budget_pct {
-            total_capital * pct
-        } else {
-            config.allocation_options * total_capital
-        };
-        let remaining_budget = options_alloc - options_cap;
-        if remaining_budget > 0.0 {
-            let held: Vec<String> = positions.iter()
-                .flat_map(|p| p.leg_contracts.clone())
-                .collect();
-
-            if externally_funded {
-                cash += remaining_budget;
+                if let Some(pos) = execute_entries(
+                    &$config.legs, $entry_filters, day_opts, &held,
+                    $config.shares_per_contract, remaining_budget,
+                    $schema, rb_date, &mut $trade_rows,
+                    &$config.fill_model, &$config.signal_selector,
+                    &$config.risk_constraints, &$portfolio_greeks,
+                    total_capital, $peak_value,
+                    $config.max_notional_pct, &$positions,
+                )? {
+                    let cost = pos.entry_cost * pos.quantity;
+                    let commission = $config.cost_model.option_cost(
+                        cost.abs(), pos.quantity, $config.shares_per_contract,
+                    );
+                    $cash -= cost + commission;
+                    $portfolio_greeks += pos.greeks;
+                    $positions.push(pos);
+                } else if externally_funded {
+                    $cash -= remaining_budget;
+                }
             }
 
-            if let Some(pos) = execute_entries(
-                &config.legs, &entry_filters, day_opts, &held,
-                config.shares_per_contract, remaining_budget,
-                schema, rb_date, &mut trade_rows,
-                &config.fill_model, &config.signal_selector,
-                &config.risk_constraints, &portfolio_greeks,
-                total_capital, peak_value,
-            )? {
-                let cost = pos.entry_cost * pos.quantity;
-                let commission = config.cost_model.option_cost(
-                    cost.abs(), pos.quantity, config.shares_per_contract,
+            if $config.stop_if_broke && $cash < 0.0 {
+                break;
+            }
+        }};
+    }
+
+    if config.check_exits_daily {
+        // All-dates loop: check exits on every trading day, rebalance on rb dates.
+        use std::collections::HashSet;
+        let rb_set: HashSet<i64> = rb_dates.iter().copied().collect();
+        let mut rb_idx: usize = 0;
+
+        for &date in &partitioned.all_dates_sorted {
+            if rb_set.contains(&date) {
+                let prev_rb_date = if rb_idx == 0 { date } else { rb_dates[rb_idx - 1] };
+                rebalance_date!(
+                    date, prev_rb_date, &partitioned,
+                    config, &entry_filters, &exit_filters,
+                    schema, sma_map_by_date,
+                    positions, stock_holdings, cash,
+                    peak_value, portfolio_greeks,
+                    trade_rows, balance_days
                 );
-                cash -= cost + commission;
-                portfolio_greeks += pos.greeks;
-                positions.push(pos);
-            } else {
-                // No entry made — revert the budget added to cash
-                if externally_funded {
-                    cash -= remaining_budget;
+                rb_idx += 1;
+            } else if !positions.is_empty() {
+                // Non-rebalance day: only run exits
+                if let Some(day_opts) = partitioned.options.get(&date) {
+                    let day_stocks = partitioned.stocks.get(&date);
+                    execute_exits(
+                        &mut positions, &mut cash, day_opts,
+                        config.shares_per_contract,
+                        &config.legs, &exit_filters,
+                        config.profit_pct, config.loss_pct,
+                        schema, date, &mut trade_rows,
+                        &config.cost_model, day_stocks,
+                    )?;
                 }
             }
         }
-
-        // stop_if_broke: halt if cash goes negative
-        if config.stop_if_broke && cash < 0.0 {
-            break;
+    } else {
+        // Fast path: iterate only rebalance dates (typical: ~200 vs ~4500 all dates).
+        for (rb_idx, &rb_date) in rb_dates.iter().enumerate() {
+            let prev_rb_date = if rb_idx == 0 { rb_date } else { rb_dates[rb_idx - 1] };
+            rebalance_date!(
+                rb_date, prev_rb_date, &partitioned,
+                config, &entry_filters, &exit_filters,
+                schema, sma_map_by_date,
+                positions, stock_holdings, cash,
+                peak_value, portfolio_greeks,
+                trade_rows, balance_days
+            );
         }
     }
 
@@ -790,6 +836,8 @@ fn execute_entries(
     portfolio_greeks: &Greeks,
     total_capital: f64,
     peak_value: f64,
+    max_notional_pct: Option<f64>,
+    existing_positions: &[Position],
 ) -> PolarsResult<Option<Position>> {
     let contract_col = &schema.contract;
     if legs.is_empty() || budget <= 0.0 {
@@ -957,9 +1005,34 @@ fn execute_entries(
 
     // Qty is computed from the original (pre-fill-model) cost, matching Python behavior
     // where qty = allocation // abs(original_cost) is computed before fill model repricing.
-    let qty = (budget / original_total_cost.abs()).floor();
+    let mut qty = (budget / original_total_cost.abs()).floor();
     if qty <= 0.0 {
         return Ok(None);
+    }
+
+    // max_notional_pct: cap qty so total short notional stays under limit
+    if let Some(max_pct) = max_notional_pct {
+        let mut short_notional_per_contract = 0.0;
+        for (i, leg) in legs.iter().enumerate() {
+            if leg.direction == Direction::Sell {
+                short_notional_per_contract += leg_strikes[i] * spc as f64;
+            }
+        }
+        if short_notional_per_contract > 0.0 {
+            let existing_short_notional: f64 = existing_positions.iter().map(|pos| {
+                pos.leg_strikes.iter().enumerate()
+                    .filter(|(j, _)| pos.leg_directions[*j] == Direction::Sell)
+                    .map(|(_, &strike)| strike * pos.quantity * spc as f64)
+                    .sum::<f64>()
+            }).sum();
+            let max_notional = max_pct * total_capital;
+            let available = (max_notional - existing_short_notional).max(0.0);
+            let max_qty = (available / short_notional_per_contract).floor();
+            qty = qty.min(max_qty);
+            if qty <= 0.0 {
+                return Ok(None);
+            }
+        }
     }
 
     // Scale greeks by quantity

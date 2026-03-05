@@ -240,6 +240,16 @@ pub fn parse_config_from_dict(config: &Bound<'_, PyDict>) -> PyResult<BacktestCo
         .transpose()?
         .unwrap_or(false);
 
+    let max_notional_pct: Option<f64> = config
+        .get_item("max_notional_pct")?
+        .and_then(|v| v.extract::<f64>().ok());
+
+    let check_exits_daily: bool = config
+        .get_item("check_exits_daily")?
+        .map(|v| v.extract::<bool>())
+        .transpose()?
+        .unwrap_or(false);
+
     Ok(BacktestConfig {
         allocation_stocks: alloc_stocks,
         allocation_options: alloc_options,
@@ -260,6 +270,8 @@ pub fn parse_config_from_dict(config: &Bound<'_, PyDict>) -> PyResult<BacktestCo
         options_budget_fixed,
         options_budget_pct,
         stop_if_broke,
+        max_notional_pct,
+        check_exits_daily,
     })
 }
 
