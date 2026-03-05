@@ -15,6 +15,7 @@ mod py_sweep;
 fn _ob_rust(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(py_balance::update_balance, m)?)?;
     m.add_function(wrap_pyfunction!(py_backtest::run_backtest_py, m)?)?;
+    m.add_function(wrap_pyfunction!(py_backtest::run_multi_strategy_py, m)?)?;
     m.add_function(wrap_pyfunction!(py_filter::compile_filter, m)?)?;
     m.add_function(wrap_pyfunction!(py_filter::apply_filter, m)?)?;
     m.add_function(wrap_pyfunction!(py_entries::compute_entries, m)?)?;

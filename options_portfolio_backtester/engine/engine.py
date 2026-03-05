@@ -224,7 +224,7 @@ class BacktestEngine:
         ), "Ensure all stocks in portfolio are present in the data"
         assert self._options_data, "Options data not set"
 
-        # Multi-strategy mode: bypass single-strategy assertions and Rust loop
+        # Multi-strategy mode
         if self._is_multi_strategy:
             total_weight = sum(s.weight for s in self._strategy_slots)
             assert abs(total_weight - 1.0) < 1e-6, (
@@ -232,7 +232,7 @@ class BacktestEngine:
             )
             for slot in self._strategy_slots:
                 assert self._options_data.schema == slot.strategy.schema
-            return self._run_multi_strategy(
+            return self._run_rust_multi(
                 monthly=monthly, sma_days=sma_days,
                 check_exits_daily=check_exits_daily,
             )
@@ -611,6 +611,185 @@ class BacktestEngine:
             monthly=monthly,
             sma_days=sma_days,
             dispatch_mode="rust-full",
+        )
+
+        return self.trade_log
+
+    def _run_rust_multi(
+        self,
+        monthly: bool = False,
+        sma_days: int | None = None,
+        check_exits_daily: bool = False,
+    ) -> pd.DataFrame:
+        """Run multi-strategy backtest using Rust backend."""
+        import math
+        import pyarrow as pa
+        import polars as pl
+
+        opts_date_col = self._options_schema["date"]
+        stocks_date_col = self._stocks_schema["date"]
+
+        # Drop unused columns for Arrow conversion speed
+        _drop_cols = {"underlying_last", "last", "optionalias", "impliedvol"}
+        opts_df = self._options_data._data
+        to_drop = [c for c in _drop_cols if c in opts_df.columns]
+        opts_src = opts_df.drop(columns=to_drop) if to_drop else opts_df
+
+        opts_pl = pl.from_arrow(pa.Table.from_pandas(opts_src, preserve_index=False))
+        stocks_pl = pl.from_arrow(
+            pa.Table.from_pandas(self._stocks_data._data, preserve_index=False)
+        )
+
+        # Compute per-slot rebalance dates
+        dates_df = (
+            pd.DataFrame(self.options_data._data[["quotedate", "volume"]])
+            .drop_duplicates("quotedate")
+            .set_index("quotedate")
+        )
+
+        slot_configs = []
+        for slot in self._strategy_slots:
+            if slot.rebalance_freq:
+                rb_dates = pd.to_datetime(
+                    dates_df.groupby(
+                        pd.Grouper(freq=f"{slot.rebalance_freq}{slot.rebalance_unit}")
+                    ).apply(lambda x: x.index.min()).values
+                )
+                rb_date_ns = [int(d.value) for d in rb_dates if not pd.isna(d)]
+            else:
+                rb_date_ns = []
+
+            leg_configs = []
+            for leg in slot.strategy.legs:
+                lc = {
+                    "name": leg.name,
+                    "entry_filter": leg.entry_filter.query,
+                    "exit_filter": leg.exit_filter.query,
+                    "direction": leg.direction.price_column,
+                    "type": leg.type.value,
+                    "entry_sort_col": leg.entry_sort[0] if leg.entry_sort else None,
+                    "entry_sort_asc": leg.entry_sort[1] if leg.entry_sort else True,
+                }
+                leg_sel = getattr(leg, 'signal_selector', None)
+                if leg_sel is not None and hasattr(leg_sel, 'to_rust_config'):
+                    lc["signal_selector"] = leg_sel.to_rust_config()
+                leg_fill = getattr(leg, 'fill_model', None)
+                if leg_fill is not None and hasattr(leg_fill, 'to_rust_config'):
+                    lc["fill_model"] = leg_fill.to_rust_config()
+                leg_configs.append(lc)
+
+            slot_configs.append({
+                "name": slot.name,
+                "legs": leg_configs,
+                "weight": slot.weight,
+                "rebalance_dates": rb_date_ns,
+                "profit_pct": (
+                    slot.strategy.exit_thresholds[0]
+                    if slot.strategy.exit_thresholds[0] != math.inf else None
+                ),
+                "loss_pct": (
+                    slot.strategy.exit_thresholds[1]
+                    if slot.strategy.exit_thresholds[1] != math.inf else None
+                ),
+                "check_exits_daily": slot.check_exits_daily,
+            })
+
+        config = {
+            "allocation": self.allocation,
+            "initial_capital": float(self.initial_capital),
+            "shares_per_contract": self.shares_per_contract,
+            "rebalance_dates": [],  # Not used for multi-strategy; per-slot instead
+            "legs": [],  # Not used for multi-strategy; per-slot instead
+            "stocks": [(s.symbol, s.percentage) for s in self._stocks],
+            "cost_model": self.cost_model.to_rust_config(),
+            "fill_model": self.fill_model.to_rust_config(),
+            "signal_selector": self.signal_selector.to_rust_config(),
+            "risk_constraints": [c.to_rust_config() for c in self.risk_manager.constraints],
+            "sma_days": sma_days,
+            "options_budget_fixed": (
+                float(self.options_budget)
+                if isinstance(self.options_budget, (int, float))
+                else None
+            ),
+            "options_budget_pct": self.options_budget_pct,
+            "stop_if_broke": self.stop_if_broke,
+            "max_notional_pct": self.max_notional_pct,
+            "check_exits_daily": check_exits_daily,
+        }
+
+        schema_mapping = {
+            "contract": self._options_schema["contract"],
+            "date": opts_date_col,
+            "stocks_date": stocks_date_col,
+            "stocks_symbol": self._stocks_schema["symbol"],
+            "stocks_price": self._stocks_schema["adjClose"],
+            "underlying": self._options_schema["underlying"],
+            "expiration": self._options_schema["expiration"],
+            "type": self._options_schema["type"],
+            "strike": self._options_schema["strike"],
+        }
+
+        balance_pl, trade_log_pl, stats = rust.run_multi_strategy_py(
+            opts_pl, stocks_pl, config, schema_mapping, slot_configs,
+        )
+
+        # Convert trade log
+        trade_log_pd = trade_log_pl.to_pandas()
+        self.trade_log = self._flat_trade_log_to_multiindex(trade_log_pd)
+
+        # Convert balance
+        self.balance = balance_pl.to_pandas()
+        if "date" in self.balance.columns:
+            self.balance["date"] = pd.to_datetime(self.balance["date"])
+            self.balance.set_index("date", inplace=True)
+
+        # Add initial balance row
+        initial_date = self.stocks_data.start_date - pd.Timedelta(1, unit="day")
+        initial_row = pd.DataFrame(
+            {"total capital": self.initial_capital, "cash": float(self.initial_capital)},
+            index=[initial_date],
+        )
+        self.balance = pd.concat([initial_row, self.balance], sort=False)
+        for col_name in self.balance.columns:
+            self.balance[col_name] = pd.to_numeric(self.balance[col_name], errors="coerce")
+
+        # Ensure per-stock columns exist
+        for stock in self._stocks:
+            sym = stock.symbol
+            if sym not in self.balance.columns:
+                self.balance[sym] = 0.0
+            if f"{sym} qty" not in self.balance.columns:
+                self.balance[f"{sym} qty"] = 0.0
+        for col_name in ["options qty", "stocks qty", "calls capital", "puts capital"]:
+            if col_name not in self.balance.columns:
+                self.balance[col_name] = 0.0
+
+        # Add derived columns
+        self.balance["options capital"] = (
+            self.balance["calls capital"] + self.balance["puts capital"]
+        ).fillna(0)
+        stock_cols = [s.symbol for s in self._stocks]
+        self.balance["stocks capital"] = sum(
+            self.balance.get(c, 0) for c in stock_cols
+        )
+        first_idx = self.balance.index[0]
+        self.balance.loc[first_idx, "stocks capital"] = 0
+        self.balance.loc[first_idx, "options capital"] = 0
+        self.balance["total capital"] = (
+            self.balance["cash"]
+            + self.balance["stocks capital"]
+            + self.balance["options capital"]
+        )
+        self.balance["% change"] = self.balance["total capital"].pct_change()
+        self.balance["accumulated return"] = (1.0 + self.balance["% change"]).cumprod()
+
+        final_total = self.balance["total capital"].iloc[-1]
+        self.current_cash = self.allocation["cash"] * final_total
+        self._attach_run_metadata(
+            rebalance_freq=0,
+            monthly=monthly,
+            sma_days=sma_days,
+            dispatch_mode="rust-multi",
         )
 
         return self.trade_log

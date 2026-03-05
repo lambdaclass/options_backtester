@@ -69,6 +69,18 @@ pub struct BacktestResult {
     pub stats: Stats,
 }
 
+/// Configuration for one strategy slot in a multi-strategy backtest.
+#[derive(Clone)]
+pub struct StrategySlotConfig {
+    pub name: String,
+    pub legs: Vec<LegConfig>,
+    pub weight: f64,
+    pub rebalance_dates: Vec<i64>,
+    pub profit_pct: Option<f64>,
+    pub loss_pct: Option<f64>,
+    pub check_exits_daily: bool,
+}
+
 struct Position {
     leg_contracts: Vec<String>,
     leg_types: Vec<String>,
@@ -528,6 +540,299 @@ pub fn run_backtest_with_filters(
     }
 
     build_result(&trade_rows, &balance_days, &config.legs, cash)
+}
+
+// ---------------------------------------------------------------------------
+// Multi-strategy backtest.
+// ---------------------------------------------------------------------------
+
+/// Run a multi-strategy backtest with per-slot inventories, shared stocks/cash.
+///
+/// Each slot has its own legs, rebalance schedule, exit thresholds, and weight.
+/// The shared config provides allocation, stocks, capital, cost/fill/signal models.
+pub fn run_multi_strategy(
+    config: &BacktestConfig,
+    slots: &[StrategySlotConfig],
+    partitioned: &PartitionedData,
+    schema: &SchemaMapping,
+) -> PolarsResult<BacktestResult> {
+    use std::collections::HashSet;
+
+    let mut cash = config.initial_capital;
+    let mut stock_holdings: Vec<StockHolding> = Vec::new();
+    let mut peak_value: f64 = config.initial_capital;
+
+    // Per-slot state
+    let mut slot_positions: Vec<Vec<Position>> = slots.iter().map(|_| Vec::new()).collect();
+    let slot_filters: Vec<PrecompiledFilters> = slots.iter().map(|slot| {
+        // Build a temporary config just for filter compilation
+        let tmp = BacktestConfig {
+            legs: slot.legs.clone(),
+            ..config.clone()
+        };
+        PrecompiledFilters::from_config(&tmp)
+    }).collect();
+
+    let mut trade_rows: Vec<TradeRow> = Vec::new();
+    let mut balance_days: Vec<BalanceDay> = Vec::new();
+
+    // Pre-compute SMA
+    let sma_map_by_date = config.sma_days
+        .map(|sma_days| compute_sma_map(partitioned, &config.stock_symbols, sma_days));
+
+    // Build set of all rebalance dates (union across slots) and per-slot sets
+    let mut all_rb_set: HashSet<i64> = HashSet::new();
+    let slot_rb_sets: Vec<HashSet<i64>> = slots.iter().map(|slot| {
+        let set: HashSet<i64> = slot.rebalance_dates.iter().copied().collect();
+        all_rb_set.extend(&set);
+        set
+    }).collect();
+
+    // All rebalance dates sorted
+    let mut all_rb_dates: Vec<i64> = all_rb_set.iter().copied().collect();
+    all_rb_dates.sort_unstable();
+
+    if all_rb_dates.is_empty() {
+        // Use legs from first slot for result columns
+        let legs = if slots.is_empty() { &config.legs } else { &slots[0].legs };
+        return build_result(&trade_rows, &balance_days, legs, cash);
+    }
+
+    // Determine if any slot uses daily exits
+    let any_daily_exits = config.check_exits_daily
+        || slots.iter().any(|s| s.check_exits_daily);
+
+    // Track previous rebalance date for balance computation
+    let mut prev_global_rb: Option<i64> = None;
+
+    for &date in &partitioned.all_dates_sorted {
+        let is_rebalance = all_rb_set.contains(&date);
+
+        // Which slots rebalance on this date?
+        let slots_rebalancing: Vec<usize> = if is_rebalance {
+            (0..slots.len())
+                .filter(|&i| slot_rb_sets[i].contains(&date))
+                .collect()
+        } else {
+            Vec::new()
+        };
+
+        if is_rebalance {
+            // Compute balance since previous rebalance
+            let prev_rb = prev_global_rb.unwrap_or(date);
+            compute_balance_period_multi(
+                &slot_positions, &stock_holdings, partitioned,
+                prev_rb, date, config.shares_per_contract, cash,
+                slots, &mut balance_days,
+            );
+            prev_global_rb = Some(date);
+
+            let day_opts = match partitioned.options.get(&date) {
+                Some(d) if d.height() > 0 => d,
+                _ => continue,
+            };
+            let day_stocks = partitioned.stocks.get(&date);
+
+            // Phase 1: exits for rebalancing slots
+            for &si in &slots_rebalancing {
+                execute_exits(
+                    &mut slot_positions[si], &mut cash, day_opts,
+                    config.shares_per_contract,
+                    &slots[si].legs, &slot_filters[si].exit,
+                    slots[si].profit_pct, slots[si].loss_pct,
+                    schema, date, &mut trade_rows,
+                    &config.cost_model, day_stocks,
+                )?;
+            }
+
+            // Phase 2: compute aggregate capital
+            let stock_cap = compute_stock_capital(&stock_holdings, day_stocks);
+            let options_cap: f64 = slot_positions.iter().map(|positions| {
+                compute_options_capital(positions, day_opts, config.shares_per_contract, day_stocks)
+            }).sum();
+            let total_capital = cash + stock_cap + options_cap;
+            peak_value = peak_value.max(total_capital);
+
+            // Options allocation
+            let options_alloc = if let Some(fixed) = config.options_budget_fixed {
+                fixed
+            } else if let Some(pct) = config.options_budget_pct {
+                total_capital * pct
+            } else {
+                config.allocation_options * total_capital
+            };
+
+            // Phase 3: buy stocks (shared pool)
+            let externally_funded = config.options_budget_fixed.is_some()
+                || config.options_budget_pct.is_some();
+            let liquid_capital = total_capital - options_cap;
+            let stocks_alloc = if externally_funded {
+                config.allocation_stocks * liquid_capital
+            } else {
+                config.allocation_stocks * total_capital
+            };
+            stock_holdings.clear();
+            cash = liquid_capital;
+
+            let sma_prices = sma_map_by_date.as_ref().and_then(|m| m.get(&date));
+            buy_stocks(
+                &config.stock_symbols, &config.stock_percentages,
+                day_stocks, stocks_alloc, &mut stock_holdings,
+                &config.cost_model, &mut cash, sma_prices,
+            );
+
+            // Phase 4: entries per rebalancing slot
+            for &si in &slots_rebalancing {
+                let slot = &slots[si];
+                let slot_opts_cap = compute_options_capital(
+                    &slot_positions[si], day_opts, config.shares_per_contract, day_stocks,
+                );
+                let slot_allocation = slot.weight * options_alloc;
+                let remaining_budget = slot_allocation - slot_opts_cap;
+                if remaining_budget > 0.0 {
+                    let held: Vec<String> = slot_positions[si].iter()
+                        .flat_map(|p| p.leg_contracts.clone())
+                        .collect();
+
+                    if externally_funded {
+                        cash += remaining_budget;
+                    }
+
+                    let portfolio_greeks = compute_portfolio_greeks_from_market(
+                        &slot_positions[si], day_opts, &slot.legs,
+                    );
+
+                    if let Some(pos) = execute_entries(
+                        &slot.legs, &slot_filters[si].entry, day_opts, &held,
+                        config.shares_per_contract, remaining_budget,
+                        schema, date, &mut trade_rows,
+                        &config.fill_model, &config.signal_selector,
+                        &config.risk_constraints, &portfolio_greeks,
+                        total_capital, peak_value,
+                        config.max_notional_pct, &slot_positions[si],
+                    )? {
+                        let cost = pos.entry_cost * pos.quantity;
+                        let commission = config.cost_model.option_cost(
+                            cost.abs(), pos.quantity, config.shares_per_contract,
+                        );
+                        cash -= cost + commission;
+                        slot_positions[si].push(pos);
+                    } else if externally_funded {
+                        cash -= remaining_budget;
+                    }
+                }
+            }
+
+            if config.stop_if_broke && cash < 0.0 {
+                break;
+            }
+        } else if any_daily_exits {
+            // Non-rebalance day: run exits for slots with check_exits_daily
+            if let Some(day_opts) = partitioned.options.get(&date) {
+                let day_stocks = partitioned.stocks.get(&date);
+                for (si, slot) in slots.iter().enumerate() {
+                    if (slot.check_exits_daily || config.check_exits_daily)
+                        && !slot_positions[si].is_empty()
+                    {
+                        execute_exits(
+                            &mut slot_positions[si], &mut cash, day_opts,
+                            config.shares_per_contract,
+                            &slot.legs, &slot_filters[si].exit,
+                            slot.profit_pct, slot.loss_pct,
+                            schema, date, &mut trade_rows,
+                            &config.cost_model, day_stocks,
+                        )?;
+                    }
+                }
+            }
+        }
+    }
+
+    // Final balance update
+    if let Some(last_rb) = prev_global_rb {
+        let last_date = partitioned.all_dates_sorted.last().copied().unwrap_or(0);
+        if last_date > 0 {
+            compute_balance_period_multi(
+                &slot_positions, &stock_holdings, partitioned,
+                last_rb, last_date, config.shares_per_contract, cash,
+                slots, &mut balance_days,
+            );
+        }
+    }
+
+    // Use legs from first slot for result columns
+    let legs = if slots.is_empty() { &config.legs } else { &slots[0].legs };
+    build_result(&trade_rows, &balance_days, legs, cash)
+}
+
+/// Compute balance for multi-strategy across all slot positions.
+fn compute_balance_period_multi(
+    slot_positions: &[Vec<Position>],
+    stock_holdings: &[StockHolding],
+    partitioned: &PartitionedData,
+    start_date: i64,
+    end_date: i64,
+    spc: i64,
+    cash: f64,
+    slots: &[StrategySlotConfig],
+    balance_days: &mut Vec<BalanceDay>,
+) {
+    let dates = &partitioned.all_dates_sorted;
+    let start_idx = dates.partition_point(|&d| d < start_date);
+    let end_idx = dates.partition_point(|&d| d < end_date);
+
+    for &d in &dates[start_idx..end_idx] {
+        let day_opts = partitioned.options.get(&d);
+        let day_stocks = partitioned.stocks.get(&d);
+
+        let mut calls_cap = 0.0;
+        let mut puts_cap = 0.0;
+        let mut options_qty = 0.0;
+
+        if let Some(opts) = day_opts {
+            for (si, positions) in slot_positions.iter().enumerate() {
+                let legs = &slots[si].legs;
+                for pos in positions {
+                    options_qty += pos.quantity;
+                    for (j, leg) in legs.iter().enumerate() {
+                        if j >= pos.leg_contracts.len() { continue; }
+                        let exit_price_col = leg.direction.invert().price_column();
+                        let price = opts.get_f64(&pos.leg_contracts[j], exit_price_col)
+                            .unwrap_or_else(|| {
+                                let spot = day_stocks
+                                    .and_then(|ds| ds.get_price(&pos.leg_underlyings[j]))
+                                    .unwrap_or(0.0);
+                                intrinsic_value(&pos.leg_types[j], pos.leg_strikes[j], spot)
+                            });
+                        let sign = leg.direction.invert().sign();
+                        let value = sign * price * pos.quantity * spc as f64;
+                        if pos.leg_types[j] == "call" {
+                            calls_cap += value;
+                        } else {
+                            puts_cap += value;
+                        }
+                    }
+                }
+            }
+        }
+
+        let mut stock_values = Vec::new();
+        let mut stock_qtys = Vec::new();
+        let mut stocks_qty = 0.0;
+        for holding in stock_holdings {
+            let price = day_stocks
+                .and_then(|ds| ds.get_price(&holding.symbol))
+                .unwrap_or(holding.price);
+            stock_values.push((holding.symbol.clone(), holding.qty * price));
+            stock_qtys.push((holding.symbol.clone(), holding.qty));
+            stocks_qty += holding.qty;
+        }
+
+        balance_days.push(BalanceDay {
+            date: d, cash, calls_capital: calls_cap, puts_capital: puts_cap,
+            options_qty, stocks_qty, stock_values, stock_qtys,
+        });
+    }
 }
 
 // ---------------------------------------------------------------------------

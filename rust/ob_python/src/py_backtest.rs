@@ -4,7 +4,7 @@ use pyo3::prelude::*;
 use pyo3::types::{PyDict, PyList};
 use pyo3_polars::PyDataFrame;
 
-use ob_core::backtest::{run_backtest, BacktestConfig, SchemaMapping};
+use ob_core::backtest::{run_backtest, run_multi_strategy, prepartition_data, BacktestConfig, StrategySlotConfig, SchemaMapping};
 use ob_core::cost_model::CostModel;
 use ob_core::fill_model::FillModel;
 use ob_core::risk::RiskConstraint;
@@ -359,6 +359,108 @@ pub fn parse_leg_config(d: &Bound<'_, PyDict>) -> PyResult<LegConfig> {
         signal_selector,
         fill_model,
     })
+}
+
+/// Parse a StrategySlotConfig from a Python dict.
+fn parse_slot_config(d: &Bound<'_, PyDict>) -> PyResult<StrategySlotConfig> {
+    let name = get_str(d, "name", "")?;
+    let weight = get_f64(d, "weight", 1.0)?;
+
+    let legs_list: Vec<Bound<'_, PyDict>> = d
+        .get_item("legs")?
+        .ok_or_else(|| pyo3::exceptions::PyKeyError::new_err("legs"))?
+        .extract::<Vec<Bound<'_, PyDict>>>()?;
+    let legs: Vec<ob_core::types::LegConfig> = legs_list
+        .iter()
+        .map(|ld| parse_leg_config(ld))
+        .collect::<PyResult<Vec<_>>>()?;
+
+    let rebalance_dates: Vec<i64> = d
+        .get_item("rebalance_dates")?
+        .map(|v| v.extract::<Vec<i64>>())
+        .transpose()?
+        .unwrap_or_default();
+
+    let profit_pct: Option<f64> = d
+        .get_item("profit_pct")?
+        .and_then(|v| v.extract::<f64>().ok());
+    let loss_pct: Option<f64> = d
+        .get_item("loss_pct")?
+        .and_then(|v| v.extract::<f64>().ok());
+
+    let check_exits_daily: bool = d
+        .get_item("check_exits_daily")?
+        .map(|v| v.extract::<bool>())
+        .transpose()?
+        .unwrap_or(false);
+
+    Ok(StrategySlotConfig {
+        name,
+        legs,
+        weight,
+        rebalance_dates,
+        profit_pct,
+        loss_pct,
+        check_exits_daily,
+    })
+}
+
+/// Run a multi-strategy backtest and return (balance_df, trade_log_df, stats_dict).
+#[pyfunction]
+#[pyo3(signature = (options_data, stocks_data, config, schema_mapping, slots))]
+pub fn run_multi_strategy_py(
+    py: Python<'_>,
+    options_data: PyDataFrame,
+    stocks_data: PyDataFrame,
+    config: &Bound<'_, PyDict>,
+    schema_mapping: &Bound<'_, PyDict>,
+    slots: &Bound<'_, PyList>,
+) -> PyResult<PyObject> {
+    let opts = py_to_polars(options_data);
+    let stocks = py_to_polars(stocks_data);
+
+    let schema = parse_schema(schema_mapping)?;
+    let bt_config = parse_config_from_dict(config)?;
+
+    let slot_configs: Vec<StrategySlotConfig> = slots
+        .iter()
+        .map(|item| {
+            let d = item.downcast::<PyDict>()
+                .map_err(|e| pyo3::exceptions::PyTypeError::new_err(e.to_string()))?;
+            parse_slot_config(d)
+        })
+        .collect::<PyResult<Vec<_>>>()?;
+
+    let partitioned = prepartition_data(&opts, &stocks, &schema)
+        .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))?;
+
+    let result = run_multi_strategy(&bt_config, &slot_configs, &partitioned, &schema)
+        .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))?;
+
+    // Build result tuple (same format as run_backtest_py)
+    let balance_py = polars_to_py(result.balance);
+    let trade_log_py = polars_to_py(result.trade_log);
+
+    let stats_dict = PyDict::new(py);
+    stats_dict.set_item("total_return", result.stats.total_return)?;
+    stats_dict.set_item("annualized_return", result.stats.annualized_return)?;
+    stats_dict.set_item("sharpe_ratio", result.stats.sharpe_ratio)?;
+    stats_dict.set_item("sortino_ratio", result.stats.sortino_ratio)?;
+    stats_dict.set_item("calmar_ratio", result.stats.calmar_ratio)?;
+    stats_dict.set_item("max_drawdown", result.stats.max_drawdown)?;
+    stats_dict.set_item("max_drawdown_duration", result.stats.max_drawdown_duration)?;
+    stats_dict.set_item("profit_factor", result.stats.profit_factor)?;
+    stats_dict.set_item("win_rate", result.stats.win_rate)?;
+    stats_dict.set_item("total_trades", result.stats.total_trades)?;
+    stats_dict.set_item("final_cash", result.final_cash)?;
+
+    let result_tuple = pyo3::types::PyTuple::new(py, [
+        balance_py.into_pyobject(py)?.into_any(),
+        trade_log_py.into_pyobject(py)?.into_any(),
+        stats_dict.into_any(),
+    ])?;
+
+    Ok(result_tuple.into())
 }
 
 // Helper extractors
