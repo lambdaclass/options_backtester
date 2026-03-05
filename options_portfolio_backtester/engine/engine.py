@@ -37,7 +37,7 @@ from options_portfolio_backtester.execution.signal_selector import SignalSelecto
 from options_portfolio_backtester.portfolio.risk import RiskManager
 from options_portfolio_backtester.portfolio.portfolio import Portfolio, StockHolding
 from options_portfolio_backtester.portfolio.position import OptionPosition, PositionLeg
-from options_portfolio_backtester.engine._dispatch import use_rust, rust
+from options_portfolio_backtester.engine._dispatch import rust
 from options_portfolio_backtester.engine.algo_adapters import (
     EngineAlgo,
     EnginePipelineContext,
@@ -80,7 +80,7 @@ class BacktestEngine:
 
     Composes data providers, strategy legs, cost/fill/sizer/selector models,
     and risk constraints into a single backtest loop.  Dispatches to Rust
-    when available, falls back to Python transparently.
+    for all supported configurations.
     """
 
     def __init__(
@@ -441,8 +441,7 @@ class BacktestEngine:
 
         strategy = self._options_strategy
 
-        # Compute rebalance dates in Python (same logic as the Python loop)
-        # to guarantee date parity with the Python path.
+        # Compute rebalance dates for the Rust backtest loop.
         dates_df = (
             pd.DataFrame(self.options_data._data[["quotedate", "volume"]])
             .drop_duplicates("quotedate")
@@ -649,7 +648,7 @@ class BacktestEngine:
         return {
             "framework": "options_portfolio_backtester.engine.BacktestEngine",
             "dispatch_mode": dispatch_mode,
-            "rust_available": bool(use_rust()),
+            "rust_available": True,
             "git_sha": self._git_sha(),
             "run_at_utc": datetime.now(timezone.utc).isoformat(),
             "config_hash": self._sha256_json(run_config),

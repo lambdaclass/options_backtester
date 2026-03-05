@@ -1,8 +1,7 @@
-"""Dispatch layer for Rust acceleration.
+"""Dispatch layer for Rust backend.
 
-The Rust extension (_ob_rust) is always available. The `use_rust()` gate
-checks whether the full Rust backtest loop can be used (requires polars).
-The `rust` proxy provides attribute access to the _ob_rust module.
+The Rust extension (_ob_rust) is a hard dependency — all execution paths
+require it.  The `rust` proxy provides attribute access to the module.
 
 Usage in engine.py:
     from options_portfolio_backtester.engine._dispatch import rust
@@ -15,9 +14,11 @@ from __future__ import annotations
 
 from options_portfolio_backtester import _ob_rust
 
+RUST_AVAILABLE = True
+
 
 def use_rust() -> bool:
-    """Return True — Rust extension is always available."""
+    """Return True — Rust extension is always required."""
     return True
 
 
