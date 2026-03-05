@@ -100,7 +100,7 @@ def _assert_finite_or_error(fn):
         final = engine.balance["total capital"].iloc[-1]
         assert math.isfinite(final), f"Non-finite final capital: {final}"
         return engine
-    except (ValueError, KeyError, IndexError, ZeroDivisionError, AssertionError):
+    except (ValueError, KeyError, IndexError, ZeroDivisionError, AssertionError, RuntimeError):
         pass  # Clear error is acceptable
 
 

@@ -265,15 +265,12 @@ class BacktestEngine:
             )
         )
         if _rust_compatible:
-            try:
-                return self._run_rust(
-                    rebalance_freq,
-                    monthly=monthly,
-                    sma_days=sma_days,
-                    rebalance_unit=rebalance_unit,
-                )
-            except Exception as e:
-                logger.warning("Rust dispatch failed (%s: %s), falling back to Python", type(e).__name__, e)
+            return self._run_rust(
+                rebalance_freq,
+                monthly=monthly,
+                sma_days=sma_days,
+                rebalance_unit=rebalance_unit,
+            )
 
         self._initialize_inventories()
         self.current_cash: float = self.initial_capital
@@ -409,7 +406,7 @@ class BacktestEngine:
             rebalance_freq=rebalance_freq,
             monthly=monthly,
             sma_days=sma_days,
-            dispatch_mode="python",
+            dispatch_mode="python-unsupported",
         )
 
         return self.trade_log
@@ -946,97 +943,6 @@ class BacktestEngine:
         )
 
     def _update_balance(self, start_date, end_date):
-        # Try Rust+Polars path first, fall back to Python if polars not installed
-        try:
-            return self._update_balance_rust(start_date, end_date)
-        except Exception:
-            pass
-
-        stocks_date_col = self._stocks_schema["date"]
-        sd = self._stocks_data._data
-        stocks_data = sd[(sd[stocks_date_col] >= start_date) & (sd[stocks_date_col] < end_date)]
-
-        options_date_col = self._options_schema["date"]
-        od = self._options_data._data
-        options_data = od[(od[options_date_col] >= start_date) & (od[options_date_col] < end_date)]
-
-        calls_value = pd.Series(0.0, index=options_data[options_date_col].unique())
-        puts_value = pd.Series(0.0, index=options_data[options_date_col].unique())
-
-        options_contract_col = self._options_schema["contract"]
-        for leg in self._options_strategy.legs:
-            leg_inventory = self._options_inventory[leg.name]
-            if leg_inventory.empty or leg_inventory["contract"].isna().all():
-                continue
-            cost_field = (~leg.direction).price_column
-
-            inv_info = pd.DataFrame({
-                "_contract": leg_inventory["contract"].values,
-                "_qty": self._options_inventory["totals"]["qty"].values,
-                "_type": leg_inventory["type"].values,
-            })
-
-            inv_info["_underlying"] = leg_inventory["underlying"].values
-            inv_info["_strike"] = leg_inventory["strike"].values
-
-            all_current = inv_info.merge(
-                options_data, how="left",
-                left_on="_contract", right_on=options_contract_col,
-            )
-
-            # Fill missing prices with intrinsic value from stocks data
-            missing = all_current[cost_field].isna()
-            if missing.any():
-                spots = all_current.loc[missing, "_underlying"].map(
-                    stocks_data.drop_duplicates(self._stocks_schema["symbol"])
-                    .set_index(self._stocks_schema["symbol"])[self._stocks_schema["adjClose"]]
-                ).fillna(0.0)
-                strikes = all_current.loc[missing, "_strike"].astype(float)
-                types = all_current.loc[missing, "_type"]
-                intrinsics = np.where(
-                    types == OptionType.CALL.value,
-                    np.maximum(0.0, spots.values - strikes.values),
-                    np.maximum(0.0, strikes.values - spots.values),
-                )
-                all_current.loc[missing, cost_field] = intrinsics
-
-            sign = -1 if cost_field == Direction.BUY.price_column else 1
-            all_current["_value"] = (
-                sign * all_current[cost_field]
-                * all_current["_qty"] * self.shares_per_contract
-            )
-
-            calls_mask = all_current["_type"] == OptionType.CALL.value
-            if calls_mask.any():
-                calls_data = all_current.loc[calls_mask].groupby(options_date_col)["_value"].sum()
-                calls_value = calls_value.add(calls_data, fill_value=0)
-            puts_mask = ~calls_mask
-            if puts_mask.any():
-                puts_data = all_current.loc[puts_mask].groupby(options_date_col)["_value"].sum()
-                puts_value = puts_value.add(puts_data, fill_value=0)
-
-        stocks_current = self._stocks_inventory[["symbol", "qty"]].merge(
-            stocks_data[["date", "symbol", "adjClose"]], on="symbol",
-        )
-        stocks_current["cost"] = stocks_current["qty"] * stocks_current["adjClose"]
-
-        add = stocks_current.pivot_table(
-            index=stocks_date_col, columns="symbol", values="cost", aggfunc="sum",
-        )
-        add = add.reindex(columns=[stock.symbol for stock in self._stocks])
-
-        add["cash"] = self.current_cash
-        add["options qty"] = self._options_inventory["totals"]["qty"].sum()
-        add["calls capital"] = calls_value
-        add["puts capital"] = puts_value
-        add["stocks qty"] = self._stocks_inventory["qty"].sum()
-
-        for symbol, qty in zip(self._stocks_inventory["symbol"], self._stocks_inventory["qty"]):
-            add[symbol + " qty"] = qty
-
-        self._balance_parts.append(pd.DataFrame(add))
-
-    def _update_balance_rust(self, start_date, end_date):
         """Rust-accelerated balance update using the _ob_rust.update_balance function."""
         import polars as pl
 
