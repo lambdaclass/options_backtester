@@ -112,6 +112,9 @@ venv.bak/
 _ob_rust.so
 mutants/
 
+# Large regenerable test data (from tests/bench/extract_prod_slices.py)
+tests/data/*.csv
+
 # exclude data from source control by default
 data/*
 !data/README.md
