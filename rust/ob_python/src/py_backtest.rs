@@ -250,6 +250,12 @@ pub fn parse_config_from_dict(config: &Bound<'_, PyDict>) -> PyResult<BacktestCo
         .transpose()?
         .unwrap_or(false);
 
+    let options_budget_fresh_spend: bool = config
+        .get_item("options_budget_fresh_spend")?
+        .map(|v| v.extract::<bool>())
+        .transpose()?
+        .unwrap_or(false);
+
     Ok(BacktestConfig {
         allocation_stocks: alloc_stocks,
         allocation_options: alloc_options,
@@ -272,6 +278,7 @@ pub fn parse_config_from_dict(config: &Bound<'_, PyDict>) -> PyResult<BacktestCo
         stop_if_broke,
         max_notional_pct,
         check_exits_daily,
+        options_budget_fresh_spend,
     })
 }
 

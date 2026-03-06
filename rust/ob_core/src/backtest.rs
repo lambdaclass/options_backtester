@@ -60,6 +60,9 @@ pub struct BacktestConfig {
     pub max_notional_pct: Option<f64>,
     /// Check exits on every trading day, not just rebalance dates.
     pub check_exits_daily: bool,
+    /// When true, spend the full budget each rebalance ignoring existing position value.
+    /// Default (false) uses target model: spend = budget - existing_options_value.
+    pub options_budget_fresh_spend: bool,
 }
 
 pub struct BacktestResult {
@@ -419,7 +422,8 @@ pub fn run_backtest_with_filters(
             let stocks_alloc = if externally_funded {
                 $config.allocation_stocks * liquid_capital
             } else {
-                $config.allocation_stocks * total_capital
+                // Cap to liquid_capital: can't buy stocks with capital locked in options
+                ($config.allocation_stocks * total_capital).min(liquid_capital)
             };
             $stock_holdings.clear();
             $cash = liquid_capital;
@@ -439,7 +443,11 @@ pub fn run_backtest_with_filters(
             } else {
                 $config.allocation_options * total_capital
             };
-            let remaining_budget = options_alloc - options_cap;
+            let remaining_budget = if $config.options_budget_fresh_spend {
+                options_alloc
+            } else {
+                options_alloc - options_cap
+            };
             if remaining_budget > 0.0 {
                 let held: Vec<String> = $positions.iter()
                     .flat_map(|p| p.leg_contracts.clone())
@@ -673,7 +681,8 @@ pub fn run_multi_strategy(
             let stocks_alloc = if externally_funded {
                 config.allocation_stocks * liquid_capital
             } else {
-                config.allocation_stocks * total_capital
+                // Cap to liquid_capital: can't buy stocks with capital locked in options
+                (config.allocation_stocks * total_capital).min(liquid_capital)
             };
             stock_holdings.clear();
             cash = liquid_capital;
@@ -692,7 +701,11 @@ pub fn run_multi_strategy(
                     &slot_positions[si], day_opts, config.shares_per_contract, day_stocks,
                 );
                 let slot_allocation = slot.weight * options_alloc;
-                let remaining_budget = slot_allocation - slot_opts_cap;
+                let remaining_budget = if config.options_budget_fresh_spend {
+                    slot_allocation
+                } else {
+                    slot_allocation - slot_opts_cap
+                };
                 if remaining_budget > 0.0 {
                     let held: Vec<String> = slot_positions[si].iter()
                         .flat_map(|p| p.leg_contracts.clone())
