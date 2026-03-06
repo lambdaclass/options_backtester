@@ -50,10 +50,10 @@ pub struct BacktestConfig {
     pub risk_constraints: Vec<RiskConstraint>,
     /// SMA days for stock gating (None = no SMA gate).
     pub sma_days: Option<usize>,
-    /// Fixed options budget in dollars (overrides allocation_options * total_capital).
-    pub options_budget_fixed: Option<f64>,
-    /// Options budget as a percentage of total capital (overrides allocation_options).
+    /// Options budget as a percentage of total capital per rebalance (overrides allocation_options).
     pub options_budget_pct: Option<f64>,
+    /// Annual options budget as a percentage of total capital, auto-divided by rebalances/year.
+    pub options_budget_annual_pct: Option<f64>,
     /// Stop the backtest if cash goes negative (mirrors Python's stop_if_broke).
     pub stop_if_broke: bool,
     /// Maximum short notional as fraction of total capital (None = no limit).
@@ -63,6 +63,9 @@ pub struct BacktestConfig {
     /// When true, spend the full budget each rebalance ignoring existing position value.
     /// Default (false) uses target model: spend = budget - existing_options_value.
     pub options_budget_fresh_spend: bool,
+    /// When true, rebalance stocks immediately after daily option exits.
+    /// Allows reinvesting put profits into stocks without waiting for the next rebalance date.
+    pub rebalance_stocks_on_exit: bool,
 }
 
 pub struct BacktestResult {
@@ -349,6 +352,9 @@ pub fn run_backtest_with_filters(
     let mut positions: Vec<Position> = Vec::new();
     let mut stock_holdings: Vec<StockHolding> = Vec::new();
     let mut peak_value: f64 = config.initial_capital;
+    // Initial value is overwritten inside the rebalance_date macro before first read,
+    // but we need a valid initial binding for the macro's mutable capture.
+    #[allow(unused_assignments)]
     let mut portfolio_greeks = Greeks::default();
 
     let mut trade_rows: Vec<TradeRow> = Vec::new();
@@ -362,6 +368,16 @@ pub fn run_backtest_with_filters(
     if rb_dates.is_empty() {
         return build_result(&trade_rows, &balance_days, &config.legs, cash);
     }
+
+    // Pre-compute rebalances per year for annual budget conversion.
+    let rebalances_per_year = if rb_dates.len() >= 2 {
+        let first = rb_dates[0];
+        let last = *rb_dates.last().unwrap();
+        let years = (last - first) as f64 / (365.25 * 24.0 * 3600.0 * 1e9);
+        if years > 0.0 { rb_dates.len() as f64 / years } else { rb_dates.len() as f64 }
+    } else {
+        1.0
+    };
 
     // Rebalance helper: executes full rebalance logic for a single date.
     // Extracted as a macro to avoid duplicating 60 lines across the two loop
@@ -416,8 +432,8 @@ pub fn run_backtest_with_filters(
             $peak_value = $peak_value.max(total_capital);
 
             // Rebalance stocks
-            let externally_funded = $config.options_budget_fixed.is_some()
-                || $config.options_budget_pct.is_some();
+            let externally_funded = $config.options_budget_pct.is_some()
+                || $config.options_budget_annual_pct.is_some();
             let liquid_capital = total_capital - options_cap;
             let stocks_alloc = if externally_funded {
                 $config.allocation_stocks * liquid_capital
@@ -436,10 +452,10 @@ pub fn run_backtest_with_filters(
             );
 
             // Options: buy with remaining budget only
-            let options_alloc = if let Some(fixed) = $config.options_budget_fixed {
-                fixed
-            } else if let Some(pct) = $config.options_budget_pct {
+            let options_alloc = if let Some(pct) = $config.options_budget_pct {
                 total_capital * pct
+            } else if let Some(annual) = $config.options_budget_annual_pct {
+                total_capital * (annual / rebalances_per_year)
             } else {
                 $config.allocation_options * total_capital
             };
@@ -510,6 +526,7 @@ pub fn run_backtest_with_filters(
                 // Non-rebalance day: only run exits
                 if let Some(day_opts) = partitioned.options.get(&date) {
                     let day_stocks = partitioned.stocks.get(&date);
+                    let cash_before = cash;
                     execute_exits(
                         &mut positions, &mut cash, day_opts,
                         config.shares_per_contract,
@@ -518,6 +535,34 @@ pub fn run_backtest_with_filters(
                         schema, date, &mut trade_rows,
                         &config.cost_model, day_stocks,
                     )?;
+
+                    // Immediately reinvest freed cash into stocks
+                    if config.rebalance_stocks_on_exit && cash > cash_before {
+                        let stock_cap = compute_stock_capital(&stock_holdings, day_stocks);
+                        let options_cap = compute_options_capital(
+                            &positions, day_opts, config.shares_per_contract, day_stocks,
+                        );
+                        let total_capital = cash + stock_cap + options_cap;
+                        peak_value = peak_value.max(total_capital);
+
+                        let externally_funded = config.options_budget_pct.is_some()
+                            || config.options_budget_annual_pct.is_some();
+                        let liquid_capital = total_capital - options_cap;
+                        let stocks_alloc = if externally_funded {
+                            config.allocation_stocks * liquid_capital
+                        } else {
+                            (config.allocation_stocks * total_capital).min(liquid_capital)
+                        };
+                        stock_holdings.clear();
+                        cash = liquid_capital;
+
+                        let sma_prices = sma_map_by_date.as_ref().and_then(|m| m.get(&date));
+                        buy_stocks(
+                            &config.stock_symbols, &config.stock_percentages,
+                            day_stocks, stocks_alloc, &mut stock_holdings,
+                            &config.cost_model, &mut cash, sma_prices,
+                        );
+                    }
                 }
             }
         }
@@ -600,6 +645,19 @@ pub fn run_multi_strategy(
         set
     }).collect();
 
+    // Pre-compute rebalances per year for annual budget conversion.
+    // Use the union of all slot rebalance dates.
+    let mut all_rb_sorted: Vec<i64> = all_rb_set.iter().copied().collect();
+    all_rb_sorted.sort_unstable();
+    let rebalances_per_year = if all_rb_sorted.len() >= 2 {
+        let first = all_rb_sorted[0];
+        let last = *all_rb_sorted.last().unwrap();
+        let years = (last - first) as f64 / (365.25 * 24.0 * 3600.0 * 1e9);
+        if years > 0.0 { all_rb_sorted.len() as f64 / years } else { all_rb_sorted.len() as f64 }
+    } else {
+        1.0
+    };
+
     // All rebalance dates sorted
     let mut all_rb_dates: Vec<i64> = all_rb_set.iter().copied().collect();
     all_rb_dates.sort_unstable();
@@ -666,17 +724,17 @@ pub fn run_multi_strategy(
             peak_value = peak_value.max(total_capital);
 
             // Options allocation
-            let options_alloc = if let Some(fixed) = config.options_budget_fixed {
-                fixed
-            } else if let Some(pct) = config.options_budget_pct {
+            let options_alloc = if let Some(pct) = config.options_budget_pct {
                 total_capital * pct
+            } else if let Some(annual) = config.options_budget_annual_pct {
+                total_capital * (annual / rebalances_per_year)
             } else {
                 config.allocation_options * total_capital
             };
 
             // Phase 3: buy stocks (shared pool)
-            let externally_funded = config.options_budget_fixed.is_some()
-                || config.options_budget_pct.is_some();
+            let externally_funded = config.options_budget_pct.is_some()
+                || config.options_budget_annual_pct.is_some();
             let liquid_capital = total_capital - options_cap;
             let stocks_alloc = if externally_funded {
                 config.allocation_stocks * liquid_capital
@@ -750,6 +808,7 @@ pub fn run_multi_strategy(
             // Non-rebalance day: run exits for slots with check_exits_daily
             if let Some(day_opts) = partitioned.options.get(&date) {
                 let day_stocks = partitioned.stocks.get(&date);
+                let cash_before = cash;
                 for (si, slot) in slots.iter().enumerate() {
                     if (slot.check_exits_daily || config.check_exits_daily)
                         && !slot_positions[si].is_empty()
@@ -763,6 +822,36 @@ pub fn run_multi_strategy(
                             &config.cost_model, day_stocks,
                         )?;
                     }
+                }
+
+                // If exits freed cash and rebalance_stocks_on_exit is set,
+                // immediately reinvest into stocks (e.g. buy discounted stocks
+                // during a crash after puts pay off).
+                if config.rebalance_stocks_on_exit && cash > cash_before {
+                    let stock_cap = compute_stock_capital(&stock_holdings, day_stocks);
+                    let options_cap: f64 = slot_positions.iter().map(|positions| {
+                        compute_options_capital(positions, day_opts, config.shares_per_contract, day_stocks)
+                    }).sum();
+                    let total_capital = cash + stock_cap + options_cap;
+                    peak_value = peak_value.max(total_capital);
+
+                    let externally_funded = config.options_budget_pct.is_some()
+                        || config.options_budget_annual_pct.is_some();
+                    let liquid_capital = total_capital - options_cap;
+                    let stocks_alloc = if externally_funded {
+                        config.allocation_stocks * liquid_capital
+                    } else {
+                        (config.allocation_stocks * total_capital).min(liquid_capital)
+                    };
+                    stock_holdings.clear();
+                    cash = liquid_capital;
+
+                    let sma_prices = sma_map_by_date.as_ref().and_then(|m| m.get(&date));
+                    buy_stocks(
+                        &config.stock_symbols, &config.stock_percentages,
+                        day_stocks, stocks_alloc, &mut stock_holdings,
+                        &config.cost_model, &mut cash, sma_prices,
+                    );
                 }
             }
         }

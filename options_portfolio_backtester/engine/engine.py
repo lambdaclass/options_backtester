@@ -18,7 +18,7 @@ import subprocess
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Callable, Union
+from typing import Any
 
 import numpy as np
 import pandas as pd
@@ -33,7 +33,7 @@ from options_portfolio_backtester.execution.sizer import PositionSizer, CapitalB
 from options_portfolio_backtester.execution.signal_selector import SignalSelector, FirstMatch
 from options_portfolio_backtester.portfolio.risk import RiskManager
 from options_portfolio_backtester.portfolio.portfolio import Portfolio
-from options_portfolio_backtester.engine._dispatch import rust
+from options_portfolio_backtester import _ob_rust
 from options_portfolio_backtester.engine.algo_adapters import (
     EngineAlgo,
     EnginePipelineContext,
@@ -112,8 +112,8 @@ class BacktestEngine:
         self.stop_if_broke = stop_if_broke
         self.max_notional_pct = max_notional_pct
 
-        self.options_budget: Union[Callable[[pd.Timestamp, float], float], float, None] = None
         self.options_budget_pct: float | None = None
+        self.options_budget_annual_pct: float | None = None
         self._stocks: list[Stock] = []
         self._options_strategy: Strategy | None = None
         self._stocks_data: TiingoData | None = None
@@ -219,13 +219,6 @@ class BacktestEngine:
             for stock in self._stocks
         ), "Ensure all stocks in portfolio are present in the data"
         assert self._options_data, "Options data not set"
-
-        # Reject callable options_budget — require numeric.
-        if callable(self.options_budget):
-            raise ValueError(
-                "Callable options_budget is no longer supported. "
-                "Use options_budget_pct (float) or a fixed numeric budget instead."
-            )
 
         # Multi-strategy mode
         if self._is_multi_strategy:
@@ -440,12 +433,8 @@ class BacktestEngine:
             "signal_selector": self.signal_selector.to_rust_config(),
             "risk_constraints": [c.to_rust_config() for c in self.risk_manager.constraints],
             "sma_days": sma_days,
-            "options_budget_fixed": (
-                float(self.options_budget)
-                if isinstance(self.options_budget, (int, float))
-                else None
-            ),
             "options_budget_pct": self.options_budget_pct,
+            "options_budget_annual_pct": self.options_budget_annual_pct,
             "stop_if_broke": self.stop_if_broke,
             "max_notional_pct": self.max_notional_pct,
             "check_exits_daily": check_exits_daily,
@@ -463,7 +452,7 @@ class BacktestEngine:
             "strike": self._options_schema["strike"],
         }
 
-        balance_pl, trade_log_pl, stats = rust.run_backtest_py(
+        balance_pl, trade_log_pl, stats = _ob_rust.run_backtest_py(
             opts_pl, stocks_pl, config, schema_mapping,
         )
 
@@ -527,7 +516,6 @@ class BacktestEngine:
             rebalance_freq=rebalance_freq,
             monthly=monthly,
             sma_days=sma_days,
-            dispatch_mode="rust-full",
         )
 
         return self.trade_log
@@ -623,12 +611,8 @@ class BacktestEngine:
             "signal_selector": self.signal_selector.to_rust_config(),
             "risk_constraints": [c.to_rust_config() for c in self.risk_manager.constraints],
             "sma_days": sma_days,
-            "options_budget_fixed": (
-                float(self.options_budget)
-                if isinstance(self.options_budget, (int, float))
-                else None
-            ),
             "options_budget_pct": self.options_budget_pct,
+            "options_budget_annual_pct": self.options_budget_annual_pct,
             "stop_if_broke": self.stop_if_broke,
             "max_notional_pct": self.max_notional_pct,
             "check_exits_daily": check_exits_daily,
@@ -646,7 +630,7 @@ class BacktestEngine:
             "strike": self._options_schema["strike"],
         }
 
-        balance_pl, trade_log_pl, stats = rust.run_multi_strategy_py(
+        balance_pl, trade_log_pl, stats = _ob_rust.run_multi_strategy_py(
             opts_pl, stocks_pl, config, schema_mapping, slot_configs,
         )
 
@@ -706,7 +690,6 @@ class BacktestEngine:
             rebalance_freq=0,
             monthly=monthly,
             sma_days=sma_days,
-            dispatch_mode="rust-multi",
         )
 
         return self.trade_log
@@ -716,13 +699,11 @@ class BacktestEngine:
         rebalance_freq: int,
         monthly: bool,
         sma_days: int | None,
-        dispatch_mode: str,
     ) -> None:
         metadata = self._build_run_metadata(
             rebalance_freq=rebalance_freq,
             monthly=monthly,
             sma_days=sma_days,
-            dispatch_mode=dispatch_mode,
         )
         self.run_metadata = metadata
         self.balance.attrs["run_metadata"] = metadata
@@ -733,7 +714,6 @@ class BacktestEngine:
         rebalance_freq: int,
         monthly: bool,
         sma_days: int | None,
-        dispatch_mode: str,
     ) -> dict[str, Any]:
         stocks = [
             {"symbol": stock.symbol, "percentage": float(stock.percentage)}
@@ -751,8 +731,6 @@ class BacktestEngine:
         data_snapshot = self._data_snapshot()
         return {
             "framework": "options_portfolio_backtester.engine.BacktestEngine",
-            "dispatch_mode": dispatch_mode,
-            "rust_available": True,
             "git_sha": self._git_sha(),
             "run_at_utc": datetime.now(timezone.utc).isoformat(),
             "config_hash": self._sha256_json(run_config),

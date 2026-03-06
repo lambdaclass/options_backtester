@@ -226,12 +226,12 @@ pub fn parse_config_from_dict(config: &Bound<'_, PyDict>) -> PyResult<BacktestCo
         .get_item("sma_days")?
         .and_then(|v| v.extract::<usize>().ok());
 
-    let options_budget_fixed: Option<f64> = config
-        .get_item("options_budget_fixed")?
-        .and_then(|v| v.extract::<f64>().ok());
-
     let options_budget_pct: Option<f64> = config
         .get_item("options_budget_pct")?
+        .and_then(|v| v.extract::<f64>().ok());
+
+    let options_budget_annual_pct: Option<f64> = config
+        .get_item("options_budget_annual_pct")?
         .and_then(|v| v.extract::<f64>().ok());
 
     let stop_if_broke: bool = config
@@ -256,6 +256,12 @@ pub fn parse_config_from_dict(config: &Bound<'_, PyDict>) -> PyResult<BacktestCo
         .transpose()?
         .unwrap_or(false);
 
+    let rebalance_stocks_on_exit: bool = config
+        .get_item("rebalance_stocks_on_exit")?
+        .map(|v| v.extract::<bool>())
+        .transpose()?
+        .unwrap_or(false);
+
     Ok(BacktestConfig {
         allocation_stocks: alloc_stocks,
         allocation_options: alloc_options,
@@ -273,12 +279,13 @@ pub fn parse_config_from_dict(config: &Bound<'_, PyDict>) -> PyResult<BacktestCo
         signal_selector,
         risk_constraints,
         sma_days,
-        options_budget_fixed,
         options_budget_pct,
+        options_budget_annual_pct,
         stop_if_broke,
         max_notional_pct,
         check_exits_daily,
         options_budget_fresh_spend,
+        rebalance_stocks_on_exit,
     })
 }
 

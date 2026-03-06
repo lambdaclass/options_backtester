@@ -81,8 +81,7 @@ def test_safe_ratio_removed():
     assert not hasattr(stats, "_safe_ratio")
 
 
-def test_dispatch_module():
-    """_dispatch module exposes use_rust() and rust proxy."""
-    from options_portfolio_backtester.engine._dispatch import use_rust, rust
-    assert use_rust() is True
-    assert rust is not None
+def test_rust_extension_importable():
+    """Rust extension is importable."""
+    from options_portfolio_backtester import _ob_rust
+    assert _ob_rust is not None

@@ -43,7 +43,7 @@ from options_portfolio_backtester.convexity.allocator import (
     allocate_equal_weight,
     allocate_inverse_vol,
 )
-from options_portfolio_backtester.engine._dispatch import use_rust
+from options_portfolio_backtester import _ob_rust
 from options_portfolio_backtester.data.schema import Schema, Field, Filter
 
 
@@ -548,9 +548,9 @@ class TestAllocator:
 # ===========================================================================
 
 
-class TestDispatch:
-    def test_use_rust_returns_true(self):
-        assert use_rust() is True
+class TestRustExtension:
+    def test_rust_extension_importable(self):
+        assert _ob_rust is not None
 
 
 # ===========================================================================

@@ -123,7 +123,6 @@ class TestRunMetadata:
         meta = engine.run_metadata
 
         assert meta["framework"] == "options_portfolio_backtester.engine.BacktestEngine"
-        assert meta["dispatch_mode"] in {"python", "rust-full"}
         assert isinstance(meta["git_sha"], str)
         assert len(meta["config_hash"]) == 64
         assert len(meta["data_snapshot_hash"]) == 64

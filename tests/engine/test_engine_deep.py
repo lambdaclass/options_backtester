@@ -116,8 +116,8 @@ def _run_engine(**kwargs):
     engine.stocks_data = _stocks_data()
     engine.options_data = _options_data()
     engine.options_strategy = _buy_strategy(engine.options_data.schema)
-    if "options_budget" in kwargs:
-        engine.options_budget = kwargs.pop("options_budget")
+    if "options_budget_pct" in kwargs:
+        engine.options_budget_pct = kwargs.pop("options_budget_pct")
     engine.run(
         rebalance_freq=kwargs.pop("rebalance_freq", 1),
         monthly=kwargs.pop("monthly", False),
@@ -195,26 +195,21 @@ class TestCapitalFlowInvariants:
 
 
 class TestOptionsBudget:
-    """Test options_budget feature — fixed amount and callable."""
+    """Test options_budget_pct feature."""
 
-    def test_fixed_budget_float(self):
-        engine = _run_engine(options_budget=5000.0)
+    def test_budget_pct(self):
+        engine = _run_engine(options_budget_pct=0.005)
         assert engine.balance is not None
         assert not engine.trade_log.empty
 
-    def test_callable_budget_raises(self):
-        """Callable options_budget is no longer supported — must be numeric."""
-        with pytest.raises(ValueError, match="Callable options_budget"):
-            _run_engine(options_budget=lambda date, total: 0.01 * total)
-
     def test_budget_preserves_raw_allocation(self):
-        """With options_budget, raw allocation should be used for stocks."""
+        """With options_budget_pct, raw allocation should be used for stocks."""
         engine = BacktestEngine(
             {"stocks": 1.0, "options": 0.005, "cash": 0},
             cost_model=NoCosts(),
             signal_selector=NearestDelta(target_delta=-0.30),
         )
-        engine.options_budget = 5000.0
+        engine.options_budget_pct = 0.005
         engine.stocks = _ivy_stocks()
         engine.stocks_data = _stocks_data()
         engine.options_data = _options_data()
@@ -225,8 +220,8 @@ class TestOptionsBudget:
 
     def test_budget_changes_trade_sizes_vs_no_budget(self):
         """Different budgets should produce different position sizes."""
-        e1 = _run_engine(options_budget=1000.0)
-        e2 = _run_engine(options_budget=50000.0)
+        e1 = _run_engine(options_budget_pct=0.001)
+        e2 = _run_engine(options_budget_pct=0.05)
         if not e1.trade_log.empty and not e2.trade_log.empty:
             q1 = e1.trade_log["totals"]["qty"].values
             q2 = e2.trade_log["totals"]["qty"].values
@@ -323,42 +318,17 @@ class TestSMAGating:
 class TestEventLog:
     """Test structured event logging.
 
-    Events are only populated by the Python path (Rust full-loop bypasses
-    Python event logging), so we force Python with NearestDelta selector.
+    Events are not populated by the Rust full-loop (it bypasses Python event
+    logging), so these tests just verify the events_dataframe() API works.
     """
 
-    def _run_python_path(self):
-        return _run_engine(signal_selector=NearestDelta(target_delta=-0.30))
-
-    def test_events_dataframe_not_empty(self):
-        engine = self._run_python_path()
+    def test_events_dataframe_returns_dataframe(self):
+        engine = _run_engine()
         events = engine.events_dataframe()
-        # Rust full-loop may produce empty events; Python path should not
-        if engine.run_metadata.get("dispatch_mode") == "python":
-            assert not events.empty
-
-    def test_events_contain_rebalance_starts(self):
-        engine = self._run_python_path()
-        events = engine.events_dataframe()
-        if engine.run_metadata.get("dispatch_mode") == "python":
-            assert "rebalance_start" in events["event"].values
-
-    def test_events_contain_option_entries(self):
-        engine = self._run_python_path()
-        events = engine.events_dataframe()
-        if engine.run_metadata.get("dispatch_mode") == "python":
-            entry_events = events[events["event"] == "option_entry"]
-            assert len(entry_events) > 0
-
-    def test_events_contain_option_exits(self):
-        engine = self._run_python_path()
-        events = engine.events_dataframe()
-        if engine.run_metadata.get("dispatch_mode") == "python":
-            exit_events = events[events["event"] == "option_exit"]
-            assert len(exit_events) > 0
+        assert hasattr(events, "columns")
 
     def test_event_log_has_required_columns(self):
-        engine = self._run_python_path()
+        engine = _run_engine()
         events = engine.events_dataframe()
         assert "date" in events.columns
         assert "event" in events.columns
@@ -419,7 +389,7 @@ class TestMultiStrategy:
         engine.add_strategy(_buy_strategy(schema), weight=0.5, rebalance_freq=1, name="buy_puts_2")
         engine.run()
         assert engine.balance is not None
-        assert engine.run_metadata["dispatch_mode"] == "rust-multi"
+        assert "framework" in engine.run_metadata
 
     def test_multi_strategy_weights_must_sum_to_one(self):
         engine, schema = self._make_multi_engine()
@@ -690,12 +660,11 @@ class TestRunMetadataDeep:
         assert snap["stocks_rows"] > 0
         assert isinstance(snap["options_columns"], list)
 
-    def test_metadata_dispatch_mode_python(self):
-        """NearestDelta selector forces Python path."""
+    def test_metadata_has_framework_key(self):
         engine = _run_engine()
-        assert engine.run_metadata["dispatch_mode"] in {"python", "rust-full"}
+        assert "framework" in engine.run_metadata
 
-    def test_multi_strategy_metadata_mode(self):
+    def test_multi_strategy_has_metadata(self):
         engine, schema = BacktestEngine(
             {"stocks": 0.90, "options": 0.10, "cash": 0},
             cost_model=NoCosts(),
@@ -709,7 +678,7 @@ class TestRunMetadataDeep:
         engine.add_strategy(_buy_strategy(schema), weight=0.5, rebalance_freq=1)
         engine.add_strategy(_buy_strategy(schema), weight=0.5, rebalance_freq=1)
         engine.run()
-        assert engine.run_metadata["dispatch_mode"] == "rust-multi"
+        assert "framework" in engine.run_metadata
 
 
 # ---------------------------------------------------------------------------

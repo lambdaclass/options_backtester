@@ -38,7 +38,9 @@ struct SweepOverrides {
     risk_constraints: Option<Vec<RiskConstraint>>,
     sma_days: Option<Option<usize>>,
     options_budget_pct: Option<Option<f64>>,
+    options_budget_annual_pct: Option<Option<f64>>,
     options_budget_fresh_spend: Option<bool>,
+    rebalance_stocks_on_exit: Option<bool>,
 }
 
 struct SweepResult {
@@ -94,8 +96,14 @@ fn merge_config(base: &BacktestConfig, overrides: &SweepOverrides) -> BacktestCo
     if let Some(ref bp) = overrides.options_budget_pct {
         cfg.options_budget_pct = *bp;
     }
+    if let Some(ref ba) = overrides.options_budget_annual_pct {
+        cfg.options_budget_annual_pct = *ba;
+    }
     if let Some(fs) = overrides.options_budget_fresh_spend {
         cfg.options_budget_fresh_spend = fs;
+    }
+    if let Some(rs) = overrides.rebalance_stocks_on_exit {
+        cfg.rebalance_stocks_on_exit = rs;
     }
 
     cfg
@@ -226,9 +234,15 @@ fn parse_overrides(dict: &Bound<'_, PyDict>) -> PyResult<SweepOverrides> {
     };
 
     let options_budget_pct = parse_opt_f64(dict, "options_budget_pct")?;
+    let options_budget_annual_pct = parse_opt_f64(dict, "options_budget_annual_pct")?;
 
     let options_budget_fresh_spend: Option<bool> = dict
         .get_item("options_budget_fresh_spend")?
+        .map(|v| v.extract::<bool>())
+        .transpose()?;
+
+    let rebalance_stocks_on_exit: Option<bool> = dict
+        .get_item("rebalance_stocks_on_exit")?
         .map(|v| v.extract::<bool>())
         .transpose()?;
 
@@ -245,7 +259,9 @@ fn parse_overrides(dict: &Bound<'_, PyDict>) -> PyResult<SweepOverrides> {
         risk_constraints,
         sma_days,
         options_budget_pct,
+        options_budget_annual_pct,
         options_budget_fresh_spend,
+        rebalance_stocks_on_exit,
     })
 }
 

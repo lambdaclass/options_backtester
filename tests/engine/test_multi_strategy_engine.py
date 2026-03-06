@@ -183,8 +183,8 @@ class TestSameFrequency:
                    "total capital", "% change", "accumulated return"]:
             assert c in cols, f"Missing column: {c}"
 
-    def test_dispatch_mode_is_rust_multi(self):
-        assert self.engine.run_metadata["dispatch_mode"] == "rust-multi"
+    def test_has_run_metadata(self):
+        assert "framework" in self.engine.run_metadata
 
     def test_trade_log_type(self):
         # May be empty if no candidates, but must be a DataFrame
@@ -230,7 +230,7 @@ class TestBackwardCompat:
         engine.options_strategy = _buy_put_strategy(schema)
         engine.run(rebalance_freq=1)
         assert not engine.balance.empty
-        assert engine.run_metadata["dispatch_mode"] in {"python", "rust-full"}
+        assert "framework" in engine.run_metadata
 
 
 # ---------------------------------------------------------------------------
@@ -331,14 +331,14 @@ class TestStopIfBroke:
 # ---------------------------------------------------------------------------
 
 class TestRustGate:
-    def test_multi_strategy_uses_rust_dispatch(self):
+    def test_multi_strategy_produces_metadata(self):
         engine = _make_engine()
         schema = engine.options_data.schema
         engine.add_strategy(
             _buy_put_strategy(schema), weight=1.0, rebalance_freq=1
         )
         engine.run()
-        assert engine.run_metadata["dispatch_mode"] == "rust-multi"
+        assert "framework" in engine.run_metadata
 
 
 # ---------------------------------------------------------------------------
@@ -363,9 +363,9 @@ class TestSingleSlotEquivalence:
 # ---------------------------------------------------------------------------
 
 class TestOptionsBudget:
-    def test_fixed_options_budget(self):
+    def test_options_budget_pct(self):
         engine = _make_engine()
-        engine.options_budget = 5000.0
+        engine.options_budget_pct = 0.005
         schema = engine.options_data.schema
         engine.add_strategy(
             _buy_put_strategy(schema), weight=0.5, rebalance_freq=1, name="a"
@@ -375,17 +375,3 @@ class TestOptionsBudget:
         )
         engine.run()
         assert not engine.balance.empty
-
-    def test_callable_options_budget_raises(self):
-        """Callable options_budget is no longer supported."""
-        engine = _make_engine()
-        engine.options_budget = lambda date, capital: 3000.0
-        schema = engine.options_data.schema
-        engine.add_strategy(
-            _buy_put_strategy(schema), weight=0.5, rebalance_freq=1, name="a"
-        )
-        engine.add_strategy(
-            _buy_put_strategy(schema), weight=0.5, rebalance_freq=1, name="b"
-        )
-        with pytest.raises(ValueError, match="Callable options_budget"):
-            engine.run()

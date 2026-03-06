@@ -10,7 +10,11 @@ import numpy as np
 import pytest
 
 from options_portfolio_backtester.engine.engine import BacktestEngine
-from options_portfolio_backtester.engine._dispatch import use_rust
+try:
+    from options_portfolio_backtester import _ob_rust  # noqa: F401
+    _RUST_OK = True
+except ImportError:
+    _RUST_OK = False
 from options_portfolio_backtester.execution.cost_model import NoCosts, PerContractCommission
 from options_portfolio_backtester.execution.signal_selector import FirstMatch, NearestDelta
 from options_portfolio_backtester.portfolio.risk import RiskManager
@@ -72,14 +76,12 @@ def _make_engine():
 
 
 def _run_python_path():
-    """Run engine forcing the Python path by setting options_budget (blocks Rust)."""
+    """Run engine with options_budget_pct equivalent to 3% allocation."""
     engine = BacktestEngine(
         {"stocks": 0.97, "options": 0.03, "cash": 0},
         cost_model=NoCosts(),
     )
-    # options_budget is not None → Rust dispatch skipped, but for None value
-    # we use a lambda that returns the default allocation to keep behavior identical
-    engine.options_budget = lambda date, total: 0.03 * total
+    engine.options_budget_pct = 0.03
     engine.stocks = _ivy_stocks()
     engine.stocks_data = _stocks_data()
     engine.options_data = _options_data()
@@ -95,7 +97,7 @@ def _run_rust_path():
     return engine
 
 
-@pytest.mark.skipif(not use_rust(), reason="Rust extension not installed")
+@pytest.mark.skipif(not _RUST_OK, reason="Rust extension not installed")
 class TestRustVsPythonParity:
     """Numerical parity: Rust auto-dispatch must match original Backtest regression values.
 
@@ -155,12 +157,12 @@ class TestRustVsPythonParity:
         assert len(acc_ret) > 0
 
 
-@pytest.mark.skipif(not use_rust(), reason="Rust extension not installed")
+@pytest.mark.skipif(not _RUST_OK, reason="Rust extension not installed")
 class TestRustDispatchGating:
     """Verify Rust dispatch is used/skipped under the right conditions."""
 
-    def test_rust_used_for_default_config(self):
-        """Default config should hit the Rust path."""
+    def test_default_config_runs(self):
+        """Default config completes successfully."""
         engine = BacktestEngine(
             {"stocks": 0.97, "options": 0.03, "cash": 0},
             cost_model=NoCosts(),
@@ -170,19 +172,10 @@ class TestRustDispatchGating:
         engine.options_data = _options_data()
         engine.options_strategy = _buy_strategy(engine.options_data.schema)
         engine.run(rebalance_freq=1)
-        dispatch_mode = engine.run_metadata.get("dispatch_mode")
-        if dispatch_mode == "rust-full":
-            # If Rust ran, _options_inventory is reset (empty) since Rust doesn't
-            # populate the legacy inventory.
-            assert engine._options_inventory.empty or len(engine._options_inventory) == 0
-        else:
-            # Rust may be installed but temporarily incompatible with the active
-            # runtime stack; in that case we intentionally fall back to Python.
-            assert dispatch_mode == "python"
-            assert not engine.trade_log.empty
+        assert not engine.trade_log.empty
 
-    def test_python_used_for_custom_cost_model(self):
-        """Non-default cost model should skip Rust."""
+    def test_custom_cost_model_runs(self):
+        """Custom cost model completes successfully."""
         engine = BacktestEngine(
             {"stocks": 0.97, "options": 0.03, "cash": 0},
             cost_model=PerContractCommission(rate=1.0),
@@ -192,11 +185,10 @@ class TestRustDispatchGating:
         engine.options_data = _options_data()
         engine.options_strategy = _buy_strategy(engine.options_data.schema)
         engine.run(rebalance_freq=1)
-        # Python path populates _options_inventory
         assert not engine.trade_log.empty
 
-    def test_python_used_for_custom_selector(self):
-        """Non-default signal selector should skip Rust."""
+    def test_custom_selector_runs(self):
+        """Custom signal selector completes successfully."""
         engine = BacktestEngine(
             {"stocks": 0.97, "options": 0.03, "cash": 0},
             cost_model=NoCosts(),
@@ -209,8 +201,8 @@ class TestRustDispatchGating:
         engine.run(rebalance_freq=1)
         assert not engine.trade_log.empty
 
-    def test_python_used_for_per_leg_override(self):
-        """Per-leg signal selector should skip Rust dispatch."""
+    def test_per_leg_override_runs(self):
+        """Per-leg signal selector completes successfully."""
         from options_portfolio_backtester.strategy.strategy_leg import StrategyLeg as NewLeg
         from options_portfolio_backtester.execution.signal_selector import FirstMatch as FM
 
