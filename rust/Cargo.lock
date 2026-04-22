@@ -2133,7 +2133,7 @@ dependencies = [
  "polars-arrow",
  "polars-error",
  "polars-utils",
- "rand 0.8.5",
+ "rand 0.8.6",
  "ryu",
  "serde",
  "skiplist",
@@ -2165,7 +2165,7 @@ dependencies = [
  "polars-row",
  "polars-schema",
  "polars-utils",
- "rand 0.8.5",
+ "rand 0.8.6",
  "rand_distr",
  "rayon",
  "regex",
@@ -2208,7 +2208,7 @@ dependencies = [
  "polars-row",
  "polars-time",
  "polars-utils",
- "rand 0.8.5",
+ "rand 0.8.6",
  "rayon",
  "recursive",
 ]
@@ -2474,7 +2474,7 @@ dependencies = [
  "polars-plan",
  "polars-time",
  "polars-utils",
- "rand 0.8.5",
+ "rand 0.8.6",
  "regex",
  "serde",
  "sqlparser",
@@ -2509,7 +2509,7 @@ dependencies = [
  "polars-parquet",
  "polars-plan",
  "polars-utils",
- "rand 0.8.5",
+ "rand 0.8.6",
  "rayon",
  "recursive",
  "slotmap",
@@ -2558,7 +2558,7 @@ dependencies = [
  "memmap2",
  "num-traits",
  "polars-error",
- "rand 0.8.5",
+ "rand 0.8.6",
  "raw-cpuid",
  "rayon",
  "regex",
@@ -2794,9 +2794,9 @@ checksum = "69cdb34c158ceb288df11e18b4bd39de994f6657d83847bdffdbd7f346754b0f"
 
 [[package]]
 name = "rand"
-version = "0.8.5"
+version = "0.8.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "34af8d1a0e25924bc5b7c43c079c942339d8f0a8b57c39049bef581b46327404"
+checksum = "5ca0ecfa931c29007047d1bc58e623ab12e5590e8c7cc53200d5202b69266d8a"
 dependencies = [
  "libc",
  "rand_chacha 0.3.1",
@@ -2858,7 +2858,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "32cb0b9bc82b0a0876c2dd994a7e7a2683d3e7390ca40e6886785ef0c7e3ee31"
 dependencies = [
  "num-traits",
- "rand 0.8.5",
+ "rand 0.8.6",
 ]
 
 [[package]]
@@ -3284,7 +3284,7 @@ version = "0.5.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0eec25f46463fcdc5e02f388c2780b1b58e01be81a8378e62ec60931beccc3f6"
 dependencies = [
- "rand 0.8.5",
+ "rand 0.8.6",
 ]
 
 [[package]]
