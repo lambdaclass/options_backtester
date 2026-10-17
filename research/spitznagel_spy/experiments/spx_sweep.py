@@ -119,11 +119,12 @@ def main():
     opt = opt[opt["quotedate"].isin(shared)].sort_values("quotedate", kind="stable")
     stk = stk[stk["date"].isin(shared)].sort_values("date", kind="stable")
 
-    import tempfile, os
+    import os, shutil, tempfile
     td = tempfile.mkdtemp()
     op = os.path.join(td, "o.parquet"); sp = os.path.join(td, "s.csv")
     opt.to_parquet(op, index=False); stk.to_csv(sp, index=False)
     o = HistoricalOptionsData(op); s = TiingoData(sp)
+    shutil.rmtree(td)  # providers load eagerly; don't leave a chain copy in /tmp
 
     bh = stk.set_index("date")["adjClose"]
     bh_ann = _ann(bh)
@@ -137,9 +138,9 @@ def main():
             for bud in BUDGETS:
                 a, dd, sh, n, fill = _run(o, s, olo, ohi, dlo, dhi, edte, bud)
                 ex = a - bh_ann
-                flag = " LOW-FILL" if fill < 0.9 else ""
-                results.append((ex, a, dd, sh, n, f"{int(olo*100)}-{int(ohi*100)}%", dlabel, bud, fill))
-                print(f"  {int(olo*100)}-{int(ohi*100)}%   {dlabel:12s} {bud*100:>4.1f} "
+                flag = "" if fill >= 0.9 else " LOW-FILL"  # NaN = no entries
+                results.append((ex, a, dd, sh, n, f"{round(olo*100)}-{round(ohi*100)}%", dlabel, bud, fill))
+                print(f"  {round(olo*100)}-{round(ohi*100)}%   {dlabel:12s} {bud*100:>4.1f} "
                       f"{a:>8.2f} {ex:>+8.2f} {dd:>8.1f} {sh:>7.3f} {n:>5d} {fill:>4.0%}{flag}", flush=True)
 
     # Only configs that actually filled (>=90%) are a trustworthy hedged result;

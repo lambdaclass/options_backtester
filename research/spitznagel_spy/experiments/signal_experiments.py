@@ -22,6 +22,7 @@ price-only (no dividends); excess vs buy & hold is like-for-like.
 from __future__ import annotations
 
 import math
+import shutil
 import tempfile
 from pathlib import Path
 
@@ -70,7 +71,9 @@ def _load(lo, hi):
     stk = stk[stk["date"].isin(shared)].sort_values("date", kind="stable")
     td = tempfile.mkdtemp()
     opt.to_parquet(f"{td}/o.parquet", index=False); stk.to_csv(f"{td}/s.csv", index=False)
-    return HistoricalOptionsData(f"{td}/o.parquet"), TiingoData(f"{td}/s.csv"), stk
+    o, s = HistoricalOptionsData(f"{td}/o.parquet"), TiingoData(f"{td}/s.csv")
+    shutil.rmtree(td)  # providers load eagerly; don't leave a chain copy in /tmp
+    return o, s, stk
 
 
 def _bimonthly_dates(stk):

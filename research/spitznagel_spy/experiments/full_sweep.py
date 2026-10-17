@@ -143,11 +143,12 @@ def main():
     opt = opt[opt["quotedate"].isin(shared)].sort_values("quotedate", kind="stable")
     stk = stk[stk["date"].isin(shared)].sort_values("date", kind="stable")
 
-    import tempfile, os
+    import os, shutil, tempfile
     td = tempfile.mkdtemp()
     op = os.path.join(td, "o.parquet"); sp = os.path.join(td, "s.csv")
     opt.to_parquet(op, index=False); stk.to_csv(sp, index=False)
     o = HistoricalOptionsData(op); s = TiingoData(sp)
+    shutil.rmtree(td)  # providers load eagerly; don't leave a chain copy in /tmp
 
     bh = stk.set_index("date")["adjClose"]
     bh_cagr, bh_dd = _ann(bh), _maxdd(bh)
@@ -169,9 +170,9 @@ def main():
                 for bud in BUDGETS:
                     r = _run(o, s, bh, olo, ohi, dlo, dhi, exit_dte, bud)
                     ex = r["cagr"] - bh_cagr
-                    flag = " LOW" if r["fill"] < FILL_FLOOR else ""
-                    rows.append((ex, r, f"{int(olo*100)}-{int(ohi*100)}%", dlbl, exit_dte, bud))
-                    print(f"  {int(olo*100)}-{int(ohi*100)}%  {dlbl:6s} {exit_dte:>4d} {bud*100:>4.1f} "
+                    flag = "" if r["fill"] >= FILL_FLOOR else " LOW"  # NaN = no entries
+                    rows.append((ex, r, f"{round(olo*100)}-{round(ohi*100)}%", dlbl, exit_dte, bud))
+                    print(f"  {round(olo*100)}-{round(ohi*100)}%  {dlbl:6s} {exit_dte:>4d} {bud*100:>4.1f} "
                           f"{r['cagr']:>7.2f} {ex:>+7.2f} {r['dd']:>6.1f} {r['sharpe']:>7.3f} "
                           f"{r['coverage']:>4.0%} {r['fill']:>4.0%} {r['gfc_dd']:>6.1f} {r['covid_dd']:>6.1f}{flag}",
                           flush=True)
