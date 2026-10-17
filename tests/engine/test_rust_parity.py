@@ -125,11 +125,13 @@ class TestRustVsPythonParity:
         assert np.allclose(qtys, [300, 97], rtol=tol)
 
     def test_final_capital(self):
+        # Marked on the last trading day in the data (2015-03-13); the balance
+        # used to stop one day short at 957,920.
         final = self.rs.balance["total capital"].iloc[-1]
-        assert abs(final - 957920.0) < 1.0
+        assert abs(final - 958405.0) < 1.0
 
     def test_balance_row_count(self):
-        assert len(self.rs.balance) == 61
+        assert len(self.rs.balance) == 62
 
     def test_balance_column_count(self):
         assert len(self.rs.balance.columns) == 20

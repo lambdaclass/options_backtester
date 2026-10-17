@@ -78,13 +78,24 @@ SPITZNAGEL_SPY_BASELINE = {
     "max_dd": -51.9,
 }
 
-# Spitznagel framing (100% stocks + external annual put budget on top).
+# Spitznagel framing (100% stocks + annual put budget on top).
 # Tolerance: 0.5pp annual return, 1.0pp max DD, 0.05 Sharpe.
+#
+# ERRATA vs the published table. The article's numbers were produced while
+# daily-exit runs back-filled each rebalance period's balance rows with the
+# end-of-period holdings (a look-ahead in the NAV path), and before premium
+# was debited at entry. Annual returns were essentially right (all within
+# 0.13pp); the path statistics were not. Published -> corrected:
+#   0.5%: max DD -41.3 -> -41.2, Sharpe 0.613 -> 0.661
+#   1.0%: max DD -31.2 -> -31.1, Sharpe 0.636 -> 0.749
+#   2.0%: max DD -30.8 -> -26.0, Sharpe 0.597 -> 0.797
+#   3.3%: max DD -30.2 -> -31.8, Sharpe 0.519 -> 0.740
+# The values below are the corrected ones.
 SPITZNAGEL_TABLE = {
-    0.005: {"annual": 12.06, "max_dd": -41.3, "sharpe": 0.613},
-    0.010: {"annual": 13.21, "max_dd": -31.2, "sharpe": 0.636},
-    0.020: {"annual": 15.03, "max_dd": -30.8, "sharpe": 0.597},
-    0.033: {"annual": 16.74, "max_dd": -30.2, "sharpe": 0.519},
+    0.005: {"annual": 12.03, "max_dd": -41.2, "sharpe": 0.661},
+    0.010: {"annual": 13.17, "max_dd": -31.1, "sharpe": 0.749},
+    0.020: {"annual": 14.96, "max_dd": -26.0, "sharpe": 0.797},
+    0.033: {"annual": 16.61, "max_dd": -31.8, "sharpe": 0.740},
 }
 
 INITIAL_CAPITAL = 1_000_000

@@ -21,7 +21,41 @@ anchored on the commit hash that introduced the change.
 
 ## Unreleased
 
+### Behavioral changes
+- **Daily-exit balance rows are now point-in-time.** With
+  ``check_exits_daily=True`` the balance rows of each rebalance period were
+  filled in at the *next* rebalance from the then-current holdings, so every
+  day before a mid-period exit was valued with the post-exit position (the
+  put already gone, its proceeds and any reinvested shares already present).
+  Final capital and CAGR were essentially unaffected; max drawdown, Sharpe and
+  any windowed drawdown were wrong, most of all around crash monetizations.
+  Each day's row is now recorded at that day's close. The Spitznagel article's
+  pinned table moves: annual within 0.13pp, Sharpe 0.52–0.64 → 0.66–0.80,
+  max DD at 2%/3.3% −30.8/−30.2 → −26.0/−31.8 (see
+  ``tests/oracles/test_article_reproduction.py``).
+- **Budget-funded premium is paid at entry.** With ``options_budget_*`` set,
+  the premium used to net to zero at entry and be deducted from the sale
+  proceeds at exit, overstating NAV by the premium of every open put and
+  giving the stock leg an interest-free loan. The rebalance's budget is now
+  set aside before stocks are bought and debited when the put is bought; exit
+  proceeds go to cash in full. Unspent budget stays in cash.
+- **A one-day quote gap no longer sells a held option.** A contract missing
+  from a day's data was treated as an exit and priced at intrinsic value (0
+  for an OTM put). It is now only closed that way once it has expired.
+- **Deterministic entry pick.** When several rows tie on ``entry_sort`` (the
+  same strike at several expirations) the nearest expiration, then contract
+  id, wins, instead of an unspecified row order.
+- **Rebalances per year** for the annual budget is now intervals/years
+  (was dates/years, overstating it by N/(N−1)).
+- **The last trading day is included in the balance** (the final period was
+  half-open and dropped it).
+
 ### API changes
+- ``BacktestEngine.options_budget_fresh_spend`` (default ``False``) exposes the
+  existing Rust option: ``False`` treats the budget as a target value for
+  options held (spend = budget − value of open puts), ``True`` spends the full
+  per-rebalance budget every time. ``use_external_budget`` now also clears a
+  stale ``options_budget_per_rebalance_pct``, which would otherwise win.
 - **Hedge fill-rate diagnostics.** Every run now records how many rebalances
   attempted to open an option position vs how many matched no tradeable
   contract, exposed as ``engine.option_entry_attempts``,

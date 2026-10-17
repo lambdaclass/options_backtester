@@ -22,16 +22,20 @@ Engine sizing rules (verified by reading the Rust sources, NOT assumed):
   i.e. WHOLE shares only; the remainder stays in cash. Price is adjClose
   (schema "stocks_price" maps to adjClose in engine.py).
 
-* rust/ob_core/src/backtest.rs::execute_exits — externally-funded mode:
-      cash += proceeds - entry_cost*qty - exit_commission
-  proceeds = bid * spc * qty when the contract is quoted that day; when the
-  contract is ABSENT from the day's option rows the exit fires (exit filter
-  set) and the price falls back to intrinsic value computed from the
-  UNADJUSTED close: max(strike - close, 0) for a put.
+* rust/ob_core/src/backtest.rs::rebalance_date — budget-funded mode
+  (options_budget_pct set): the rebalance's options budget is set aside
+  BEFORE stocks are bought, so stocks are sized from
+      allocation_stocks * (liquid capital - budget)
+  and the premium is debited from cash when the put is bought. A budget
+  that buys nothing simply stays in cash.
 
-* Externally-funded entry (options_budget_pct set) is net-zero cash for the
-  portfolio: budget injected, premium paid from it, remainder clawed back.
-  When no entry fills, the entire injected budget is clawed back.
+* rust/ob_core/src/backtest.rs::execute_exits —
+      cash += proceeds - exit_commission
+  proceeds = bid * spc * qty when the contract is quoted that day; when the
+  contract is ABSENT from the day's option rows AND has expired, the exit
+  fires and the price falls back to intrinsic value computed from the
+  UNADJUSTED close: max(strike - close, 0) for a put. (A contract absent
+  before its expiration is a quote gap and is kept.)
 
 ------------------------------------------------------------------------
 THE SCENARIO (identical economics in both test variants)
@@ -61,47 +65,49 @@ HAND DERIVATION (all numbers exact in cents)
 
 Rebalance 1 (2020-06-01, XYZ @ 100):
   total capital   = 1,000,030.00 (all cash)
-  stock buy       : qty = floor(1.0 * 1,000,030 / 100) = 10,000 shares
-                    cost = 10,000 * 100 = 1,000,000.00
-                    cash after = 30.00   (the flooring remainder)
   options budget  = B * total capital = 0.05 * 1,000,030 = 50,001.50
+  stock buy       : allocation = 1.0 * (1,000,030 - 50,001.50) = 950,028.50
+                    qty = floor(950,028.50 / 100) = 9,500 shares
+                    cost = 9,500 * 100 = 950,000.00
+                    cash after = 50,030.00
   put entry       : per-contract cost = ask * spc = 1.00 * 100 = 100.00
                     qty = floor(50,001.50 / 100.00) = 500 contracts
-                    premium 500 * 100 = 50,000.00 — externally funded,
-                    NET-ZERO to portfolio cash => cash stays 30.00
+                    premium 500 * 100 = 50,000.00, paid now
+                    cash after = 30.00
 
 Balance row 2020-06-01 (post-rebalance state, marked at exit prices):
   cash            =        30.00
-  stocks capital  = 10,000 * 100.00       = 1,000,000.00
+  stocks capital  = 9,500 * 100.00        =   950,000.00
   puts capital    = 500 * bid 0.90 * 100  =    45,000.00
-  total capital   = 1,045,030.00
+  total capital   = 995,030.00   (the 5,000 below 1,000,030 is the
+                                  bid/ask spread on the put)
 
 Balance row 2020-06-12 (XYZ @ 80, put bid 5.00) — variant 1 only:
-  total = 30 + 10,000*80 + 500*5.00*100 = 30 + 800,000 + 250,000
-        = 1,050,030.00
+  total = 30 + 9,500*80 + 500*5.00*100 = 30 + 760,000 + 250,000
+        = 1,010,030.00
 
 Rebalance 2 (2020-07-01, XYZ @ 50):
   put exit at 30.00/contract-share (bid in variant 1; intrinsic
   max(80 - 50, 0) = 30.00 in variant 2):
       proceeds      = 30.00 * 100 * 500 = 1,500,000.00
-      entry basis   =  1.00 * 100 * 500 =    50,000.00 (returned to the
-                                              external pocket)
-      realized P&L  = 1,450,000.00  ->  cash = 30 + 1,450,000
-                                             = 1,450,030.00
-  total capital   = 1,450,030 + 10,000 * 50 = 1,950,030.00
-  stock rebuy     : qty = floor(1,950,030 / 50) = 39,000 shares
-                    cost = 1,950,000.00, cash after = 30.00
-  new options budget 0.05 * 1,950,030 = 97,501.50 injected, but no
-  contract passes the entry filter (DTE too low) => fully clawed back.
+      cash          = 30 + 1,500,000 = 1,500,030.00
+  total capital   = 1,500,030 + 9,500 * 50 = 1,975,030.00
+  options budget  = 0.05 * 1,975,030 = 98,751.50, set aside
+  stock rebuy     : allocation = 1,975,030 - 98,751.50 = 1,876,278.50
+                    qty = floor(1,876,278.50 / 50) = 37,525 shares
+                    cost = 1,876,250.00, cash after = 98,780.00
+  no contract passes the entry filter (DTE too low) => the budget stays
+  in cash.
 
 FINAL CAPITAL (any day from 2020-07-01 on; XYZ stays at 50):
-  cash 30.00 + 39,000 * 50 = 1,950,030.00
+  cash 98,780.00 + 37,525 * 50 = 1,975,030.00
 
 Cross-check from first principles:
-  stock path:  1,000,030 -> 10,000 sh @100 falls to @50  = 500,000.00
-               plus 30.00 floored remainder carried along
-  put P&L:     (30.00 - 1.00) * 100 * 500               = 1,450,000.00
-  total:       500,000 + 30 + 1,450,000                  = 1,950,030.00  OK
+  stock path:  950,000 of stock -> 9,500 sh @100 falls to @50 = 475,000.00
+  cash:        30.00 floored remainder carried along
+  put:         premium paid at entry (out of the 1,000,030), proceeds
+               30.00 * 100 * 500                              = 1,500,000.00
+  total:       475,000 + 30 + 1,500,000                       = 1,975,030.00  OK
 """
 
 from __future__ import annotations
@@ -157,15 +163,17 @@ SPC = 100  # engine default shares_per_contract
 # ── Hand-derived expectations (see module docstring; computed from the
 #    rules, NOT from engine output) ─────────────────────────────────────
 
-EXPECTED_STOCK_QTY_R1 = 10_000          # floor(1,000,030 / 100)
-EXPECTED_CASH_AFTER_R1 = 30.00          # 1,000,030 - 10,000*100
+EXPECTED_STOCK_QTY_R1 = 9_500           # floor((1,000,030 - 50,001.50) / 100)
+EXPECTED_STOCKS_CAP_R1 = 950_000.00     # 9,500 * 100
+EXPECTED_CASH_AFTER_R1 = 30.00          # 1,000,030 - 950,000 - 50,000 premium
 EXPECTED_PUT_QTY = 500                  # floor(0.05*1,000,030 / (1.00*100))
 EXPECTED_DAY1_PUTS_CAP = 45_000.00      # 500 * 0.90 * 100
-EXPECTED_DAY1_TOTAL = 1_045_030.00      # 30 + 1,000,000 + 45,000
-EXPECTED_JUN12_TOTAL = 1_050_030.00     # 30 + 800,000 + 250,000
+EXPECTED_DAY1_TOTAL = 995_030.00        # 30 + 950,000 + 45,000
+EXPECTED_JUN12_TOTAL = 1_010_030.00     # 30 + 760,000 + 250,000
 EXPECTED_PUT_PNL = 1_450_000.00         # (30.00 - 1.00) * 100 * 500
-EXPECTED_STOCK_QTY_R2 = 39_000          # floor(1,950,030 / 50)
-EXPECTED_FINAL_TOTAL = 1_950_030.00     # 30 + 39,000*50
+EXPECTED_STOCK_QTY_R2 = 37_525          # floor((1,975,030 - 98,751.50) / 50)
+EXPECTED_CASH_FINAL = 98_780.00         # 1,975,030 - 37,525*50
+EXPECTED_FINAL_TOTAL = 1_975_030.00     # 98,780 + 37,525*50
 
 
 # ── CSV builders ───────────────────────────────────────────────────────
@@ -295,10 +303,10 @@ def _assert_golden_numbers(eng, check_jun12=False):
 
     # Day 1 (2020-06-01), post-rebalance:
     day1 = bal.loc[pd.Timestamp("2020-06-01")]
-    # Net-zero externally-funded entry: portfolio cash is ONLY the stock
-    # flooring remainder — no premium was debited.
+    # Budget set aside before the stock buy, premium paid at entry: cash
+    # is only the stock flooring remainder left after paying the premium.
     assert day1["cash"] == pytest.approx(EXPECTED_CASH_AFTER_R1, abs=cents)
-    assert day1["stocks capital"] == pytest.approx(1_000_000.00, abs=cents)
+    assert day1["stocks capital"] == pytest.approx(EXPECTED_STOCKS_CAP_R1, abs=cents)
     assert day1["XYZ qty"] == pytest.approx(EXPECTED_STOCK_QTY_R1)
     assert day1["options qty"] == pytest.approx(EXPECTED_PUT_QTY)
     assert day1["options capital"] == pytest.approx(
@@ -332,17 +340,18 @@ def _assert_golden_numbers(eng, check_jun12=False):
     assert pnl == pytest.approx(EXPECTED_PUT_PNL, abs=cents)
 
     # FINAL CAPITAL — the anchor. A suppressed put payoff would leave
-    # ~500,030 here; phantom money would overshoot. Both fail loudly.
+    # ~525,030 here; phantom money would overshoot. Both fail loudly.
     final_total = float(bal["total capital"].iloc[-1])
     assert final_total == pytest.approx(EXPECTED_FINAL_TOTAL, abs=cents), (
         f"engine final capital {final_total:,.2f} != hand-derived "
         f"{EXPECTED_FINAL_TOTAL:,.2f}"
     )
 
-    # Post-rebalance-2 composition: 39,000 shares @ 50 plus 30.00 cash.
+    # Post-rebalance-2 composition: 37,525 shares @ 50 plus the unspent
+    # budget in cash.
     last = bal.iloc[-1]
     assert last["XYZ qty"] == pytest.approx(EXPECTED_STOCK_QTY_R2)
-    assert last["cash"] == pytest.approx(30.00, abs=cents)
+    assert last["cash"] == pytest.approx(EXPECTED_CASH_FINAL, abs=cents)
     assert last["options capital"] == pytest.approx(0.0, abs=cents)
 
 

@@ -94,7 +94,7 @@ class TestSnapshotBuyPutNoCosts:
 
     def test_final_capital(self):
         final = self.engine.balance["total capital"].iloc[-1]
-        assert abs(final - 948325.0) < 0.01, f"Regression: final_capital={final}"
+        assert abs(final - 948640.0) < 0.01, f"Regression: final_capital={final}"
 
     def test_trade_count(self):
         n = len(self.engine.trade_log)
@@ -102,12 +102,12 @@ class TestSnapshotBuyPutNoCosts:
 
     def test_balance_rows(self):
         n = len(self.engine.balance)
-        assert n == 61, f"Regression: balance_rows={n}"
+        assert n == 62, f"Regression: balance_rows={n}"
 
     def test_total_return(self):
         bal = self.engine.balance["total capital"]
         ret = (bal.iloc[-1] - bal.iloc[0]) / bal.iloc[0]
-        assert abs(ret - (-0.051675)) < 1e-4, f"Regression: total_return={ret}"
+        assert abs(ret - (-0.05136)) < 1e-4, f"Regression: total_return={ret}"
 
     def test_max_drawdown(self):
         bal = self.engine.balance["total capital"]
@@ -132,7 +132,7 @@ class TestSnapshotBuyPutWithCommission:
 
     def test_final_capital(self):
         final = self.engine_cost.balance["total capital"].iloc[-1]
-        assert abs(final - 946336.9) < 0.01, f"Regression: final_capital={final}"
+        assert abs(final - 946651.9) < 0.01, f"Regression: final_capital={final}"
 
 
 class TestSnapshotSellPut:
@@ -144,7 +144,7 @@ class TestSnapshotSellPut:
 
     def test_final_capital(self):
         final = self.engine.balance["total capital"].iloc[-1]
-        assert abs(final - 869300.0) < 1.0, f"Regression: final_capital={final}"
+        assert abs(final - 868535.0) < 1.0, f"Regression: final_capital={final}"
 
     def test_trade_count(self):
         n = len(self.engine.trade_log)
@@ -172,8 +172,8 @@ class TestSnapshotMonthlyRebalance:
 
     def test_final_capital(self):
         final = self.engine_monthly.balance["total capital"].iloc[-1]
-        assert abs(final - 948325.0) < 0.01, f"Regression: final_capital={final}"
+        assert abs(final - 948640.0) < 0.01, f"Regression: final_capital={final}"
 
     def test_balance_rows(self):
         n = len(self.engine_monthly.balance)
-        assert n == 61, f"Regression: balance_rows={n}"
+        assert n == 62, f"Regression: balance_rows={n}"

@@ -149,6 +149,13 @@ class BacktestEngine:
         # `options_budget_pct` survives as a deprecated alias (see property).
         self.options_budget_per_rebalance_pct: float | None = None
         self.options_budget_annual_pct: float | None = None
+        # How the options budget is applied at each rebalance. False (default):
+        # it is a target for the *value* of options held — spend only the
+        # budget minus the market value of puts still open, so overlapping
+        # positions and post-crash payoffs suppress new buying. True: spend the
+        # full per-rebalance budget every time (a fixed premium spend, which is
+        # what "x%/yr on puts" usually means).
+        self.options_budget_fresh_spend: bool = False
         self._stocks: list[Stock] = []
         self._options_strategy: Strategy | None = None
         self._stocks_data: TiingoData | None = None
@@ -227,21 +234,22 @@ class BacktestEngine:
     # the finance_research repo for the full discussion.
 
     def use_external_budget(self, annual_pct: float) -> "BacktestEngine":
-        """Spitznagel framing: keep 100% in stocks and spend ``annual_pct``
-        of portfolio value per year on options on top of that, funded
-        externally (treated as a separate budget line item).
+        """Spitznagel framing: keep ~100% in stocks and spend ``annual_pct``
+        of portfolio value per year on options. The premium is a budget line
+        item paid out of the portfolio when each put is bought (stocks are
+        sized from what remains), not an allocation sleeve.
 
         ``annual_pct`` is expressed as a fraction, e.g. ``0.005`` for a
         0.5% annual premium budget. The per-rebalance budget is derived
         from the annual budget and the rebalance frequency. Returns
         ``self`` so calls can be chained.
         """
-        total = sum(self._raw_allocation.values()) if self._raw_allocation else 1.0
         self._raw_allocation = {"stocks": 1.0, "options": 0.0, "cash": 0.0}
         self.allocation = dict(self._raw_allocation)
         self.options_budget_annual_pct = annual_pct
-        # Keep options_budget_pct in sync for per-rebalance accounting
-        # (the engine derives per-rebalance from annual when run()).
+        # The per-rebalance budget takes precedence in the engine, so clear any
+        # stale one; per-rebalance spend is derived from the annual figure.
+        self.options_budget_per_rebalance_pct = None
         return self
 
     def use_allocation(self, stocks: float, options: float, cash: float = 0.0) -> "BacktestEngine":
@@ -419,6 +427,7 @@ class BacktestEngine:
                 "initial_capital": self.initial_capital,
                 "options_budget_pct": self.options_budget_per_rebalance_pct,
                 "options_budget_annual_pct": self.options_budget_annual_pct,
+                "options_budget_fresh_spend": self.options_budget_fresh_spend,
                 "max_notional_pct": self.max_notional_pct,
                 "stop_if_broke": self.stop_if_broke,
             },
@@ -656,6 +665,7 @@ class BacktestEngine:
             "sma_days": sma_days,
             "options_budget_pct": self.options_budget_per_rebalance_pct,
             "options_budget_annual_pct": self.options_budget_annual_pct,
+            "options_budget_fresh_spend": self.options_budget_fresh_spend,
             "stop_if_broke": self.stop_if_broke,
             "max_notional_pct": self.max_notional_pct,
             "check_exits_daily": check_exits_daily,
@@ -846,6 +856,7 @@ class BacktestEngine:
             "sma_days": sma_days,
             "options_budget_pct": self.options_budget_per_rebalance_pct,
             "options_budget_annual_pct": self.options_budget_annual_pct,
+            "options_budget_fresh_spend": self.options_budget_fresh_spend,
             "stop_if_broke": self.stop_if_broke,
             "max_notional_pct": self.max_notional_pct,
             "check_exits_daily": check_exits_daily,

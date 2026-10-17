@@ -120,6 +120,7 @@ fn bench_entry_computation(c: &mut Criterion) {
                 true,
                 100,
                 false,
+                &[],
             )
             .unwrap();
             black_box(result.height());

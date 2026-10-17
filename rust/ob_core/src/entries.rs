@@ -47,11 +47,15 @@ pub fn compute_leg_entries(
     // Apply entry filter
     lazy = lazy.filter(entry_filter.polars_expr.clone());
 
-    // Sort if specified
+    // Sort if specified. Ties on the sort column (e.g. the same strike listed
+    // at several expirations) break on nearest expiration, then contract id,
+    // so the pick never depends on the anti-join's unspecified row order.
     if let Some(sort_col) = entry_sort_col {
         lazy = lazy.sort(
-            [sort_col],
-            SortMultipleOptions::default().with_order_descending(!entry_sort_asc),
+            [sort_col, "expiration", contract_col],
+            SortMultipleOptions::default()
+                .with_order_descending_multi([!entry_sort_asc, false, false])
+                .with_maintain_order(true),
         );
     }
 
