@@ -21,6 +21,7 @@ Usage:  python research/spitznagel_spy/experiments/parallel_sweep.py [n_workers]
 Needs the local licensed SPX parquet under data/processed/ (skips if absent).
 """
 
+import logging
 import math
 import os
 import sys
@@ -89,6 +90,8 @@ def _coverage(trade_log, index):
 
 def _init(op, sp, bh_cagr):
     """Load data once per worker process."""
+    # Fill shortfalls are reported in the table; silence the engine's per-run log.
+    logging.getLogger("options_portfolio_backtester.engine.engine").setLevel(logging.ERROR)
     warnings.simplefilter("ignore")
     from options_portfolio_backtester import HistoricalOptionsData, TiingoData
     _W["o"] = HistoricalOptionsData(op)
