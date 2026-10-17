@@ -30,6 +30,8 @@ from pathlib import Path
 
 import pandas as pd
 
+from spx_clean import clean_spx_chain
+
 ROOT = next(p for p in Path(__file__).resolve().parents if (p / "pyproject.toml").exists())
 OPTS = ROOT / "data" / "processed" / "spx_full_options.parquet"
 STK = ROOT / "data" / "processed" / "spx_full_stocks.csv"
@@ -137,7 +139,7 @@ def main():
         raise SystemExit("Local SPX data absent (licensed; not in repo).")
     n_workers = int(sys.argv[1]) if len(sys.argv) > 1 else min(8, max(1, (os.cpu_count() or 4) - 1))
 
-    opt = pd.read_parquet(OPTS)
+    opt = clean_spx_chain(pd.read_parquet(OPTS))
     stk = pd.read_csv(STK, parse_dates=["date"])
     opt["quotedate"] = pd.to_datetime(opt["quotedate"])
     opt["expiration"] = pd.to_datetime(opt["expiration"])

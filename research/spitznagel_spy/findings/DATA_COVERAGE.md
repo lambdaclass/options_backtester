@@ -31,8 +31,31 @@ core −38% leg of the decline. On several rebalances the chain's deepest listed
   conclusions stand. The crash-*shape* thesis survives qualitatively, but the
   specific 40–45% dot-com number should be treated as **data-limited**, not a
   clean hedged-vs-unhedged comparison.
-- **The GFC and COVID windows are unaffected** — by 2008+ the chain lists the
-  full deep-OTM ladder, and those runs fill ≥ 95%.
+- **Fill rate is not the problem in the GFC and COVID windows** — by 2008+ the
+  chain lists the full deep-OTM ladder, and those runs fill ≥ 95%. But the GFC
+  window *does* contain non-option rows; see the next section.
+
+## Rows in the chain that are not tradeable SPX quotes
+
+Tracing an impossible result (a hedged run with a *worse* GFC drawdown than buy
+& hold) to its trades showed the engine buying 361 contracts of
+`BSK090321P00725000` at $0.19 on 2008-10-14 — a 27%-OTM "put" at peak crash
+volatility, when real ones cost ~$30. BSK and BSF are **CBOE SPX binary
+options** (2008-10 → 2010-04): same strikes and expirations as the real chain,
+but priced as a probability. A strike/DTE filter cannot tell them apart. Those
+"puts" were then marked at $886k on 2009-03-02 and expired worthless, which
+manufactured the drawdown.
+
+The chain also holds flat prints — one identical price across a wide strike
+range, e.g. 2003-01-02 Jun-03 puts at 64.30/75.10 for strikes 650–725 with SPX
+at 909 (one entry paid ~10× fair value), Dec-04 LEAPS at ~$94 for strikes
+500–850, and 2025–26 LEAPS stubbed at 5.00/85.00 — plus 206 rows (2001–04)
+whose bid exceeds intrinsic by more than 25% of spot.
+
+[`experiments/spx_clean.py`](../experiments/spx_clean.py) drops all three
+(4,876 of 9.9M put rows, 0.05%) and every SPX experiment script now loads the
+chain through it. Results produced before this (and before the engine
+accounting fixes in the same period) are superseded.
 
 ## How to detect this yourself
 

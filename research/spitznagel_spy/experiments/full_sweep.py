@@ -32,6 +32,8 @@ from pathlib import Path
 
 import pandas as pd
 
+from spx_clean import clean_spx_chain
+
 from options_portfolio_backtester import (
     BacktestEngine, HistoricalOptionsData, TiingoData, Stock, Strategy, StrategyLeg,
 )
@@ -135,7 +137,7 @@ def _run(o, s, stocks_bh, olo, ohi, dlo, dhi, exit_dte, budget):
 def main():
     if not OPTS.exists() or not STK.exists():
         raise SystemExit("Local SPX data absent (licensed; not in repo).")
-    opt = pd.read_parquet(OPTS)
+    opt = clean_spx_chain(pd.read_parquet(OPTS))
     stk = pd.read_csv(STK, parse_dates=["date"])
     lo, hi = pd.Timestamp(FULL[0]), pd.Timestamp(FULL[1])
     opt = opt[(opt["quotedate"] >= lo) & (opt["quotedate"] <= hi)]

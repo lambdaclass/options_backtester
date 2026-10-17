@@ -30,6 +30,8 @@ import numpy as np
 import pandas as pd
 import warnings
 
+from spx_clean import clean_spx_chain
+
 warnings.filterwarnings("ignore")
 
 from options_portfolio_backtester import (
@@ -62,7 +64,7 @@ def _sharpe(s):
 
 
 def _load(lo, hi):
-    opt = pd.read_parquet(OPTS); stk = pd.read_csv(STK, parse_dates=["date"])
+    opt = clean_spx_chain(pd.read_parquet(OPTS)); stk = pd.read_csv(STK, parse_dates=["date"])
     lo, hi = pd.Timestamp(lo), pd.Timestamp(hi)
     opt = opt[(opt["quotedate"] >= lo) & (opt["quotedate"] <= hi)]
     stk = stk[(stk["date"] >= lo) & (stk["date"] <= hi)]
