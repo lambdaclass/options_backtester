@@ -85,6 +85,33 @@ Crash protection at roughly break-even cost. At 2%/yr, calendar-averaged:
 GFC drawdown −42% vs −57%, COVID −15% vs −34%, Sharpe 0.49 vs 0.44, for
 −0.09pp/yr. That is a risk-reduction result, not a return-enhancement one.
 
+## 4. Spitznagel-style mechanisms
+
+[`spitznagel_variants.py`](../experiments/spitznagel_variants.py): pre-registered
+families built on what Spitznagel / Universa describe, 1.0× equity, full budget
+spent, scored over entry calendars (4 bi-monthly, 2 monthly). Excess vs B&H,
+pp/yr, mean (worst…best calendar):
+
+| strategy | 1% | 2% | GFC DD @2% | COVID DD @2% |
+|---|---|---|---|---|
+| **core** 25–30% OTM, 90–180 DTE, sell at DTE 30, bi-monthly | **+0.04** (−0.39…+0.50) | −0.09 (−0.84…+0.72) | **−42%** | **−15%** |
+| core, monthly ladder (half size) | −0.08 (−0.26…+0.09) | −0.26 (−0.57…+0.04) | −47% | −13% |
+| + monetize when strike ≥ 0.95·spot | −0.09 | −0.28 | −52% | −18% |
+| + monetize when strike ≥ 0.90·spot | −0.17 | −0.41 | −54% | −21% |
+| + monetize when strike ≥ 0.85·spot | −0.41 | −0.86 | −55% | −28% |
+| short-dated 50–100 DTE, sell at DTE 14 (20–30% OTM, ± monetize) | −0.51…−0.57 | −1.06…−1.18 | −54…−56% | −19…−31% |
+
+- **Monetizing in the crash hurts, and the earlier it fires the worse.**
+  Selling once SPX nears the strike cashes out partway down; in 2008 the
+  market kept falling for months while the next hedge waited for the next
+  scheduled entry. *Caveat:* the engine only opens positions on scheduled
+  entry dates, so Universa-style immediate re-hedging after a monetization is
+  not tested — that is the one variant here that could change the verdict.
+- **Short-dated puts cost too much.** Rolling ~2-month puts pays more decay
+  per year for similar crash payoffs.
+- **The monthly ladder is the realistic number:** a narrower calendar range
+  and ≈ −0.1 to −0.3pp/yr for real crash protection.
+
 ## Status of earlier findings
 
 | Claim (file) | Status |
