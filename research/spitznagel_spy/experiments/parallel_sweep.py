@@ -2,14 +2,20 @@
 """Parallel full-history config sweep (multiprocessing across CPU cores).
 
 The per-config backtests are independent, so this fans them out over a process
-pool. Each worker loads the (pre-filtered, small) SPX put chain once via the
-pool initializer and reuses it across all its configs, so the big parquet is
-read a handful of times, not once per config.
+pool. Each worker loads the SPX put chain (calls dropped, ~half the full file)
+once via the pool initializer and reuses it across all its configs, so the big
+parquet is read once per worker, not once per config.
 
 Encodes the validated lessons: full-history 1996-2025, bi-monthly, fill-gated,
 crash-decomposed (GFC/COVID drawdown). Grid is broad by design — refine OTM
 around the 25-30% optimum, DTE around the 90-180 winner, plus exit-DTE and
 budget dials.
+
+Caveat: ranking ~400 configs on one history is in-sample selection. Treat the
+top rows as candidates and confirm them with start_year_robustness.py.
+
+Every config's metrics are written to findings/parallel_sweep_results.csv so the
+full surface (e.g. budget curves) can be inspected without rerunning.
 
 Usage:  python research/spitznagel_spy/experiments/parallel_sweep.py [n_workers]
 Needs the local licensed SPX parquet under data/processed/ (skips if absent).
@@ -20,7 +26,6 @@ import os
 import sys
 import tempfile
 import warnings
-from functools import partial
 from multiprocessing import Pool
 from pathlib import Path
 
@@ -29,6 +34,7 @@ import pandas as pd
 ROOT = next(p for p in Path(__file__).resolve().parents if (p / "pyproject.toml").exists())
 OPTS = ROOT / "data" / "processed" / "spx_full_options.parquet"
 STK = ROOT / "data" / "processed" / "spx_full_stocks.csv"
+OUT = Path(__file__).resolve().parents[1] / "findings" / "parallel_sweep_results.csv"
 
 START, END = "1996-01-01", "2025-12-31"
 GFC = (pd.Timestamp("2007-10-01"), pd.Timestamp("2009-06-30"))
@@ -62,6 +68,23 @@ def _sharpe(s):
 def _wdd(b, lo, hi):
     s = b.loc[(b.index >= lo) & (b.index <= hi)]
     return _maxdd(s) if len(s) > 2 else float("nan")
+
+
+def _coverage(trade_log, index):
+    """Fraction of trading days with at least one option position held."""
+    if trade_log is None or trade_log.empty:
+        return 0.0
+    fl = trade_log.columns.levels[0][0]
+    sub = trade_log[fl][["contract", "order"]].copy()
+    sub["date"] = pd.to_datetime(trade_log["totals"]["date"].values)
+    ent = sub[sub["order"].astype(str).str.contains("BTO")]
+    ex = sub[~sub["order"].astype(str).str.contains("BTO")]
+    held = pd.Series(False, index=index)
+    for _, e in ent.iterrows():
+        m = ex[ex["contract"] == e["contract"]]
+        xd = m["date"].iloc[0] if len(m) else index[-1]
+        held |= (index >= e["date"]) & (index <= xd)
+    return held.mean()
 
 
 def _init(op, sp, bh_cagr):
@@ -103,9 +126,10 @@ def _run(cfg):
         bt.run(rebalance_freq=2, rebalance_unit="BMS")
     b = bt.balance["total capital"]
     return {
-        "otm": f"{int(olo*100)}-{int(ohi*100)}%", "dte": f"{dlo}-{dhi}", "exit": edte, "bud": bud,
+        "otm": f"{round(olo*100)}-{round(ohi*100)}%", "dte": f"{dlo}-{dhi}", "exit": edte, "bud": bud,
         "cagr": _ann(b), "excess": _ann(b) - bh, "dd": _maxdd(b), "sharpe": _sharpe(b),
-        "fill": bt.option_fill_rate, "gfc": _wdd(b, *GFC), "covid": _wdd(b, *COVID),
+        "fill": bt.option_fill_rate, "coverage": _coverage(bt.trade_log, bt.balance.index),
+        "gfc": _wdd(b, *GFC), "covid": _wdd(b, *COVID),
     }
 
 
@@ -135,22 +159,34 @@ def main():
     puts = opt[(opt["type"].astype(str).str.lower().str[0] == "p")
                & (opt["underlying"] == "SPX")].sort_values("quotedate", kind="stable")
 
-    td = tempfile.mkdtemp()
-    op = os.path.join(td, "o.parquet"); sp = os.path.join(td, "s.csv")
-    puts.to_parquet(op, index=False); stk.to_csv(sp, index=False)
-    bh_cagr = _ann(stk.set_index("date")["adjClose"])
-    bh_dd = _maxdd(stk.set_index("date")["adjClose"])
+    bh = stk.set_index("date")["adjClose"]
+    bh_cagr, bh_dd = _ann(bh), _maxdd(bh)
+    bh_gfc_dd, bh_covid_dd = _wdd(bh, *GFC), _wdd(bh, *COVID)
 
+    # Every exit DTE is below every entry floor, so no combination is invalid.
     grid = [(olo, ohi, dlo, dhi, edte, bud)
             for (olo, ohi) in OTM_BANDS for (dlo, dhi) in DTE_BANDS
-            for edte in EXIT_DTE for bud in BUDGETS if edte < dlo]
+            for edte in EXIT_DTE for bud in BUDGETS]
 
     print(f"=== Parallel sweep: {len(grid)} configs on {n_workers} workers "
           f"(full {START[:4]}-{END[:4]}, bi-monthly) ===")
-    print(f"Buy & hold: CAGR {bh_cagr:+.2f}%  maxDD {bh_dd:.1f}%\n")
+    print(f"Buy & hold: CAGR {bh_cagr:+.2f}%  maxDD {bh_dd:.1f}%  "
+          f"(GFC DD {bh_gfc_dd:.1f}%, COVID DD {bh_covid_dd:.1f}%)\n")
 
-    with Pool(n_workers, initializer=_init, initargs=(op, sp, bh_cagr)) as pool:
-        results = pool.map(_run, grid, chunksize=4)
+    with tempfile.TemporaryDirectory() as td:
+        op = os.path.join(td, "o.parquet"); sp = os.path.join(td, "s.csv")
+        puts.to_parquet(op, index=False); stk.to_csv(sp, index=False)
+        del opt, puts, stk, bh  # free the parent's copies; workers read the files
+        with Pool(n_workers, initializer=_init, initargs=(op, sp, bh_cagr)) as pool:
+            results = []
+            for i, r in enumerate(pool.imap_unordered(_run, grid, chunksize=4), 1):
+                results.append(r)
+                if i % 20 == 0 or i == len(grid):
+                    print(f"  {i}/{len(grid)} done", flush=True)
+        print()
+
+    pd.DataFrame(results).sort_values(["otm", "dte", "exit", "bud"]).to_csv(OUT, index=False)
+    print(f"All {len(results)} rows written to {OUT.relative_to(ROOT)}\n")
 
     trust = [r for r in results if r["fill"] >= FILL_FLOOR]
     print(f"{len(trust)}/{len(results)} configs passed fill>=90%\n")
@@ -158,16 +194,17 @@ def main():
     def show(title, rows, key, rev=True):
         print(f"=== {title} ===")
         print(f"  {'OTM':7s} {'DTE':8s} {'exit':>4s} {'bud':>5s} {'excess':>7s} "
-              f"{'DD':>6s} {'Sharpe':>7s} {'GFCdd':>6s} {'CVDdd':>6s} {'fill':>5s}")
+              f"{'DD':>6s} {'Sharpe':>7s} {'GFCdd':>6s} {'CVDdd':>6s} {'cover':>5s} {'fill':>5s}")
         for r in sorted(rows, key=key, reverse=rev)[:12]:
             print(f"  {r['otm']:7s} {r['dte']:8s} {r['exit']:>4d} {r['bud']*100:>4.1f} "
                   f"{r['excess']:>+7.2f} {r['dd']:>6.1f} {r['sharpe']:>7.3f} "
-                  f"{r['gfc']:>6.1f} {r['covid']:>6.1f} {r['fill']:>4.0%}")
+                  f"{r['gfc']:>6.1f} {r['covid']:>6.1f} {r['coverage']:>4.0%} {r['fill']:>4.0%}")
         print()
 
     show("TOP 12 by excess CAGR (fill>=90%)", trust, lambda r: r["excess"])
     show("TOP 12 by Sharpe (fill>=90%)", trust, lambda r: r["sharpe"])
-    show("TOP 12 by crash protection: avg(GFC,COVID) DD (fill>=90%)", trust,
+    show(f"TOP 12 by crash protection: avg(GFC,COVID) DD (fill>=90%; "
+         f"B&H {bh_gfc_dd:.0f}/{bh_covid_dd:.0f})", trust,
          lambda r: (r["gfc"] + r["covid"]) / 2, rev=True)
 
 
