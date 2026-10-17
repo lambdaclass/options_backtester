@@ -86,6 +86,7 @@ def _run(o, s, profit_pct=math.inf, rebalance_dates=None):
     sch = o.schema
     bt = BacktestEngine({"stocks": 1.0, "options": 0.0, "cash": 0.0}, initial_capital=1_000_000)
     bt.options_budget_annual_pct = BUDGET
+    bt.options_budget_fresh_spend = True  # spend the full budget each rebalance
     bt.check_exits_daily = True; bt.rebalance_stocks_on_exit = True; bt.assert_invariants = True
     bt.stocks = [Stock("SPX", 1.0)]; bt.stocks_data = s; bt.options_data = o
     leg = StrategyLeg("leg_1", sch, option_type=OptionType.PUT, direction=Direction.BUY)

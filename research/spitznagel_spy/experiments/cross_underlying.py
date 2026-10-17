@@ -93,6 +93,7 @@ def _run(symbol, opts, stx, budget):
         initial_capital=INITIAL_CAPITAL,
     )
     bt.options_budget_annual_pct = budget
+    bt.options_budget_fresh_spend = True  # spend the full budget each rebalance
     bt.check_exits_daily = True
     bt.rebalance_stocks_on_exit = True
     bt.assert_invariants = True  # cash-flow + valuation guards armed

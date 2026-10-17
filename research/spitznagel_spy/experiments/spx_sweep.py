@@ -79,6 +79,7 @@ def _run(opts_data, stocks_data, otm_lo, otm_hi, dte_lo, dte_hi, exit_dte, budge
     bt = BacktestEngine({"stocks": 1.0, "options": 0.0, "cash": 0.0},
                         initial_capital=1_000_000)
     bt.options_budget_annual_pct = budget
+    bt.options_budget_fresh_spend = True  # spend the full budget each rebalance
     bt.check_exits_daily = True
     bt.rebalance_stocks_on_exit = True
     bt.assert_invariants = True

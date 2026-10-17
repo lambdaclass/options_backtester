@@ -43,6 +43,11 @@ START_YEARS = ["1996", "2000", "2004", "2008", "2010", "2012", "2015", "2018"]
 CONFIGS = [
     ("25-30/90-180/e30/3.3", 0.25, 0.30, 90, 180, 30, 0.033),
     ("25-30/90-180/e30/1.0", 0.25, 0.30, 90, 180, 30, 0.010),
+    # Exit-DTE neighbours: the full sweep is positive only at exit 30 -- does
+    # that hold across start years, or is 30 a lucky alignment?
+    ("25-30/90-180/e21/2.0", 0.25, 0.30, 90, 180, 21, 0.020),
+    ("25-30/90-180/e30/2.0", 0.25, 0.30, 90, 180, 30, 0.020),
+    ("25-30/90-180/e45/2.0", 0.25, 0.30, 90, 180, 45, 0.020),
     ("20-25/90-180/e30/1.0", 0.20, 0.25, 90, 180, 30, 0.010),
     ("15-20/90-180/e30/1.0", 0.15, 0.20, 90, 180, 30, 0.010),
     ("10-15/90-180/e30/3.3", 0.10, 0.15, 90, 180, 30, 0.033),
@@ -79,6 +84,7 @@ def _run(job):
     _, olo, ohi, dlo, dhi, edte, bud = cfg
     bt = BacktestEngine({"stocks": 1.0, "options": 0.0, "cash": 0.0}, initial_capital=1_000_000)
     bt.options_budget_annual_pct = bud
+    bt.options_budget_fresh_spend = True  # spend the full budget each rebalance
     bt.check_exits_daily = True
     bt.rebalance_stocks_on_exit = True
     bt.assert_invariants = True
