@@ -13,7 +13,13 @@ experiments/              exploratory studies (each standalone, skips if data ab
   spx_sweep.py            OTM-depth x DTE x budget sweep over 1996-2025
   cross_underlying.py     SPY / QQQ / IWM robustness, window-matched controls
   signal_experiments.py   signal-gated entry + monetization battery
+  parallel_sweep.py       400-config OTM x DTE x exit x budget sweep (multiprocess)
+  timing_robustness.py    exit-DTE x entry-calendar check (the exit-30 luck test)
+  leverage_monetize.py    leverage x profit-taking, calendar-averaged, financed
+  start_year_robustness.py config x start-year matrix
+  spx_clean.py            drops binary options / garbage quotes from the chain
 findings/                 written-up conclusions (read these first)
+  ROBUSTNESS_REVIEW.md    CURRENT reference — supersedes headline numbers below
   CROSS_UNDERLYING.md
   SIGNAL_EXPERIMENTS.md
   DATA_COVERAGE.md        deep-OTM puts absent from pre-2003 SPX chain
@@ -35,18 +41,21 @@ python research/spitznagel_spy/experiments/spx_sweep.py [regime]
 python research/spitznagel_spy/experiments/signal_experiments.py
 ```
 
-## Key findings (one line each — details in `findings/`)
+## Key findings (one line each — details in `findings/ROBUSTNESS_REVIEW.md`)
 
-1. **Crash *shape* decides it.** Deep-OTM hedging wins big in fast crashes
-   (GFC +6pp, COVID +11pp) and loses in slow grinds (dot-com −1.7pp at
-   25–30% OTM — **the 40–45% depth is not listed in the 2000–2002 SPX chain**,
-   so that band's dot-com number is a coverage artifact; see
-   [`findings/DATA_COVERAGE.md`](findings/DATA_COVERAGE.md)).
-2. **Over the full 1996-2025 it's ~neutral** (+0.95pp at best) — the article's
-   strong result is a 2008-start effect; the dot-com grind + calm 2010s offset
-   the crash wins.
-3. **No timing signal beats always-on** risk-adjusted — reproduces "you can't
-   time tail events; hold the cheap hedge." (Includes a documented +12pp false
-   discovery caught by decomposition — see `findings/SIGNAL_EXPERIMENTS.md`.)
-4. **Monetization matters** — un-monetized ITM LEAPs ride their gains back to
-   zero; flat profit-taking, conversely, sells the crash too early.
+1. **No reliable return edge over 1996-2025.** Averaged over entry calendars
+   with the budget actually spent, the best overlays sit between about −0.1
+   and +0.25pp/yr vs buy & hold. The earlier "+0.95pp" was one entry calendar
+   plus one lucky sale date (2008-11-20, the SPX closing low).
+2. **It does buy crash protection at ~break-even cost.** 2%/yr: GFC drawdown
+   −42% vs −57%, COVID −15% vs −34%, Sharpe 0.49 vs 0.44, −0.09pp/yr.
+3. **Small leverage (1.03-1.05x) + a cheap hedge** edges out buy & hold by
+   ~0.1-0.25pp/yr with smaller drawdowns, but is ≈ 0 vs the same leverage
+   unhedged.
+4. **Profit-taking (sell at 3-10x premium) hurts everywhere**; selling well
+   before expiry (exit 60) gives up most of the GFC protection.
+5. **Crash *shape* decides it.** Fast crashes pay; slow grinds and calm
+   decades bleed. Deep (40-45%) OTM bands are not listed pre-2003
+   ([`findings/DATA_COVERAGE.md`](findings/DATA_COVERAGE.md)).
+6. **No timing signal beat always-on** in the earlier battery — direction
+   plausible, numbers predate the engine and data fixes.

@@ -1,5 +1,10 @@
 # Regime results at 25–30% OTM (the depth the data actually supports)
 
+> **Superseded numbers.** Produced before the engine accounting fixes and the
+> chain cleaning, on a single entry calendar. See
+> [`ROBUSTNESS_REVIEW.md`](ROBUSTNESS_REVIEW.md) for current results and the
+> status of each claim below.
+
 The article's 40–45% OTM band is not listed in the pre-2003 SPX chain
 (see [`DATA_COVERAGE.md`](DATA_COVERAGE.md)). 25–30% OTM fills every rebalance
 back to 1996, so it is the deepest band that gives a trustworthy hedged-vs-

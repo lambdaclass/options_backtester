@@ -1,5 +1,13 @@
 # Spitznagel tail-hedge reconstruction: what the corrected engine says
 
+> **Status (Oct 2026): in-sample, partly superseded.** The numbers below cover
+> SPY 2008-2024, a window that opens just before the GFC, on one entry
+> calendar. Over SPX 1996-2025, scored across entry calendars on the fixed
+> engine, the overlay's return edge is ≈ 0; its value is crash protection. The
+> article table's Sharpe and drawdown columns also moved after the daily-balance
+> fix. See
+> [`research/spitznagel_spy/findings/ROBUSTNESS_REVIEW.md`](../research/spitznagel_spy/findings/ROBUSTNESS_REVIEW.md).
+
 Status: **supersedes** `PRE_FIX_REGIME_SWEEP.md`, `POST_FIX_REGIME_SWEEP.md`,
 and `POST_FIX_ANNUAL_SWEEP.md` (all written against earlier engine states
 with one or more of the five bug classes still active).
