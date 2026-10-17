@@ -112,6 +112,34 @@ pp/yr, mean (worst…best calendar):
 - **The monthly ladder is the realistic number:** a narrower calendar range
   and ≈ −0.1 to −0.3pp/yr for real crash protection.
 
+## 5. Re-hedging after a monetization, and IV-aware buying
+
+**Same-day re-hedge** ([`rehedge.py`](../experiments/rehedge.py)): emulated
+without engine changes by adding each monetization day as an entry date and
+iterating to a fixed point (converges in 3–5 passes; 4–30 extra entries over
+30 years). It moves every cell by ≤ 0.05pp and leaves the GFC drawdown
+unchanged (e.g. bi-monthly, 2%, m = 0.90: −0.41 → −0.45pp, GFC −53.7% →
+−53.8%). The re-hedge spends one regular entry's budget (~0.2–0.3% of NAV),
+far too small to replace the convexity that was sold: in 2008 the m = 0.90
+rule sold puts near SPX 1030 in early October, and SPX then fell to 752.
+Universa rolls the *proceeds* into new puts, keeping the hedge's size; that
+needs a per-date budget the engine does not have yet, and is untested.
+
+**IV-aware monthly ladder** ([`vol_aware.py`](../experiments/vol_aware.py)):
+skip a month's purchase when ~30-day ATM implied vol (built from the chain;
+corr 0.986 with VIX) is expensive, at equal total premium. Mean (worst…best
+of 2 calendars), pp/yr vs B&H:
+
+| rule | kept | 1% | 2% | GFC DD @2% | COVID DD @2% |
+|---|---|---|---|---|---|
+| always | 100% | −0.09 (−0.26…+0.09) | −0.26 (−0.57…+0.04) | −47.0% | −13.0% |
+| skip IV > 1y 80th pct | 77% | −0.07 (−0.13…−0.02) | −0.23 (−0.34…−0.12) | −47.3% | −16.1% |
+| skip IV > 1y median | 52% | +0.06 (−0.25…+0.38) | +0.01 (−0.54…+0.56) | −47.9% | −15.1% |
+| skip IV > 25% | 88% | −0.13 (−0.20…−0.05) | −0.38 (−0.51…−0.25) | −49.4% | −12.7% |
+
+The median rule's +0.15–0.27pp edge over `always` is inside its own
+calendar spread; no rule is a reliable improvement.
+
 ## Status of earlier findings
 
 | Claim (file) | Status |

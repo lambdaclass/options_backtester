@@ -18,6 +18,9 @@ experiments/              exploratory studies (each standalone, skips if data ab
   leverage_monetize.py    leverage x profit-taking, calendar-averaged, financed
   start_year_robustness.py config x start-year matrix
   spx_clean.py            drops binary options / garbage quotes from the chain
+  spitznagel_variants.py  monetize-in-crash, short-dated, monthly-ladder families
+  rehedge.py              monetize + same-day re-hedge (fixed-point emulation)
+  vol_aware.py            monthly ladder that skips purchases when IV is expensive
 findings/                 written-up conclusions (read these first)
   ROBUSTNESS_REVIEW.md    CURRENT reference — supersedes headline numbers below
   CROSS_UNDERLYING.md
