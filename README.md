@@ -3,6 +3,11 @@ Options Portfolio Backtester
 
 Backtest options strategies with realistic execution, Greeks-aware risk management, and contract-level inventory. Also handles equities and multi-asset portfolios. Built on a Rust compute core.
 
+Before trusting an options-overlay result, read
+[`docs/METHODOLOGY.md`](docs/METHODOLOGY.md): entry-calendar luck, dirty
+chains, budget semantics, fill rate and path accounting, each with the API
+that guards against it.
+
 ## Get started
 
 ### Install
@@ -175,21 +180,37 @@ Every component is swappable. Pass them to `BacktestEngine(...)` or override per
 
 ## Rebalancing model
 
-At each rebalance date, the engine follows a **full liquidation** approach:
+At each rebalance date the engine:
 
-1. **Liquidate all options** — every open option position is sold at current market price (bid for long, ask for short)
-2. **Compute total capital** — cash + stock value (options are zero after liquidation)
-3. **Rebalance stocks** — sell all stocks, buy fresh at target allocation (e.g. 97%)
-4. **Buy new options** — use the full options allocation (e.g. 3%) to purchase contracts matching entry criteria (DTE, delta, etc.)
+1. **Runs exits** — open option positions whose exit filter matches, or that
+   crossed `profit_pct` / `loss_pct`, are closed at market (bid for long,
+   ask for short). Other positions are **kept** across rebalances.
+2. **Values the portfolio** — `total capital = cash + stocks + open options`
+   at current marks.
+3. **Sets the options budget** — either an allocation share
+   (`{"stocks": 0.97, "options": 0.03}`) or an external premium budget
+   (`options_budget_annual_pct`, %/yr split over the schedule, or
+   `options_budget_per_rebalance_pct`). By default the budget is a target for
+   the *value* of options held; `options_budget_fresh_spend = True` spends
+   the full budget every rebalance instead.
+4. **Rebalances stocks** — sells and rebuys stocks at the target allocation
+   of the capital not locked in options (with an external budget, after
+   setting the budget aside).
+5. **Buys new options** — contracts matching the entry filter, sized to the
+   budget, paid from cash at the entry price.
 
-This ensures:
-- **Clean accounting** — no stale option value carried across rebalances, no money creation
-- **Fresh positions** — every rebalance picks the best available contracts for current market conditions
-- **Simple math** — `total_capital = cash + stocks` at the point of redeployment, no complex delta tracking
+Between rebalance dates positions are held and marked to market. With
+`check_exits_daily = True` exits run every day, each day's balance row is
+recorded at that day's close, and `rebalance_stocks_on_exit = True` puts the
+proceeds into stocks the same day. New entries wait for the next rebalance,
+unless `roll_exit_proceeds_pct` is set: then that fraction of each sale's
+proceeds buys new contracts the same day.
 
-Between rebalance dates, positions are held (mark-to-market for balance tracking). If `check_exits_daily=True`, exit filters run daily but no new entries are made until the next rebalance.
-
-For the **Spitznagel leverage** model (`options_budget` parameter), options are funded separately from the stock allocation so `{stocks: 1.0, options: 0.005}` means 100% equity + 0.5% put budget on top.
+For the **Spitznagel** framing, the put budget sits on top of a fully
+invested portfolio: `{"stocks": 1.0, "options": 0.0, "cash": 0.0}` plus
+`use_external_budget(0.005)` means 100% equity plus 0.5%/yr of premium.
+Leverage is a stock allocation above 1 financed by negative cash
+(`{"stocks": 1.05, "cash": -0.05}`); the engine charges no interest on it.
 
 ## Rust acceleration
 
@@ -275,4 +296,8 @@ rust/
 
 ## Research
 
-Research notebooks and analysis: [finance_research](https://github.com/unbalancedparentheses/finance_research).
+[`research/spitznagel_spy/`](research/spitznagel_spy/) holds the tail-hedge
+study behind the published articles: a reproduction script, the experiments,
+and the written-up findings. Start with
+[`findings/ROBUSTNESS_REVIEW.md`](research/spitznagel_spy/findings/ROBUSTNESS_REVIEW.md).
+Further notebooks and analysis: [finance_research](https://github.com/unbalancedparentheses/finance_research).

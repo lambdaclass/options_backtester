@@ -51,6 +51,14 @@ anchored on the commit hash that introduced the change.
   half-open and dropped it).
 
 ### API changes
+- ``clean_options_chain`` / ``flag_bad_quotes`` (``data.cleaning``): find and
+  drop chain rows that are not tradeable quotes — other products under the
+  same underlying (e.g. SPX binaries), flat prints across a strike run,
+  impossible time value, crossed markets.
+- ``entry_calendars`` / ``run_over_calendars`` / ``calendar_summary``
+  (``analytics.robustness``): run one configuration over every phase of an
+  every-N-months schedule and report mean / worst / spread, so a result that
+  depends on the entry calendar shows up as such.
 - ``BacktestEngine.options_budget_fresh_spend`` (default ``False``) exposes the
   existing Rust option: ``False`` treats the budget as a target value for
   options held (spend = budget − value of open puts), ``True`` spends the full

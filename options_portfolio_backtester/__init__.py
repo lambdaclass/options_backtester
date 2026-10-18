@@ -1,64 +1,67 @@
 """options_portfolio_backtester — the open-source options backtesting framework."""
 
-# Core types
+from options_portfolio_backtester.analytics.results import BacktestResults, hash_data_file
+from options_portfolio_backtester.analytics.robustness import (
+    calendar_summary,
+    entry_calendars,
+    run_over_calendars,
+)
+from options_portfolio_backtester.analytics.stats import BacktestStats, LookbackReturns, PeriodStats
+from options_portfolio_backtester.analytics.summary import summary
+from options_portfolio_backtester.analytics.tearsheet import TearsheetReport, build_tearsheet
+from options_portfolio_backtester.analytics.trade_log import TradeLog
 from options_portfolio_backtester.core.types import (
     Direction,
-    OptionType,
-    Type,
-    Order,
-    Signal,
     Fill,
     Greeks,
     OptionContract,
-    StockAllocation,
+    OptionType,
+    Order,
+    Signal,
     Stock,
+    StockAllocation,
+    Type,
     get_order,
 )
-
-# Data
-from options_portfolio_backtester.data.schema import Schema, Field, Filter
+from options_portfolio_backtester.data.cleaning import clean_options_chain, flag_bad_quotes
 from options_portfolio_backtester.data.providers import (
-    CsvOptionsProvider, CsvStocksProvider,
-    TiingoData, HistoricalOptionsData,
+    CsvOptionsProvider,
+    CsvStocksProvider,
+    HistoricalOptionsData,
+    TiingoData,
 )
-
-# Strategy
-from options_portfolio_backtester.strategy.strategy import Strategy
-from options_portfolio_backtester.strategy.strategy_leg import StrategyLeg
-from options_portfolio_backtester.strategy.presets import (
-    Strangle, deep_otm_put, near_atm_put_protection,
-)
-
-# Results
-from options_portfolio_backtester.analytics.results import BacktestResults, hash_data_file
-
-# Execution
+from options_portfolio_backtester.data.schema import Field, Filter, Schema
+from options_portfolio_backtester.engine.clock import TradingClock
+from options_portfolio_backtester.engine.engine import BacktestEngine
 from options_portfolio_backtester.execution.cost_model import (
-    NoCosts, PerContractCommission, TieredCommission, SpreadSlippage,
+    NoCosts,
+    PerContractCommission,
+    SpreadSlippage,
+    TieredCommission,
 )
 from options_portfolio_backtester.execution.fill_model import MarketAtBidAsk, MidPrice, VolumeAwareFill
-from options_portfolio_backtester.execution.sizer import (
-    CapitalBased, FixedQuantity, FixedDollar, PercentOfPortfolio,
-)
 from options_portfolio_backtester.execution.signal_selector import (
-    FirstMatch, NearestDelta, MaxOpenInterest,
+    FirstMatch,
+    MaxOpenInterest,
+    NearestDelta,
 )
-
-# Portfolio
+from options_portfolio_backtester.execution.sizer import (
+    CapitalBased,
+    FixedDollar,
+    FixedQuantity,
+    PercentOfPortfolio,
+)
+from options_portfolio_backtester.portfolio.greeks import aggregate_greeks
 from options_portfolio_backtester.portfolio.portfolio import Portfolio
 from options_portfolio_backtester.portfolio.position import OptionPosition
-from options_portfolio_backtester.portfolio.greeks import aggregate_greeks
-from options_portfolio_backtester.portfolio.risk import RiskManager, MaxDelta, MaxVega, MaxDrawdown
-
-# Engine
-from options_portfolio_backtester.engine.engine import BacktestEngine
-from options_portfolio_backtester.engine.clock import TradingClock
-
-# Analytics
-from options_portfolio_backtester.analytics.stats import BacktestStats, PeriodStats, LookbackReturns
-from options_portfolio_backtester.analytics.trade_log import TradeLog
-from options_portfolio_backtester.analytics.tearsheet import TearsheetReport, build_tearsheet
-from options_portfolio_backtester.analytics.summary import summary
+from options_portfolio_backtester.portfolio.risk import MaxDelta, MaxDrawdown, MaxVega, RiskManager
+from options_portfolio_backtester.strategy.presets import (
+    Strangle,
+    deep_otm_put,
+    near_atm_put_protection,
+)
+from options_portfolio_backtester.strategy.strategy import Strategy
+from options_portfolio_backtester.strategy.strategy_leg import StrategyLeg
 
 __all__ = [
     # Core types
@@ -66,6 +69,7 @@ __all__ = [
     "OptionContract", "StockAllocation", "Stock", "get_order",
     # Data
     "Schema", "Field", "Filter", "CsvOptionsProvider", "CsvStocksProvider",
+    "clean_options_chain", "flag_bad_quotes",
     "TiingoData", "HistoricalOptionsData",
     # Strategy
     "Strategy", "StrategyLeg", "Strangle",
@@ -84,6 +88,7 @@ __all__ = [
     "BacktestEngine", "TradingClock",
     # Analytics
     "BacktestStats", "PeriodStats", "LookbackReturns",
+    "entry_calendars", "run_over_calendars", "calendar_summary",
     "TradeLog", "TearsheetReport", "build_tearsheet",
     "summary",
 ]
