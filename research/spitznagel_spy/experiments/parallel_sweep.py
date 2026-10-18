@@ -31,7 +31,6 @@ from multiprocessing import Pool
 from pathlib import Path
 
 import pandas as pd
-
 from spx_clean import clean_spx_chain
 
 ROOT = next(p for p in Path(__file__).resolve().parents if (p / "pyproject.toml").exists())
@@ -103,7 +102,7 @@ def _init(op, sp, bh_cagr):
 
 def _run(cfg):
     from options_portfolio_backtester import BacktestEngine, Stock, Strategy, StrategyLeg
-    from options_portfolio_backtester.core.types import OptionType, Direction
+    from options_portfolio_backtester.core.types import Direction, OptionType
     olo, ohi, dlo, dhi, edte, bud = cfg
     o, s, bh = _W["o"], _W["s"], _W["bh"]
     sch = o.schema

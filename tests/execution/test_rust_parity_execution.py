@@ -11,17 +11,16 @@ import pandas as pd
 import pytest
 from hypothesis import given, settings
 from hypothesis import strategies as st
-
-from options_portfolio_backtester.core.types import Direction, Greeks
 from options_portfolio_backtester._ob_rust import (
-    rust_option_cost,
-    rust_stock_cost,
     rust_fill_price,
-    rust_nearest_delta_index,
     rust_max_value_index,
+    rust_nearest_delta_index,
+    rust_option_cost,
     rust_risk_check,
+    rust_stock_cost,
 )
 
+from options_portfolio_backtester.core.types import Direction, Greeks
 
 # ===================================================================
 # EDGE-CASE / FUZZING TESTS

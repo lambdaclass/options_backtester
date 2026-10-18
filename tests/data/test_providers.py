@@ -1,12 +1,16 @@
 """Tests for data providers."""
 
 import os
-import pytest
+
 import pandas as pd
+import pytest
 
 from options_portfolio_backtester.data.providers import (
-    CsvOptionsProvider, CsvStocksProvider,
-    DataProvider, OptionsDataProvider, StocksDataProvider,
+    CsvOptionsProvider,
+    CsvStocksProvider,
+    DataProvider,
+    OptionsDataProvider,
+    StocksDataProvider,
 )
 from options_portfolio_backtester.data.schema import Schema
 
@@ -70,7 +74,7 @@ class TestCsvStocksProvider:
 
 class TestSchemaReExport:
     def test_schema_import(self):
-        from options_portfolio_backtester.data.schema import Schema, Field, Filter
+        from options_portfolio_backtester.data.schema import Field, Filter, Schema
         assert Schema is not None
         assert Field is not None
         assert Filter is not None

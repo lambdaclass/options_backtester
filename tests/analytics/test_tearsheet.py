@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-from unittest.mock import patch
 from pathlib import Path
+from unittest.mock import patch
 
 import numpy as np
 import pandas as pd

@@ -1,12 +1,11 @@
 """Property-based tests for portfolio position and portfolio invariants."""
 
-from hypothesis import given, settings, assume
+from hypothesis import given, settings
 from hypothesis import strategies as st
 
 from options_portfolio_backtester.core.types import Direction, OptionType, Order
 from options_portfolio_backtester.portfolio.portfolio import Portfolio
-from options_portfolio_backtester.portfolio.position import PositionLeg, OptionPosition
-
+from options_portfolio_backtester.portfolio.position import OptionPosition, PositionLeg
 
 # ---------------------------------------------------------------------------
 # Strategies

@@ -16,8 +16,10 @@ import pytest
 
 from options_portfolio_backtester.core.types import (
     Direction,
-    OptionType as Type,
     Stock,
+)
+from options_portfolio_backtester.core.types import (
+    OptionType as Type,
 )
 from options_portfolio_backtester.data.providers import (
     HistoricalOptionsData,

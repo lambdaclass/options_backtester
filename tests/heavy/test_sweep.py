@@ -7,8 +7,11 @@ try:
     import polars as pl
     from options_portfolio_backtester._ob_rust import (
         parallel_sweep as rust_parallel_sweep,
+    )
+    from options_portfolio_backtester._ob_rust import (
         run_backtest_py as rust_run_backtest,
     )
+
     from options_portfolio_backtester.analytics.optimization import rust_grid_sweep
     RUST_AVAILABLE = True
 except ImportError:

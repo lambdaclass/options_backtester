@@ -1,7 +1,10 @@
 """Tests for position sizing models."""
 
 from options_portfolio_backtester.execution.sizer import (
-    CapitalBased, FixedQuantity, FixedDollar, PercentOfPortfolio,
+    CapitalBased,
+    FixedDollar,
+    FixedQuantity,
+    PercentOfPortfolio,
 )
 
 

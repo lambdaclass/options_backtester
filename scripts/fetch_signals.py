@@ -80,7 +80,7 @@ def main():
         # GDP is in billions. Scale NFC equity to billions to match.
         if 'nfc_equity_mv' in daily.columns:
             daily['buffett_indicator'] = daily['nfc_equity_mv'] / (daily['gdp'] * 1000) * 100
-            print(f'Computed buffett_indicator (nfc_equity_mv / GDP)')
+            print('Computed buffett_indicator (nfc_equity_mv / GDP)')
 
     if 'nfc_equity_mv' in daily.columns and 'nfc_net_worth' in daily.columns:
         # Tobin's Q ≈ market value of equity / net worth at replacement cost.

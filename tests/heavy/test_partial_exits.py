@@ -6,23 +6,22 @@ mark-to-market changes shift the allocation balance.
 
 from __future__ import annotations
 
-import numpy as np
 import pytest
 
 from tests.heavy._test_helpers import (
-    RUST_AVAILABLE,
     DEFAULT_CAPITAL,
-    generated_stocks,
-    prod_spy_stocks,
-    load_generated_stocks,
-    load_generated_options,
-    load_prod_stocks,
-    load_prod_options,
+    RUST_AVAILABLE,
+    assert_invariants,
     buy_put_strategy,
+    generated_stocks,
+    load_generated_options,
+    load_generated_stocks,
+    load_prod_options,
+    load_prod_stocks,
+    prod_spy_stocks,
+    run_backtest,
     sell_put_strategy,
     strangle_strategy,
-    run_backtest,
-    assert_invariants,
 )
 
 pytestmark = pytest.mark.skipif(

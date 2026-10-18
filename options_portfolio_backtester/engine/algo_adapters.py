@@ -10,7 +10,6 @@ import pandas as pd
 
 from options_portfolio_backtester.core.types import Greeks
 
-
 StepStatus = Literal["continue", "skip_day", "stop"]
 
 

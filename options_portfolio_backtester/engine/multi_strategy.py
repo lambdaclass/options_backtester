@@ -2,15 +2,9 @@
 
 from __future__ import annotations
 
-from typing import Any
-
 import pandas as pd
 
 from options_portfolio_backtester.engine.engine import BacktestEngine
-from options_portfolio_backtester.execution.cost_model import TransactionCostModel, NoCosts
-from options_portfolio_backtester.portfolio.risk import RiskManager
-
-from options_portfolio_backtester.core.types import Stock
 
 
 class StrategyAllocation:

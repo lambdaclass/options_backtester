@@ -31,7 +31,6 @@ from multiprocessing import Pool
 from pathlib import Path
 
 import pandas as pd
-
 from spx_clean import clean_spx_chain
 
 ROOT = next(p for p in Path(__file__).resolve().parents if (p / "pyproject.toml").exists())
@@ -79,7 +78,7 @@ def _data(start, td):
 
 def _run(job):
     from options_portfolio_backtester import BacktestEngine, Stock, Strategy, StrategyLeg
-    from options_portfolio_backtester.core.types import OptionType, Direction
+    from options_portfolio_backtester.core.types import Direction, OptionType
     cfg, start, td, bh = job
     o, s = _data(start, td)
     sch = o.schema

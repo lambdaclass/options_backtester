@@ -1,20 +1,22 @@
 """Tests for MultiStrategyEngine."""
 
 import os
-import numpy as np
+
 import pandas as pd
 import pytest
 
-from options_portfolio_backtester.engine.multi_strategy import (
-    StrategyAllocation, MultiStrategyEngine,
+from options_portfolio_backtester.core.types import Direction, OptionType, Stock
+from options_portfolio_backtester.data.providers import (
+    HistoricalOptionsData,
+    TiingoData,
 )
 from options_portfolio_backtester.engine.engine import BacktestEngine
-from options_portfolio_backtester.data.providers import (
-    TiingoData, HistoricalOptionsData,
+from options_portfolio_backtester.engine.multi_strategy import (
+    MultiStrategyEngine,
+    StrategyAllocation,
 )
 from options_portfolio_backtester.strategy.strategy import Strategy
 from options_portfolio_backtester.strategy.strategy_leg import StrategyLeg
-from options_portfolio_backtester.core.types import Direction, OptionType, Stock
 
 
 @pytest.fixture

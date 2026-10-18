@@ -4,45 +4,41 @@ Tests strategy construction edge cases, preset validation, risk constraint
 boundary conditions, and position/portfolio accounting.
 """
 
-import math
 import os
 
-import numpy as np
 import pandas as pd
 import pytest
 
 from options_portfolio_backtester.core.types import (
     Direction,
+    Fill,
+    Greeks,
     OptionType,
     Order,
     Signal,
-    Greeks,
-    Fill,
-    Stock,
     get_order,
 )
 from options_portfolio_backtester.data.providers import HistoricalOptionsData
-from options_portfolio_backtester.data.schema import Schema, Field, Filter
-from options_portfolio_backtester.strategy.strategy import Strategy
-from options_portfolio_backtester.strategy.strategy_leg import StrategyLeg
+from options_portfolio_backtester.portfolio.greeks import aggregate_greeks
+from options_portfolio_backtester.portfolio.portfolio import Portfolio
+from options_portfolio_backtester.portfolio.position import OptionPosition, PositionLeg
+from options_portfolio_backtester.portfolio.risk import (
+    MaxDelta,
+    MaxDrawdown,
+    MaxVega,
+    RiskManager,
+)
 from options_portfolio_backtester.strategy.presets import (
-    strangle,
-    iron_condor,
-    covered_call,
+    Strangle,
+    butterfly,
     cash_secured_put,
     collar,
-    butterfly,
-    Strangle,
+    covered_call,
+    iron_condor,
+    strangle,
 )
-from options_portfolio_backtester.portfolio.risk import (
-    RiskManager,
-    MaxDelta,
-    MaxVega,
-    MaxDrawdown,
-)
-from options_portfolio_backtester.portfolio.portfolio import Portfolio, StockHolding
-from options_portfolio_backtester.portfolio.position import OptionPosition, PositionLeg
-from options_portfolio_backtester.portfolio.greeks import aggregate_greeks
+from options_portfolio_backtester.strategy.strategy import Strategy
+from options_portfolio_backtester.strategy.strategy_leg import StrategyLeg
 
 TEST_DIR = os.path.join(os.path.dirname(__file__), "..", "fixtures")
 OPTIONS_FILE = os.path.join(TEST_DIR, "options_data.csv")

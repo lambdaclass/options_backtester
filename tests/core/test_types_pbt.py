@@ -4,14 +4,19 @@ Fuzzes Greeks algebra, Fill notional, Direction/Order/OptionType enum inversions
 and get_order mapping with Hypothesis.
 """
 
-import numpy as np
 import pytest
-from hypothesis import given, settings, assume
+from hypothesis import assume, given, settings
 from hypothesis import strategies as st
 
 from options_portfolio_backtester.core.types import (
-    Direction, OptionType, Order, Signal, Greeks, Fill, get_order,
+    Direction,
+    Fill,
+    Greeks,
+    OptionType,
+    Order,
+    Signal,
     StockAllocation,
+    get_order,
 )
 
 # ---------------------------------------------------------------------------

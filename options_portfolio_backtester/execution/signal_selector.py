@@ -7,7 +7,8 @@ from abc import ABC, abstractmethod
 import pandas as pd
 
 from options_portfolio_backtester.execution._rust_bridge import (
-    rust_nearest_delta_index, rust_max_value_index,
+    rust_max_value_index,
+    rust_nearest_delta_index,
 )
 
 

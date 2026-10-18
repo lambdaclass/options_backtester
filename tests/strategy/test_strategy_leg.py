@@ -2,9 +2,10 @@
 
 import pandas as pd
 
-from options_portfolio_backtester.strategy.strategy_leg import StrategyLeg
+from options_portfolio_backtester.core.types import Direction
+from options_portfolio_backtester.core.types import OptionType as Type
 from options_portfolio_backtester.data.schema import Schema
-from options_portfolio_backtester.core.types import OptionType as Type, Direction
+from options_portfolio_backtester.strategy.strategy_leg import StrategyLeg
 
 
 def make_options_df():

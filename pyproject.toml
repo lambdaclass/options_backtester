@@ -72,4 +72,10 @@ target-version = "py312"
 
 [tool.ruff.lint]
 select = ["E", "F", "W", "I"]
-ignore = ["E126", "F403", "F405", "W504"]
+ignore = ["F403", "F405"]
+
+[tool.ruff.lint.per-file-ignores]
+# Tests and research scripts: path setup before imports, compact one-liners
+# and short loop names are deliberate there.
+"tests/**" = ["E402", "E702", "E741", "E731"]
+"research/**" = ["E402", "E702", "E741", "E731", "E501"]

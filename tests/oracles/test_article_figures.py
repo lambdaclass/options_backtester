@@ -17,17 +17,16 @@ import pytest
 
 from options_portfolio_backtester.analytics.options_charts import normalize_trade_log
 from options_portfolio_backtester.analytics.tearsheet import build_tearsheet
-from options_portfolio_backtester.engine.engine import BacktestEngine
 from options_portfolio_backtester.core.types import Stock
-
+from options_portfolio_backtester.engine.engine import BacktestEngine
 from tests.oracles.test_article_reproduction import (  # noqa: F401  (fixtures)
     INITIAL_CAPITAL,
     OPTIONS_PARQUET,
     STOCKS_CSV,
     _make_deep_otm_put_strategy,
     options_data,
-    stocks_data,
     requires_data,
+    stocks_data,
 )
 
 ARTICLE_BUDGET = 0.033
@@ -53,7 +52,7 @@ EXPECTED_PANELS = [
 
 
 @pytest.fixture(scope="module")
-def article_run(options_data, stocks_data):
+def article_run(options_data, stocks_data):  # noqa: F811 (fixtures)
     """The article-default engine run, shared across this module's tests."""
     bt = BacktestEngine(
         {"stocks": 1.0, "options": 0.0, "cash": 0.0},

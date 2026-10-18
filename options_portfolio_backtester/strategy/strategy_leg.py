@@ -9,8 +9,8 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from options_portfolio_backtester.core.types import Direction, OptionType
-from options_portfolio_backtester.execution.signal_selector import SignalSelector, FirstMatch
-from options_portfolio_backtester.execution.fill_model import FillModel, MarketAtBidAsk
+from options_portfolio_backtester.execution.fill_model import FillModel
+from options_portfolio_backtester.execution.signal_selector import SignalSelector
 
 if TYPE_CHECKING:
     from options_portfolio_backtester.data.schema import Filter, Schema

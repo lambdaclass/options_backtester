@@ -11,22 +11,20 @@ import pandas as pd
 import pytest
 
 from tests.heavy._test_helpers import (
-    RUST_AVAILABLE,
     DEFAULT_ALLOC,
     DEFAULT_CAPITAL,
     IVY_STOCKS_TUPLES,
-    ivy_stocks,
-    generated_stocks,
-    prod_spy_stocks,
-    load_generated_stocks,
-    load_generated_options,
-    load_prod_stocks,
-    load_prod_options,
-    buy_put_strategy,
-    sell_put_strategy,
-    strangle_strategy,
-    run_backtest,
+    RUST_AVAILABLE,
     assert_invariants,
+    buy_put_strategy,
+    generated_stocks,
+    ivy_stocks,
+    load_generated_options,
+    load_generated_stocks,
+    load_prod_options,
+    load_prod_stocks,
+    prod_spy_stocks,
+    run_backtest,
 )
 
 pytestmark = pytest.mark.skipif(
@@ -188,16 +186,20 @@ class TestProductionDataInvariants:
 import math as _math
 import os as _os
 
+from options_portfolio_backtester.core.types import Direction as _Dir
+from options_portfolio_backtester.core.types import OptionType as _OptType
+from options_portfolio_backtester.core.types import Stock as _Stock
+from options_portfolio_backtester.data.providers import (
+    HistoricalOptionsData as _Opts,
+)
+from options_portfolio_backtester.data.providers import (
+    TiingoData as _Stx,
+)
 from options_portfolio_backtester.engine.engine import BacktestEngine
 from options_portfolio_backtester.execution.cost_model import NoCosts
 from options_portfolio_backtester.execution.fill_model import MarketAtBidAsk
-from options_portfolio_backtester.core.types import OptionType as _OptType, Direction as _Dir
 from options_portfolio_backtester.strategy.strategy import Strategy as _Strategy
 from options_portfolio_backtester.strategy.strategy_leg import StrategyLeg as _Leg
-from options_portfolio_backtester.data.providers import (
-    HistoricalOptionsData as _Opts, TiingoData as _Stx,
-)
-from options_portfolio_backtester.core.types import Stock as _Stock
 
 _PROCESSED = _os.path.join(_os.path.dirname(__file__), "..", "..", "data", "processed")
 # Parquet is the canonical processed format (~30x faster to load than the
@@ -253,7 +255,9 @@ class TestRuntimeInvariantChecks:
         # Fast self-funded-path check on the bundled small dataset: enabling the
         # invariants must not false-positive on a standard backtest.
         from tests.heavy._test_helpers import (
-            load_small_stocks, load_small_options, ivy_stocks, buy_put_strategy,
+            buy_put_strategy,
+            load_small_options,
+            load_small_stocks,
         )
         opts = load_small_options()
         eng = BacktestEngine(

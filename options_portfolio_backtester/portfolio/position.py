@@ -6,7 +6,10 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from options_portfolio_backtester.core.types import (
-    Direction, OptionType, Order, Greeks, get_order, Signal,
+    Direction,
+    Greeks,
+    OptionType,
+    Order,
 )
 
 

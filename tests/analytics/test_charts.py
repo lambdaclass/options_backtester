@@ -2,15 +2,18 @@
 
 from __future__ import annotations
 
-import pandas as pd
-import numpy as np
 import altair as alt
 import matplotlib
+import numpy as np
+import pandas as pd
 
 matplotlib.use("Agg")  # non-interactive backend for testing
 
 from options_portfolio_backtester.analytics.charts import (
-    weights_chart, returns_chart, returns_histogram, monthly_returns_heatmap,
+    monthly_returns_heatmap,
+    returns_chart,
+    returns_histogram,
+    weights_chart,
 )
 
 

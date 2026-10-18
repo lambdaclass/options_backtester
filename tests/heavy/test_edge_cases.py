@@ -8,18 +8,18 @@ from __future__ import annotations
 import pytest
 
 from tests.heavy._test_helpers import (
-    RUST_AVAILABLE,
     DEFAULT_ALLOC,
     DEFAULT_CAPITAL,
+    RUST_AVAILABLE,
     _make_engine,
-    ivy_stocks,
-    load_small_stocks,
-    load_small_options,
-    buy_put_strategy,
-    buy_call_strategy,
-    sell_put_strategy,
-    run_backtest,
     assert_invariants,
+    buy_call_strategy,
+    buy_put_strategy,
+    ivy_stocks,
+    load_small_options,
+    load_small_stocks,
+    run_backtest,
+    sell_put_strategy,
 )
 
 pytestmark = pytest.mark.skipif(

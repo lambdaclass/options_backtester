@@ -11,7 +11,7 @@ Usage:
 from __future__ import annotations
 
 import os
-from math import erf, sqrt, log, exp
+from math import erf, exp, log, sqrt
 from pathlib import Path
 
 import numpy as np

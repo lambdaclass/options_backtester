@@ -2,7 +2,10 @@
 
 from options_portfolio_backtester.core.types import Greeks
 from options_portfolio_backtester.portfolio.risk import (
-    RiskManager, MaxDelta, MaxVega, MaxDrawdown,
+    MaxDelta,
+    MaxDrawdown,
+    MaxVega,
+    RiskManager,
 )
 
 

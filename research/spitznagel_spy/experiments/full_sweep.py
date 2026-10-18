@@ -31,13 +31,17 @@ import warnings
 from pathlib import Path
 
 import pandas as pd
-
 from spx_clean import clean_spx_chain
 
 from options_portfolio_backtester import (
-    BacktestEngine, HistoricalOptionsData, TiingoData, Stock, Strategy, StrategyLeg,
+    BacktestEngine,
+    HistoricalOptionsData,
+    Stock,
+    Strategy,
+    StrategyLeg,
+    TiingoData,
 )
-from options_portfolio_backtester.core.types import OptionType, Direction
+from options_portfolio_backtester.core.types import Direction, OptionType
 
 ROOT = next(p for p in Path(__file__).resolve().parents if (p / "pyproject.toml").exists())
 OPTS = ROOT / "data" / "processed" / "spx_full_options.parquet"
@@ -146,7 +150,9 @@ def main():
     opt = opt[opt["quotedate"].isin(shared)].sort_values("quotedate", kind="stable")
     stk = stk[stk["date"].isin(shared)].sort_values("date", kind="stable")
 
-    import os, shutil, tempfile
+    import os
+    import shutil
+    import tempfile
     td = tempfile.mkdtemp()
     op = os.path.join(td, "o.parquet"); sp = os.path.join(td, "s.csv")
     opt.to_parquet(op, index=False); stk.to_csv(sp, index=False)
@@ -158,7 +164,7 @@ def main():
     bh_gfc_dd = _maxdd(bh.loc[(bh.index >= GFC[0]) & (bh.index <= GFC[1])])
     bh_covid_dd = _maxdd(bh.loc[(bh.index >= COVID[0]) & (bh.index <= COVID[1])])
 
-    print(f"=== Full-history sweep 1996-2025 (bi-monthly rebalance) ===")
+    print("=== Full-history sweep 1996-2025 (bi-monthly rebalance) ===")
     print(f"Buy & hold: CAGR {bh_cagr:+.2f}%  maxDD {bh_dd:.1f}%  "
           f"(GFC DD {bh_gfc_dd:.1f}%, COVID DD {bh_covid_dd:.1f}%)\n")
     hdr = (f"  {'OTM':7s} {'entry':6s} {'exit':>4s} {'bud':>5s} {'CAGR':>7s} {'excess':>7s} "
@@ -181,15 +187,15 @@ def main():
                           flush=True)
 
     trust = [t for t in rows if t[1]["fill"] >= FILL_FLOOR]
-    print(f"\n=== TOP 8 by full-period Sharpe (fill>=90%) ===")
+    print("\n=== TOP 8 by full-period Sharpe (fill>=90%) ===")
     for ex, r, otm, dlbl, edte, bud in sorted(trust, key=lambda t: t[1]["sharpe"], reverse=True)[:8]:
         print(f"  {otm:7s} {dlbl} exit{edte} {bud*100:.1f}%  Sharpe {r['sharpe']:.3f}  "
               f"excess {ex:+.2f}pp  DD {r['dd']:.1f}%  GFCdd {r['gfc_dd']:.1f}%  CVDdd {r['covid_dd']:.1f}%")
-    print(f"\n=== TOP 8 by full-period excess CAGR (fill>=90%) ===")
+    print("\n=== TOP 8 by full-period excess CAGR (fill>=90%) ===")
     for ex, r, otm, dlbl, edte, bud in sorted(trust, reverse=True)[:8]:
         print(f"  {otm:7s} {dlbl} exit{edte} {bud*100:.1f}%  excess {ex:+.2f}pp  "
               f"Sharpe {r['sharpe']:.3f}  DD {r['dd']:.1f}%  GFCdd {r['gfc_dd']:.1f}%  CVDdd {r['covid_dd']:.1f}%")
-    print(f"\n=== BEST crash protection: shallowest avg(GFC,COVID) DD (fill>=90%) ===")
+    print("\n=== BEST crash protection: shallowest avg(GFC,COVID) DD (fill>=90%) ===")
     # DDs are negative; least-negative = best protection, so sort descending.
     for ex, r, otm, dlbl, edte, bud in sorted(trust, key=lambda t: (t[1]["gfc_dd"]+t[1]["covid_dd"])/2, reverse=True)[:8]:
         print(f"  {otm:7s} {dlbl} exit{edte} {bud*100:.1f}%  GFCdd {r['gfc_dd']:.1f}%  "

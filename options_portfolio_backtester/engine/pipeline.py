@@ -5,14 +5,13 @@ Provides bt-compatible scheduling, selection, weighting, and rebalancing algos.
 
 from __future__ import annotations
 
-import re as _re
 import random as _random
+import re as _re
 from dataclasses import dataclass, field
 from typing import Callable, Literal, Protocol, Sequence
 
 import numpy as np
 import pandas as pd
-
 
 StepStatus = Literal["continue", "skip_day", "stop"]
 
@@ -1253,7 +1252,6 @@ class AlgoPipelineBacktester:
         positions: dict[str, float] = {}
         rows: list[dict[str, float | pd.Timestamp]] = []
 
-        all_dates = list(self.prices.index)
         for i, (date, price_row) in enumerate(self.prices.iterrows()):
             stocks_cap = float(sum(float(qty) * float(price_row[sym])
                                    for sym, qty in positions.items()

@@ -1,7 +1,6 @@
 """Tests for convexity backtest module."""
 
 import pandas as pd
-import pytest
 
 from options_portfolio_backtester.convexity.backtest import (
     BacktestResult,

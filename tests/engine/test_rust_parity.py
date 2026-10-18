@@ -5,24 +5,24 @@ default configs. These tests force both paths and compare results.
 """
 
 import os
-import math
+
 import numpy as np
 import pytest
 
 from options_portfolio_backtester.engine.engine import BacktestEngine
+
 try:
     from options_portfolio_backtester import _ob_rust  # noqa: F401
     _RUST_OK = True
 except ImportError:
     _RUST_OK = False
-from options_portfolio_backtester.execution.cost_model import NoCosts, PerContractCommission
-from options_portfolio_backtester.execution.signal_selector import FirstMatch, NearestDelta
-from options_portfolio_backtester.portfolio.risk import RiskManager
-
+from options_portfolio_backtester.core.types import Direction, Stock
+from options_portfolio_backtester.core.types import OptionType as Type
 from options_portfolio_backtester.data.providers import HistoricalOptionsData, TiingoData
+from options_portfolio_backtester.execution.cost_model import NoCosts, PerContractCommission
+from options_portfolio_backtester.execution.signal_selector import NearestDelta
 from options_portfolio_backtester.strategy.strategy import Strategy
 from options_portfolio_backtester.strategy.strategy_leg import StrategyLeg
-from options_portfolio_backtester.core.types import Stock, OptionType as Type, Direction
 
 TEST_DIR = os.path.join(os.path.dirname(__file__), "..", "fixtures")
 STOCKS_FILE = os.path.join(TEST_DIR, "ivy_5assets_data.csv")
@@ -205,8 +205,8 @@ class TestRustDispatchGating:
 
     def test_per_leg_override_runs(self):
         """Per-leg signal selector completes successfully."""
-        from options_portfolio_backtester.strategy.strategy_leg import StrategyLeg as NewLeg
         from options_portfolio_backtester.execution.signal_selector import FirstMatch as FM
+        from options_portfolio_backtester.strategy.strategy_leg import StrategyLeg as NewLeg
 
         options_data = _options_data()
         schema = options_data.schema
@@ -308,8 +308,8 @@ class TestPerLegSellDirection:
 
     def test_sell_leg_with_midprice(self):
         """SELL leg with MidPrice fill should have correct sign on cost."""
-        from options_portfolio_backtester.strategy.strategy_leg import StrategyLeg as NewLeg
         from options_portfolio_backtester.execution.fill_model import MidPrice
+        from options_portfolio_backtester.strategy.strategy_leg import StrategyLeg as NewLeg
 
         options_data = _options_data()
         schema = options_data.schema

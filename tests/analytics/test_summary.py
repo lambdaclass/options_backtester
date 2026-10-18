@@ -3,8 +3,8 @@
 import numpy as np
 import pandas as pd
 
-from options_portfolio_backtester.core.types import Order
 from options_portfolio_backtester.analytics.summary import summary
+from options_portfolio_backtester.core.types import Order
 
 
 def _make_trade_log_and_balance():

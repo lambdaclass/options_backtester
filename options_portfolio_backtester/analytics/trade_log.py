@@ -2,11 +2,11 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Any
 
-import pandas as pd
 import numpy as np
+import pandas as pd
 
 from options_portfolio_backtester.core.types import Order
 

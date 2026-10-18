@@ -12,7 +12,7 @@ test-heavy: ## Run heavy at-scale correctness tests (needs data)
 	$(RUNCMD) $(PYTHON) -m pytest -v -m heavy tests/heavy -o addopts=""
 
 lint: ## Run ruff linter
-	$(RUNCMD) $(PYTHON) -m ruff check options_portfolio_backtester
+	$(RUNCMD) $(PYTHON) -m ruff check options_portfolio_backtester tests scripts research
 
 typecheck: ## Run mypy type checker
 	$(RUNCMD) $(PYTHON) -m mypy options_portfolio_backtester --ignore-missing-imports

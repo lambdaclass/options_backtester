@@ -9,15 +9,13 @@ import pytest
 
 from tests.heavy._test_helpers import (
     RUST_AVAILABLE,
-    DEFAULT_ALLOC,
-    DEFAULT_CAPITAL,
-    strangle_strategy,
-    straddle_strategy,
-    buy_put_spread_strategy,
-    sell_call_spread_strategy,
-    two_leg_strategy,
-    run_backtest,
     assert_invariants,
+    buy_put_spread_strategy,
+    run_backtest,
+    sell_call_spread_strategy,
+    straddle_strategy,
+    strangle_strategy,
+    two_leg_strategy,
 )
 
 pytestmark = pytest.mark.skipif(

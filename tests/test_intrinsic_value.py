@@ -1,12 +1,9 @@
 """Tests for intrinsic value fallback when options expire/go missing."""
 
-import numpy as np
-import pandas as pd
 import pytest
 
-from options_portfolio_backtester.engine.engine import _intrinsic_value
 from options_portfolio_backtester.core.types import OptionType
-
+from options_portfolio_backtester.engine.engine import _intrinsic_value
 
 # ---------------------------------------------------------------------------
 # Unit tests for _intrinsic_value helper

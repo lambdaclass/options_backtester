@@ -4,25 +4,35 @@ Fuzzes strategy preset construction, risk constraint monotonicity and compositio
 and Greeks vector-space properties with Hypothesis.
 """
 
-import numpy as np
-import pandas as pd
-import pytest
-from hypothesis import given, settings, assume, HealthCheck
+from hypothesis import HealthCheck, assume, given, settings
 from hypothesis import strategies as st
 
 from options_portfolio_backtester.core.types import (
-    Direction, OptionType, Order, Signal, Greeks, Fill, get_order,
+    Direction,
+    Fill,
+    Greeks,
+    OptionType,
+    Signal,
+    get_order,
 )
+from options_portfolio_backtester.data.schema import Schema
 from options_portfolio_backtester.portfolio.risk import (
-    MaxDelta, MaxVega, MaxDrawdown, RiskConstraint, RiskManager,
+    MaxDelta,
+    MaxDrawdown,
+    MaxVega,
+    RiskManager,
+)
+from options_portfolio_backtester.strategy.presets import (
+    Strangle,
+    butterfly,
+    cash_secured_put,
+    collar,
+    covered_call,
+    iron_condor,
+    strangle,
 )
 from options_portfolio_backtester.strategy.strategy import Strategy
 from options_portfolio_backtester.strategy.strategy_leg import StrategyLeg
-from options_portfolio_backtester.strategy.presets import (
-    strangle, iron_condor, covered_call, cash_secured_put, collar, butterfly,
-    Strangle,
-)
-from options_portfolio_backtester.data.schema import Schema
 
 # ---------------------------------------------------------------------------
 # Hypothesis strategies

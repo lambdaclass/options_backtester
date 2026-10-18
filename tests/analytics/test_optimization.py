@@ -1,10 +1,12 @@
 """Tests for analytics/optimization.py — grid_sweep and walk_forward."""
 
-import pandas as pd
 import numpy as np
+import pandas as pd
 
 from options_portfolio_backtester.analytics.optimization import (
-    OptimizationResult, grid_sweep, walk_forward,
+    OptimizationResult,
+    grid_sweep,
+    walk_forward,
 )
 from options_portfolio_backtester.analytics.stats import BacktestStats
 

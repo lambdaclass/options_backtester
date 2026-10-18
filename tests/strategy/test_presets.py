@@ -5,7 +5,12 @@ import math
 from options_portfolio_backtester.core.types import Direction, OptionType
 from options_portfolio_backtester.data.schema import Schema
 from options_portfolio_backtester.strategy.presets import (
-    strangle, iron_condor, covered_call, cash_secured_put, collar, butterfly,
+    butterfly,
+    cash_secured_put,
+    collar,
+    covered_call,
+    iron_condor,
+    strangle,
 )
 
 

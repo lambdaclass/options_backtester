@@ -2,10 +2,9 @@
 
 import numpy as np
 import pandas as pd
-import pytest
 
 from options_portfolio_backtester.analytics.stats import (
-    BacktestStats, PeriodStats, LookbackReturns,
+    BacktestStats,
 )
 
 

@@ -86,7 +86,8 @@ def returns_histogram(report: pd.DataFrame) -> alt.LayerChart:
 def monthly_returns_heatmap(report: pd.DataFrame) -> alt.LayerChart:
     resample = report.resample('ME')['total capital'].last()
     monthly_returns = resample.pct_change().reset_index()
-    monthly_returns.loc[monthly_returns.index[0], 'total capital'] = resample.iloc[0] / report.iloc[0]['total capital'] - 1
+    monthly_returns.loc[monthly_returns.index[0], 'total capital'] = (
+        resample.iloc[0] / report.iloc[0]['total capital'] - 1)
     monthly_returns.columns = ['date', 'ret']
     monthly_returns['label'] = monthly_returns['ret'] * 100
 

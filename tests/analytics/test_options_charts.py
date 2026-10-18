@@ -16,7 +16,7 @@ from options_portfolio_backtester.analytics.options_charts import (
     trade_return_histogram,
     yearly_pnl_chart,
 )
-from options_portfolio_backtester.analytics.trade_log import TradeLog, Trade
+from options_portfolio_backtester.analytics.trade_log import Trade, TradeLog
 from options_portfolio_backtester.core.types import Order
 
 

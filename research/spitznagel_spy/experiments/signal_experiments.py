@@ -24,21 +24,25 @@ from __future__ import annotations
 import math
 import shutil
 import tempfile
+import warnings
 from pathlib import Path
 
-import numpy as np
 import pandas as pd
-import warnings
-
 from spx_clean import clean_spx_chain
 
 warnings.filterwarnings("ignore")
 
 from options_portfolio_backtester import (
-    BacktestEngine, Direction, OptionType, Stock, Strategy, StrategyLeg,
+    BacktestEngine,
+    Direction,
+    OptionType,
+    Stock,
+    Strategy,
+    StrategyLeg,
 )
 from options_portfolio_backtester.data.providers import (
-    HistoricalOptionsData, TiingoData,
+    HistoricalOptionsData,
+    TiingoData,
 )
 
 ROOT = next(p for p in Path(__file__).resolve().parents if (p / "pyproject.toml").exists())

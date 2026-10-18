@@ -2,9 +2,10 @@
 
 import pytest
 
-from options_portfolio_backtester.strategy.presets import Strangle
+from options_portfolio_backtester.core.types import Direction
+from options_portfolio_backtester.core.types import OptionType as Type
 from options_portfolio_backtester.data.schema import Schema
-from options_portfolio_backtester.core.types import OptionType as Type, Direction
+from options_portfolio_backtester.strategy.presets import Strangle
 
 
 @pytest.fixture

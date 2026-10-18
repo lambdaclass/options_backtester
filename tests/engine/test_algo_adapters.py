@@ -3,23 +3,20 @@ from __future__ import annotations
 import warnings
 
 import pandas as pd
-import pytest
 
+from options_portfolio_backtester.core.types import Greeks
 from options_portfolio_backtester.engine.algo_adapters import (
     BudgetPercent,
-    EngineRunMonthly,
     EnginePipelineContext,
-    EngineStepDecision,
+    EngineRunMonthly,
     ExitOnThreshold,
+    IVRankFilter,
     MaxGreekExposure,
     RangeFilter,
-    SelectByDTE,
     SelectByDelta,
-    IVRankFilter,
+    SelectByDTE,
 )
 from options_portfolio_backtester.engine.engine import BacktestEngine
-from options_portfolio_backtester.core.types import Greeks
-
 from tests.engine.test_engine import _buy_strategy, _ivy_stocks, _options_data, _stocks_data
 
 

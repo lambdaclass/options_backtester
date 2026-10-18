@@ -8,7 +8,6 @@ from dataclasses import dataclass
 from typing import Any, Callable
 
 import pandas as pd
-import numpy as np
 
 from options_portfolio_backtester.analytics.stats import BacktestStats
 

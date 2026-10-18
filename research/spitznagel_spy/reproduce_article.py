@@ -184,6 +184,7 @@ def _print_fingerprint():
     """Engine version + commit + data hashes, so every published table is
     traceable to the exact code and the exact bytes that produced it."""
     import subprocess
+
     from options_portfolio_backtester.analytics.results import hash_data_file
     try:
         from importlib.metadata import version

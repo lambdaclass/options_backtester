@@ -1,6 +1,5 @@
 """Unit tests for BacktestEngine internals — repr, metadata, static methods."""
 
-import json
 
 from options_portfolio_backtester.engine.engine import BacktestEngine
 

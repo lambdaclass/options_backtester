@@ -5,7 +5,8 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 
 from options_portfolio_backtester.execution._rust_bridge import (
-    rust_option_cost, rust_stock_cost,
+    rust_option_cost,
+    rust_stock_cost,
 )
 
 
@@ -44,7 +45,8 @@ class PerContractCommission(TransactionCostModel):
         self.stock_rate = stock_rate  # per-share
 
     def option_cost(self, price: float, quantity: int, shares_per_contract: int) -> float:
-        return rust_option_cost("PerContract", self.rate, self.stock_rate, [], price, float(quantity), shares_per_contract)
+        return rust_option_cost("PerContract", self.rate, self.stock_rate, [],
+                                price, float(quantity), shares_per_contract)
 
     def stock_cost(self, price: float, quantity: float) -> float:
         return rust_stock_cost("PerContract", self.rate, self.stock_rate, [], price, float(quantity))
@@ -71,7 +73,8 @@ class TieredCommission(TransactionCostModel):
         self.stock_rate = stock_rate
 
     def option_cost(self, price: float, quantity: int, shares_per_contract: int) -> float:
-        return rust_option_cost("Tiered", 0.0, self.stock_rate, self.tiers, price, float(quantity), shares_per_contract)
+        return rust_option_cost("Tiered", 0.0, self.stock_rate, self.tiers,
+                                price, float(quantity), shares_per_contract)
 
     def stock_cost(self, price: float, quantity: float) -> float:
         return rust_stock_cost("Tiered", 0.0, self.stock_rate, self.tiers, price, float(quantity))

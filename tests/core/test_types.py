@@ -1,10 +1,17 @@
 """Tests for core domain types."""
 
 from options_portfolio_backtester.core.types import (
-    Direction, OptionType, Order, Signal, Greeks, Fill, OptionContract,
-    StockAllocation, Stock, get_order,
+    Direction,
+    Fill,
+    Greeks,
+    OptionContract,
+    OptionType,
+    Order,
+    Signal,
+    Stock,
+    StockAllocation,
+    get_order,
 )
-
 
 # ---------------------------------------------------------------------------
 # Direction

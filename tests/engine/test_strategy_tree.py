@@ -2,8 +2,7 @@ from __future__ import annotations
 
 import pytest
 
-from options_portfolio_backtester.engine.strategy_tree import StrategyTreeNode, StrategyTreeEngine
-
+from options_portfolio_backtester.engine.strategy_tree import StrategyTreeEngine, StrategyTreeNode
 from tests.engine.test_engine import _run_engine
 
 

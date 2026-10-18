@@ -81,7 +81,8 @@ class StrategyTreeEngine:
             out.extend(self._leaf_shares(child, parent_share * (child.weight / total)))
         return out
 
-    def run(self, rebalance_freq: int = 0, monthly: bool = False, sma_days: int | None = None) -> dict[str, pd.DataFrame]:
+    def run(self, rebalance_freq: int = 0, monthly: bool = False,
+            sma_days: int | None = None) -> dict[str, pd.DataFrame]:
         leaf_allocs = self._leaf_shares(self.root, 1.0)
         results: dict[str, pd.DataFrame] = {}
         self.leaf_weights = {leaf.name: w for leaf, w in leaf_allocs}

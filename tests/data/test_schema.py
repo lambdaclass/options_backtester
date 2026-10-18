@@ -1,9 +1,8 @@
 """Tests for Schema, Field, and Filter DSL."""
 
 import pandas as pd
-import pytest
 
-from options_portfolio_backtester.data.schema import Schema, Field, Filter
+from options_portfolio_backtester.data.schema import Field, Filter, Schema
 
 
 class TestSchema:

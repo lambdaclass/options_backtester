@@ -3,41 +3,38 @@
 Uses hypothesis to generate random inputs and verify invariants hold.
 """
 
-import math
 
 import numpy as np
 import pandas as pd
-import pytest
-from hypothesis import given, settings, assume, HealthCheck
+from hypothesis import HealthCheck, assume, given, settings
 from hypothesis import strategies as st
 
-from options_portfolio_backtester.analytics.stats import BacktestStats, PeriodStats
+from options_portfolio_backtester.analytics.stats import BacktestStats
 from options_portfolio_backtester.engine.pipeline import (
     AlgoPipelineBacktester,
+    LimitWeights,
     PipelineContext,
     Rebalance,
     RunDaily,
-    RunMonthly,
-    RunWeekly,
-    SelectAll,
-    SelectThese,
-    SelectRegex,
-    WeighEqually,
-    WeighSpecified,
-    LimitWeights,
     ScaleWeights,
-    StepDecision,
+    SelectAll,
+    WeighEqually,
 )
 from options_portfolio_backtester.execution.cost_model import (
-    NoCosts, PerContractCommission, TieredCommission,
+    NoCosts,
+    PerContractCommission,
+    TieredCommission,
 )
 from options_portfolio_backtester.execution.fill_model import (
-    MarketAtBidAsk, MidPrice, VolumeAwareFill,
+    MarketAtBidAsk,
+    MidPrice,
+    VolumeAwareFill,
 )
 from options_portfolio_backtester.execution.signal_selector import (
-    FirstMatch, NearestDelta, MaxOpenInterest,
+    FirstMatch,
+    MaxOpenInterest,
+    NearestDelta,
 )
-
 
 # ---------------------------------------------------------------------------
 # Strategies (hypothesis)
@@ -105,7 +102,8 @@ class TestStatsInvariants:
 
     @given(
         st.lists(daily_return, min_size=10, max_size=100),
-        st.lists(st.floats(min_value=-1000, max_value=1000, allow_nan=False, allow_infinity=False), min_size=1, max_size=50),
+        st.lists(st.floats(min_value=-1000, max_value=1000, allow_nan=False, allow_infinity=False),
+                 min_size=1, max_size=50),
     )
     @settings(max_examples=30, suppress_health_check=[HealthCheck.too_slow])
     def test_trade_stats_consistent(self, returns, pnls):

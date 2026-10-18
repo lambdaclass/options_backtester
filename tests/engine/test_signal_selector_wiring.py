@@ -5,20 +5,19 @@ that have to_rust_config() and produce different Rust behavior.
 """
 
 import os
-import pandas as pd
-import numpy as np
-import pytest
 
+from options_portfolio_backtester.core.types import Direction, Stock
+from options_portfolio_backtester.core.types import OptionType as Type
+from options_portfolio_backtester.data.providers import HistoricalOptionsData, TiingoData
 from options_portfolio_backtester.engine.engine import BacktestEngine
 from options_portfolio_backtester.execution.cost_model import NoCosts
 from options_portfolio_backtester.execution.signal_selector import (
-    FirstMatch, NearestDelta, MaxOpenInterest,
+    FirstMatch,
+    MaxOpenInterest,
+    NearestDelta,
 )
-
-from options_portfolio_backtester.data.providers import HistoricalOptionsData, TiingoData
 from options_portfolio_backtester.strategy.strategy import Strategy
 from options_portfolio_backtester.strategy.strategy_leg import StrategyLeg
-from options_portfolio_backtester.core.types import Stock, OptionType as Type, Direction
 
 TEST_DIR = os.path.join(os.path.dirname(__file__), "..", "fixtures")
 STOCKS_FILE = os.path.join(TEST_DIR, "ivy_5assets_data.csv")

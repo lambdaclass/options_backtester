@@ -2,11 +2,10 @@
 
 import numpy as np
 import pandas as pd
-from hypothesis import given, settings, assume, HealthCheck
+from hypothesis import HealthCheck, assume, given, settings
 from hypothesis import strategies as st
 
-from options_portfolio_backtester.data.schema import Schema, Field, Filter
-
+from options_portfolio_backtester.data.schema import Field
 
 # ---------------------------------------------------------------------------
 # Strategies

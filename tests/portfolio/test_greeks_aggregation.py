@@ -1,12 +1,16 @@
 """Tests for portfolio-level Greeks aggregation."""
 
 from options_portfolio_backtester.core.types import (
-    Direction, OptionType, Order, Greeks,
-)
-from options_portfolio_backtester.portfolio.position import (
-    OptionPosition, PositionLeg,
+    Direction,
+    Greeks,
+    OptionType,
+    Order,
 )
 from options_portfolio_backtester.portfolio.greeks import aggregate_greeks
+from options_portfolio_backtester.portfolio.position import (
+    OptionPosition,
+    PositionLeg,
+)
 
 
 def _make_position(pid, direction=Direction.BUY, qty=10):

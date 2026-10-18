@@ -2,14 +2,14 @@
 
 import math
 
-import pytest
-import numpy as np
 import pandas as pd
+import pytest
 
+from options_portfolio_backtester.core.types import Direction
+from options_portfolio_backtester.core.types import OptionType as Type
+from options_portfolio_backtester.data.schema import Schema
 from options_portfolio_backtester.strategy.strategy import Strategy
 from options_portfolio_backtester.strategy.strategy_leg import StrategyLeg
-from options_portfolio_backtester.data.schema import Schema
-from options_portfolio_backtester.core.types import OptionType as Type, Direction
 
 
 @pytest.fixture

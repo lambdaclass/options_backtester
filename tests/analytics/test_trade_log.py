@@ -1,6 +1,5 @@
 """Tests for structured TradeLog."""
 
-import numpy as np
 import pandas as pd
 
 from options_portfolio_backtester.analytics.trade_log import Trade, TradeLog

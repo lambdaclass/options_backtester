@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from dataclasses import dataclass
 
 from options_portfolio_backtester.core.types import Greeks
 from options_portfolio_backtester.execution._rust_bridge import rust_risk_check

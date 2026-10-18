@@ -30,6 +30,8 @@ jobs:
       # No data download here: the default suite is designed to pass without
       # the SPY dataset (data-dependent tests skip themselves). SPY-gated
       # tests run in the article-reproduction job below, with caching.
+      - name: Lint
+        run: python -m ruff check options_portfolio_backtester tests scripts research
       - name: Run tests
         run: python -m pytest -v tests/ --ignore=tests/heavy --ignore=tests/oracles/test_article_reproduction.py
       - name: Type check (informational)

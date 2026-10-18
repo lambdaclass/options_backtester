@@ -20,20 +20,25 @@ from __future__ import annotations
 
 import math
 import sys
+import warnings
 from pathlib import Path
 
 import pandas as pd
-import warnings
-
 from spx_clean import clean_spx_chain
 
 warnings.filterwarnings("ignore")
 
 from options_portfolio_backtester import (
-    BacktestEngine, Direction, OptionType, Stock, Strategy, StrategyLeg,
+    BacktestEngine,
+    Direction,
+    OptionType,
+    Stock,
+    Strategy,
+    StrategyLeg,
 )
 from options_portfolio_backtester.data.providers import (
-    HistoricalOptionsData, TiingoData,
+    HistoricalOptionsData,
+    TiingoData,
 )
 
 DATA = next(p for p in Path(__file__).resolve().parents if (p / "pyproject.toml").exists()) / "data" / "processed"
@@ -122,7 +127,9 @@ def main():
     opt = opt[opt["quotedate"].isin(shared)].sort_values("quotedate", kind="stable")
     stk = stk[stk["date"].isin(shared)].sort_values("date", kind="stable")
 
-    import os, shutil, tempfile
+    import os
+    import shutil
+    import tempfile
     td = tempfile.mkdtemp()
     op = os.path.join(td, "o.parquet"); sp = os.path.join(td, "s.csv")
     opt.to_parquet(op, index=False); stk.to_csv(sp, index=False)
@@ -153,7 +160,7 @@ def main():
     print(f"\n=== TOP 10 by excess CAGR (regime={regime}, fill>=90% only) ===")
     for ex, a, dd, sh, n, otm, dlabel, bud, fill in sorted(trustworthy, reverse=True)[:10]:
         print(f"  {otm:8s} {dlabel:12s} {bud*100:>4.1f}%  excess {ex:+.2f}pp  CAGR {a:+.2f}%  DD {dd:.1f}%  Sharpe {sh:.3f}  fill {fill:.0%}")
-    print(f"\n=== TOP 10 by Sharpe (fill>=90% only) ===")
+    print("\n=== TOP 10 by Sharpe (fill>=90% only) ===")
     for ex, a, dd, sh, n, otm, dlabel, bud, fill in sorted(trustworthy, key=lambda r: r[3], reverse=True)[:10]:
         print(f"  {otm:8s} {dlabel:12s} {bud*100:>4.1f}%  Sharpe {sh:.3f}  excess {ex:+.2f}pp  DD {dd:.1f}%  fill {fill:.0%}")
 

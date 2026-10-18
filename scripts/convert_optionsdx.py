@@ -9,10 +9,8 @@ Usage:
 """
 
 import argparse
-import sys
 
 import pandas as pd
-
 
 # OptionsDX columns we need (they have trailing spaces, stripped on read)
 CALL_COLS = {

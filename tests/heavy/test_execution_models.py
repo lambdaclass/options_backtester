@@ -5,16 +5,15 @@ from __future__ import annotations
 import pytest
 
 from tests.heavy._test_helpers import (
-    RUST_AVAILABLE,
     DEFAULT_ALLOC,
     DEFAULT_CAPITAL,
-    buy_put_strategy,
-    strangle_strategy,
-    run_backtest,
+    RUST_AVAILABLE,
     assert_invariants,
+    buy_put_strategy,
     make_cost_model,
     make_fill_model,
     make_signal_selector,
+    run_backtest,
 )
 
 pytestmark = [
@@ -54,14 +53,14 @@ class TestSignalSelectors:
 
 class TestRiskConstraints:
     def test_max_delta(self):
-        from options_portfolio_backtester.portfolio.risk import RiskManager, MaxDelta
+        from options_portfolio_backtester.portfolio.risk import MaxDelta, RiskManager
         rm = RiskManager()
         rm.add_constraint(MaxDelta(limit=100))
         eng = run_backtest(risk_manager=rm)
         assert_invariants(eng)
 
     def test_max_drawdown(self):
-        from options_portfolio_backtester.portfolio.risk import RiskManager, MaxDrawdown
+        from options_portfolio_backtester.portfolio.risk import MaxDrawdown, RiskManager
         rm = RiskManager()
         rm.add_constraint(MaxDrawdown(max_dd_pct=0.20))
         eng = run_backtest(risk_manager=rm)
@@ -73,7 +72,10 @@ class TestRiskConstraints:
 class TestExitThresholds:
     def test_profit_exit(self):
         from tests.heavy._test_helpers import (
-            _make_engine, load_small_stocks, load_small_options, ivy_stocks,
+            _make_engine,
+            ivy_stocks,
+            load_small_options,
+            load_small_stocks,
         )
         eng = _make_engine(
             DEFAULT_ALLOC, DEFAULT_CAPITAL, ivy_stocks(),
@@ -85,7 +87,10 @@ class TestExitThresholds:
 
     def test_loss_exit(self):
         from tests.heavy._test_helpers import (
-            _make_engine, load_small_stocks, load_small_options, ivy_stocks,
+            _make_engine,
+            ivy_stocks,
+            load_small_options,
+            load_small_stocks,
         )
         eng = _make_engine(
             DEFAULT_ALLOC, DEFAULT_CAPITAL, ivy_stocks(),

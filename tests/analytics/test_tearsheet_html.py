@@ -125,7 +125,6 @@ def test_equity_curve_uses_log_scale():
 
 def test_charts_empty_without_balance():
     from options_portfolio_backtester.analytics.tearsheet import TearsheetReport
-    from options_portfolio_backtester.analytics.stats import BacktestStats
     report = build_tearsheet(_balance())
     bare = TearsheetReport(
         stats=report.stats, stats_table=report.stats_table,
@@ -187,7 +186,7 @@ def test_benchmark_appears_in_equity_curve():
 
 
 def test_trade_log_supplies_pnls_and_panels():
-    from options_portfolio_backtester.analytics.trade_log import TradeLog, Trade
+    from options_portfolio_backtester.analytics.trade_log import Trade, TradeLog
     from options_portfolio_backtester.core.types import Order
     tl = TradeLog()
     tl.add_trade(Trade(

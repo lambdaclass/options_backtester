@@ -22,10 +22,10 @@ import pytest
 from options_portfolio_backtester import BacktestEngine
 from tests.heavy._test_helpers import (
     DEFAULT_CAPITAL,
-    ivy_stocks,
-    load_small_stocks,
-    load_small_options,
     buy_put_strategy,
+    ivy_stocks,
+    load_small_options,
+    load_small_stocks,
 )
 
 

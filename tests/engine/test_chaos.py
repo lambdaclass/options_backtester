@@ -13,17 +13,20 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from options_portfolio_backtester.engine.engine import BacktestEngine
-from options_portfolio_backtester.execution.cost_model import NoCosts, PerContractCommission
-from options_portfolio_backtester.execution.fill_model import (
-    MarketAtBidAsk, MidPrice, VolumeAwareFill,
-)
-from options_portfolio_backtester.execution.signal_selector import NearestDelta, FirstMatch
-from options_portfolio_backtester.portfolio.risk import RiskManager, MaxDelta, MaxVega
+from options_portfolio_backtester.core.types import Direction, Stock
+from options_portfolio_backtester.core.types import OptionType as Type
 from options_portfolio_backtester.data.providers import HistoricalOptionsData, TiingoData
+from options_portfolio_backtester.engine.engine import BacktestEngine
+from options_portfolio_backtester.execution.cost_model import NoCosts
+from options_portfolio_backtester.execution.fill_model import (
+    MarketAtBidAsk,
+    MidPrice,
+    VolumeAwareFill,
+)
+from options_portfolio_backtester.execution.signal_selector import NearestDelta
+from options_portfolio_backtester.portfolio.risk import MaxDelta, MaxVega, RiskManager
 from options_portfolio_backtester.strategy.strategy import Strategy
 from options_portfolio_backtester.strategy.strategy_leg import StrategyLeg
-from options_portfolio_backtester.core.types import Stock, OptionType as Type, Direction
 
 TEST_DIR = os.path.join(os.path.dirname(__file__), "..", "fixtures")
 STOCKS_FILE = os.path.join(TEST_DIR, "ivy_5assets_data.csv")

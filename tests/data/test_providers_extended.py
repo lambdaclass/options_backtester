@@ -1,14 +1,15 @@
 """Extended tests for data providers — accessors, iteration, edge cases."""
 
-import os
 import pandas as pd
 import pytest
 
 from options_portfolio_backtester.data.providers import (
-    TiingoData, HistoricalOptionsData,
-    CsvOptionsProvider, CsvStocksProvider,
+    CsvOptionsProvider,
+    CsvStocksProvider,
+    HistoricalOptionsData,
+    TiingoData,
 )
-from options_portfolio_backtester.data.schema import Schema, Filter
+from options_portfolio_backtester.data.schema import Filter, Schema
 
 
 @pytest.fixture

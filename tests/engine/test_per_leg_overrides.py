@@ -1,18 +1,17 @@
 """Tests for per-leg signal_selector and fill_model overrides."""
 
 import os
-import numpy as np
-import pandas as pd
-import pytest
 
+import numpy as np
+
+from options_portfolio_backtester.core.types import Direction, Stock
+from options_portfolio_backtester.core.types import OptionType as Type
+from options_portfolio_backtester.data.providers import HistoricalOptionsData, TiingoData
 from options_portfolio_backtester.engine.engine import BacktestEngine
 from options_portfolio_backtester.execution.cost_model import NoCosts
 from options_portfolio_backtester.execution.fill_model import MarketAtBidAsk, MidPrice
-from options_portfolio_backtester.execution.signal_selector import FirstMatch, NearestDelta, SignalSelector
-
-from options_portfolio_backtester.data.providers import HistoricalOptionsData, TiingoData
+from options_portfolio_backtester.execution.signal_selector import FirstMatch, NearestDelta
 from options_portfolio_backtester.strategy.strategy import Strategy
-from options_portfolio_backtester.core.types import Stock, OptionType as Type, Direction
 
 # Use new StrategyLeg that supports signal_selector/fill_model
 from options_portfolio_backtester.strategy.strategy_leg import StrategyLeg
@@ -55,7 +54,6 @@ class TestPerLegSignalSelector:
 
     def test_leg_selector_overrides_engine(self):
         """A per-leg selector should be used instead of the engine-level one."""
-        from options_portfolio_backtester.execution.signal_selector import NearestDelta, MaxOpenInterest
 
         options_data = _options_data()
         schema = options_data.schema

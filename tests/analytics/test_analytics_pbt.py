@@ -6,11 +6,10 @@ verify statistical invariants hold across all inputs.
 
 import numpy as np
 import pandas as pd
-import pytest
-from hypothesis import given, settings, assume, HealthCheck
+from hypothesis import HealthCheck, given, settings
 from hypothesis import strategies as st
 
-from options_portfolio_backtester.analytics.stats import BacktestStats, PeriodStats
+from options_portfolio_backtester.analytics.stats import BacktestStats
 
 # ---------------------------------------------------------------------------
 # Hypothesis strategies
@@ -351,9 +350,10 @@ class TestBalanceRangePBT:
         mid_start = balance.index[len(balance) // 4]
         mid_end = balance.index[3 * len(balance) // 4]
         sliced = BacktestStats.from_balance_range(balance, start=mid_start, end=mid_end)
-        # Just verify it computed something -- the stats themselves may differ
         assert isinstance(sliced, BacktestStats)
         assert sliced.max_drawdown >= -1e-10
+        # Any peak-to-trough inside the sub-range is also inside the full one.
+        assert sliced.max_drawdown <= full.max_drawdown + 1e-9
 
 
 # ---------------------------------------------------------------------------

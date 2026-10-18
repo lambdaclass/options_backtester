@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-import pandas as pd
 import numpy as np
+import pandas as pd
 
 from options_portfolio_backtester.engine.pipeline import (
     AlgoPipelineBacktester,
@@ -45,8 +45,8 @@ from options_portfolio_backtester.engine.pipeline import (
     SelectWhere,
     StepDecision,
     TargetVol,
-    WeighERC,
     WeighEqually,
+    WeighERC,
     WeighInvVol,
     WeighMeanVar,
     WeighRandomly,
@@ -368,7 +368,7 @@ def test_run_weekly_triggers_once_per_week():
         prices=prices, initial_capital=1000.0,
         algos=[algo, SelectThese(["SPY"]), WeighSpecified({"SPY": 1.0}), Rebalance()],
     )
-    bal = bt.run()
+    bt.run()
     logs = bt.logs_dataframe()
     rebalance_dates = logs[(logs["step"] == "Rebalance") & (logs["status"] == "continue")]["date"]
     # Should rebalance on the first day of each week
@@ -578,7 +578,7 @@ def test_run_after_date_full_pipeline():
             SelectThese(["SPY"]), WeighSpecified({"SPY": 1.0}), Rebalance(),
         ],
     )
-    bal = bt.run()
+    bt.run()
     # First two dates (Jan 2, Jan 3) are skipped, Feb 1 and Feb 2 rebalance
     logs = bt.logs_dataframe()
     rebalance_count = len(logs[(logs["step"] == "Rebalance") & (logs["status"] == "continue")])
@@ -1386,7 +1386,7 @@ def test_run_after_days_in_pipeline():
         prices=prices, initial_capital=1000.0,
         algos=[RunAfterDays(5), SelectThese(["SPY"]), WeighSpecified({"SPY": 1.0}), Rebalance()],
     )
-    bal = bt.run()
+    bt.run()
     # First 5 days skipped, rebalance on days 6-10
     logs = bt.logs_dataframe()
     rebalance_count = len(logs[(logs["step"] == "Rebalance") & (logs["status"] == "continue")])
@@ -2063,6 +2063,7 @@ def test_coupon_pays_on_schedule():
     ctx2 = _ctx(date=pd.Timestamp("2024-01-20"), cash=10000.0, total_capital=10000.0)
     d2 = algo(ctx2)
     assert ctx2.cash == 10000.0
+    assert "coupon paid" not in d2.message
 
 
 def test_coupon_semi_annual_spacing():

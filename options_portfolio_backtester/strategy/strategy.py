@@ -8,12 +8,13 @@ from typing import TYPE_CHECKING
 import numpy as np
 import pandas as pd
 
-from options_portfolio_backtester.execution.cost_model import TransactionCostModel, NoCosts
-from options_portfolio_backtester.execution.sizer import PositionSizer, CapitalBased
-from options_portfolio_backtester.execution.signal_selector import SignalSelector, FirstMatch
+from options_portfolio_backtester.execution.cost_model import NoCosts, TransactionCostModel
+from options_portfolio_backtester.execution.signal_selector import FirstMatch, SignalSelector
+from options_portfolio_backtester.execution.sizer import CapitalBased, PositionSizer
 
 if TYPE_CHECKING:
     from options_portfolio_backtester.data.schema import Schema
+
     from .strategy_leg import StrategyLeg
 
 

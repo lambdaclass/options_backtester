@@ -9,7 +9,7 @@ from typing import Any, Union
 
 import pandas as pd
 
-from .schema import Schema, Filter
+from .schema import Filter, Schema
 
 logger = logging.getLogger(__name__)
 

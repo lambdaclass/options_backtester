@@ -6,12 +6,11 @@ inventory tracking. Simpler, extensible, debuggable.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
-from typing import Any
+from dataclasses import dataclass
 
 from options_portfolio_backtester.core.types import Greeks
-from options_portfolio_backtester.portfolio.position import OptionPosition
 from options_portfolio_backtester.portfolio.greeks import aggregate_greeks
+from options_portfolio_backtester.portfolio.position import OptionPosition
 
 
 @dataclass

@@ -6,7 +6,6 @@ import os
 
 import numpy as np
 import pandas as pd
-import pytest
 
 try:
     from options_portfolio_backtester._ob_rust import run_backtest_py  # noqa: F401
@@ -144,9 +143,10 @@ def load_slice_options(slice_id):
 
 def buy_put_strategy(schema, underlying="SPX", dte_min=60, dte_max=None,
                      dte_exit=30):
+    from options_portfolio_backtester.core.types import Direction
+    from options_portfolio_backtester.core.types import OptionType as Type
     from options_portfolio_backtester.strategy.strategy import Strategy
     from options_portfolio_backtester.strategy.strategy_leg import StrategyLeg
-    from options_portfolio_backtester.core.types import OptionType as Type, Direction
 
     strat = Strategy(schema)
     leg = StrategyLeg("leg_1", schema, option_type=Type.PUT,
@@ -161,9 +161,10 @@ def buy_put_strategy(schema, underlying="SPX", dte_min=60, dte_max=None,
 
 
 def buy_call_strategy(schema, underlying="SPX", dte_min=60, dte_exit=30):
+    from options_portfolio_backtester.core.types import Direction
+    from options_portfolio_backtester.core.types import OptionType as Type
     from options_portfolio_backtester.strategy.strategy import Strategy
     from options_portfolio_backtester.strategy.strategy_leg import StrategyLeg
-    from options_portfolio_backtester.core.types import OptionType as Type, Direction
 
     strat = Strategy(schema)
     leg = StrategyLeg("leg_1", schema, option_type=Type.CALL,
@@ -175,9 +176,10 @@ def buy_call_strategy(schema, underlying="SPX", dte_min=60, dte_exit=30):
 
 
 def sell_put_strategy(schema, underlying="SPX", dte_min=60, dte_exit=30):
+    from options_portfolio_backtester.core.types import Direction
+    from options_portfolio_backtester.core.types import OptionType as Type
     from options_portfolio_backtester.strategy.strategy import Strategy
     from options_portfolio_backtester.strategy.strategy_leg import StrategyLeg
-    from options_portfolio_backtester.core.types import OptionType as Type, Direction
 
     strat = Strategy(schema)
     leg = StrategyLeg("leg_1", schema, option_type=Type.PUT,
@@ -189,9 +191,10 @@ def sell_put_strategy(schema, underlying="SPX", dte_min=60, dte_exit=30):
 
 
 def sell_call_strategy(schema, underlying="SPX", dte_min=60, dte_exit=30):
+    from options_portfolio_backtester.core.types import Direction
+    from options_portfolio_backtester.core.types import OptionType as Type
     from options_portfolio_backtester.strategy.strategy import Strategy
     from options_portfolio_backtester.strategy.strategy_leg import StrategyLeg
-    from options_portfolio_backtester.core.types import OptionType as Type, Direction
 
     strat = Strategy(schema)
     leg = StrategyLeg("leg_1", schema, option_type=Type.CALL,
@@ -203,9 +206,10 @@ def sell_call_strategy(schema, underlying="SPX", dte_min=60, dte_exit=30):
 
 
 def strangle_strategy(schema, underlying="SPX", dte_min=60, dte_exit=30):
+    from options_portfolio_backtester.core.types import Direction
+    from options_portfolio_backtester.core.types import OptionType as Type
     from options_portfolio_backtester.strategy.strategy import Strategy
     from options_portfolio_backtester.strategy.strategy_leg import StrategyLeg
-    from options_portfolio_backtester.core.types import OptionType as Type, Direction
 
     strat = Strategy(schema)
     leg1 = StrategyLeg("leg_1", schema, option_type=Type.PUT, direction=Direction.SELL)
@@ -219,9 +223,10 @@ def strangle_strategy(schema, underlying="SPX", dte_min=60, dte_exit=30):
 
 
 def straddle_strategy(schema, underlying="SPX", dte_min=60, dte_exit=30):
+    from options_portfolio_backtester.core.types import Direction
+    from options_portfolio_backtester.core.types import OptionType as Type
     from options_portfolio_backtester.strategy.strategy import Strategy
     from options_portfolio_backtester.strategy.strategy_leg import StrategyLeg
-    from options_portfolio_backtester.core.types import OptionType as Type, Direction
 
     strat = Strategy(schema)
     leg1 = StrategyLeg("leg_1", schema, option_type=Type.PUT, direction=Direction.BUY)
@@ -235,9 +240,10 @@ def straddle_strategy(schema, underlying="SPX", dte_min=60, dte_exit=30):
 
 
 def buy_put_spread_strategy(schema, underlying="SPX", dte_min=60, dte_exit=30):
+    from options_portfolio_backtester.core.types import Direction
+    from options_portfolio_backtester.core.types import OptionType as Type
     from options_portfolio_backtester.strategy.strategy import Strategy
     from options_portfolio_backtester.strategy.strategy_leg import StrategyLeg
-    from options_portfolio_backtester.core.types import OptionType as Type, Direction
 
     strat = Strategy(schema)
     leg1 = StrategyLeg("leg_1", schema, option_type=Type.PUT, direction=Direction.BUY)
@@ -251,9 +257,10 @@ def buy_put_spread_strategy(schema, underlying="SPX", dte_min=60, dte_exit=30):
 
 
 def sell_call_spread_strategy(schema, underlying="SPX", dte_min=60, dte_exit=30):
+    from options_portfolio_backtester.core.types import Direction
+    from options_portfolio_backtester.core.types import OptionType as Type
     from options_portfolio_backtester.strategy.strategy import Strategy
     from options_portfolio_backtester.strategy.strategy_leg import StrategyLeg
-    from options_portfolio_backtester.core.types import OptionType as Type, Direction
 
     strat = Strategy(schema)
     leg1 = StrategyLeg("leg_1", schema, option_type=Type.CALL, direction=Direction.SELL)
@@ -268,9 +275,10 @@ def sell_call_spread_strategy(schema, underlying="SPX", dte_min=60, dte_exit=30)
 
 def two_leg_strategy(schema, dir1, type1, dir2, type2,
                      underlying="SPX", dte_min=60, dte_exit=30):
+    from options_portfolio_backtester.core.types import Direction
+    from options_portfolio_backtester.core.types import OptionType as Type
     from options_portfolio_backtester.strategy.strategy import Strategy
     from options_portfolio_backtester.strategy.strategy_leg import StrategyLeg
-    from options_portfolio_backtester.core.types import OptionType as Type, Direction
 
     type_map = {"put": Type.PUT, "call": Type.CALL}
     dir_map = {"buy": Direction.BUY, "sell": Direction.SELL}
@@ -305,7 +313,9 @@ STRATEGY_MAP.update({
 
 def make_cost_model(name):
     from options_portfolio_backtester.execution.cost_model import (
-        NoCosts, PerContractCommission, TieredCommission,
+        NoCosts,
+        PerContractCommission,
+        TieredCommission,
     )
     if name == "NoCosts":
         return NoCosts()
@@ -318,7 +328,9 @@ def make_cost_model(name):
 
 def make_fill_model(name):
     from options_portfolio_backtester.execution.fill_model import (
-        MarketAtBidAsk, MidPrice, VolumeAwareFill,
+        MarketAtBidAsk,
+        MidPrice,
+        VolumeAwareFill,
     )
     if name == "MarketAtBidAsk":
         return MarketAtBidAsk()
@@ -331,7 +343,9 @@ def make_fill_model(name):
 
 def make_signal_selector(name):
     from options_portfolio_backtester.execution.signal_selector import (
-        FirstMatch, NearestDelta, MaxOpenInterest,
+        FirstMatch,
+        MaxOpenInterest,
+        NearestDelta,
     )
     if name == "FirstMatch":
         return FirstMatch()

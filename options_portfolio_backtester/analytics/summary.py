@@ -22,8 +22,8 @@ def summary(trade_log: pd.DataFrame, balance: pd.DataFrame) -> pd.io.formats.sty
 
     ## Not sure of a better way to to this, just doing `Order` or `@Order` inside
     ## the .eval(...) does not seem to work.
-    order_bto = Order.BTO
-    order_sto = Order.STO
+    order_bto = Order.BTO  # noqa: F841 -- referenced as @order_bto in .eval()
+    order_sto = Order.STO  # noqa: F841
 
     entry_mask: pd.Series = trade_log[first_leg].eval('(order == @order_bto) | (order == @order_sto)')
     entries: pd.DataFrame = trade_log.loc[entry_mask]

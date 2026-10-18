@@ -3,15 +3,15 @@
 Tests edge cases, boundary conditions, and composition of execution components.
 """
 
-import numpy as np
 import pandas as pd
 import pytest
 
+from options_portfolio_backtester.core.types import Direction
 from options_portfolio_backtester.execution.cost_model import (
     NoCosts,
     PerContractCommission,
-    TieredCommission,
     SpreadSlippage,
+    TieredCommission,
 )
 from options_portfolio_backtester.execution.fill_model import (
     MarketAtBidAsk,
@@ -20,17 +20,15 @@ from options_portfolio_backtester.execution.fill_model import (
 )
 from options_portfolio_backtester.execution.signal_selector import (
     FirstMatch,
-    NearestDelta,
     MaxOpenInterest,
+    NearestDelta,
 )
 from options_portfolio_backtester.execution.sizer import (
     CapitalBased,
-    FixedQuantity,
     FixedDollar,
+    FixedQuantity,
     PercentOfPortfolio,
 )
-from options_portfolio_backtester.core.types import Direction
-
 
 # ---------------------------------------------------------------------------
 # Cost Models — deep tests
