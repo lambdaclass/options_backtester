@@ -156,6 +156,11 @@ class BacktestEngine:
         # full per-rebalance budget every time (a fixed premium spend, which is
         # what "x%/yr on puts" usually means).
         self.options_budget_fresh_spend: bool = False
+        # Fraction of the proceeds of every option sale spent on new contracts
+        # the same day, from the strategy's entry filter, on top of the regular
+        # budget (a "roll": cashing in puts keeps the hedge's size instead of
+        # waiting for the next rebalance). None = off. Single-strategy only.
+        self.roll_exit_proceeds_pct: float | None = None
         self._stocks: list[Stock] = []
         self._options_strategy: Strategy | None = None
         self._stocks_data: TiingoData | None = None
@@ -387,6 +392,9 @@ class BacktestEngine:
             )
             for slot in self._strategy_slots:
                 assert self._options_data.schema == slot.strategy.schema
+            if self.roll_exit_proceeds_pct is not None:
+                raise NotImplementedError(
+                    "roll_exit_proceeds_pct is single-strategy only")
             return self._run_rust_multi(
                 monthly=monthly, sma_days=sma_days,
                 check_exits_daily=check_exits_daily,
@@ -428,6 +436,7 @@ class BacktestEngine:
                 "options_budget_pct": self.options_budget_per_rebalance_pct,
                 "options_budget_annual_pct": self.options_budget_annual_pct,
                 "options_budget_fresh_spend": self.options_budget_fresh_spend,
+                "roll_exit_proceeds_pct": self.roll_exit_proceeds_pct,
                 "max_notional_pct": self.max_notional_pct,
                 "stop_if_broke": self.stop_if_broke,
             },
@@ -666,6 +675,7 @@ class BacktestEngine:
             "options_budget_pct": self.options_budget_per_rebalance_pct,
             "options_budget_annual_pct": self.options_budget_annual_pct,
             "options_budget_fresh_spend": self.options_budget_fresh_spend,
+            "roll_exit_proceeds_pct": self.roll_exit_proceeds_pct,
             "stop_if_broke": self.stop_if_broke,
             "max_notional_pct": self.max_notional_pct,
             "check_exits_daily": check_exits_daily,

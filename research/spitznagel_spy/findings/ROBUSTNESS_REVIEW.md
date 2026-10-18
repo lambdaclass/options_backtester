@@ -104,9 +104,8 @@ pp/yr, mean (worst…best calendar):
 - **Monetizing in the crash hurts, and the earlier it fires the worse.**
   Selling once SPX nears the strike cashes out partway down; in 2008 the
   market kept falling for months while the next hedge waited for the next
-  scheduled entry. *Caveat:* the engine only opens positions on scheduled
-  entry dates, so Universa-style immediate re-hedging after a monetization is
-  not tested — that is the one variant here that could change the verdict.
+  scheduled entry. Re-hedging the same day (§5) and rolling the proceeds
+  into new puts (§6) do not rescue it.
 - **Short-dated puts cost too much.** Rolling ~2-month puts pays more decay
   per year for similar crash payoffs.
 - **The monthly ladder is the realistic number:** a narrower calendar range
@@ -122,8 +121,7 @@ unchanged (e.g. bi-monthly, 2%, m = 0.90: −0.41 → −0.45pp, GFC −53.7% �
 −53.8%). The re-hedge spends one regular entry's budget (~0.2–0.3% of NAV),
 far too small to replace the convexity that was sold: in 2008 the m = 0.90
 rule sold puts near SPX 1030 in early October, and SPX then fell to 752.
-Universa rolls the *proceeds* into new puts, keeping the hedge's size; that
-needs a per-date budget the engine does not have yet, and is untested.
+Universa rolls the *proceeds* into new puts, keeping the hedge's size; see §6.
 
 **IV-aware monthly ladder** ([`vol_aware.py`](../experiments/vol_aware.py)):
 skip a month's purchase when ~30-day ATM implied vol (built from the chain;
@@ -139,6 +137,41 @@ of 2 calendars), pp/yr vs B&H:
 
 The median rule's +0.15–0.27pp edge over `always` is inside its own
 calendar spread; no rule is a reliable improvement.
+
+## 6. Rolling sale proceeds into new puts
+
+[`roll_proceeds.py`](../experiments/roll_proceeds.py), using the engine's
+`roll_exit_proceeds_pct = f`: on every put sale (the DTE-30 exit, or a
+monetization) a fraction f of the proceeds buys new 25–30% OTM, 90–180 DTE
+puts that day, struck off the new spot; the rest goes to stock. Mean
+(worst…best calendar), pp/yr vs B&H:
+
+| strategy | f | 1% | 2% | GFC DD @2% | COVID DD @2% |
+|---|---|---|---|---|---|
+| core, bi-monthly | 0 | **+0.04** (−0.39…+0.50) | **−0.09** (−0.84…+0.72) | **−42.3%** | −14.6% |
+| | 0.25 | −0.17 (−0.49…+0.18) | −0.48 (−1.04…+0.16) | −45.5% | −15.0% |
+| | 0.50 | −0.41 (−0.61…−0.16) | −0.91 (−1.29…−0.47) | −49.4% | −15.6% |
+| | 1.00 | −0.91 (−0.94…−0.88) | −1.89 (−1.93…−1.85) | −57.2% | −19.0% |
+| core, monthly | 0 | −0.08 | −0.26 | −47.0% | **−13.0%** |
+| | 0.50 | −0.42 | −0.92 | −52.0% | −14.2% |
+| monetize 0.95, bi-monthly | 0 | −0.09 | −0.28 | −51.7% | −18.3% |
+| | 0.50 | −0.42 | −0.91 | −53.9% | −14.9% |
+
+Rolling hurts in every cell, roughly in proportion to f, and it makes the
+GFC drawdown *worse*. With f = 1 the hedge's GFC benefit disappears
+entirely (−57%, the same as buy & hold). The 2008 trade log shows why
+(odd/1st calendar, 2%, f = 1):
+
+- On 2008-11-20, the closing low, the DTE-30 sale raised $112k, and all of
+  it bought 32 SPX 550 puts expiring Feb-09.
+- Deep-OTM spreads were at their widest then, so the position lost about
+  $25k the same day, from buying at the ask and marking at the bid.
+- SPX bottomed at 676, never got near 550, and the puts expired worthless.
+- Without the roll, that $112k went into stock at the low.
+
+The only gain is COVID with monetization (−18% → −15%), which is
+too small for the cost. Reinvesting crash payoffs in stock, not in more
+insurance at crisis prices, is what makes the core strategy work.
 
 ## Status of earlier findings
 

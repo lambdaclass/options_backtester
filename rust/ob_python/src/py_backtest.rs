@@ -263,6 +263,10 @@ pub fn parse_config_from_dict(config: &Bound<'_, PyDict>) -> PyResult<BacktestCo
         .transpose()?
         .unwrap_or(false);
 
+    let roll_exit_proceeds_pct: Option<f64> = config
+        .get_item("roll_exit_proceeds_pct")?
+        .and_then(|v| v.extract::<f64>().ok());
+
     let assert_invariants: bool = config
         .get_item("assert_invariants")?
         .map(|v| v.extract::<bool>())
@@ -293,6 +297,7 @@ pub fn parse_config_from_dict(config: &Bound<'_, PyDict>) -> PyResult<BacktestCo
         check_exits_daily,
         options_budget_fresh_spend,
         rebalance_stocks_on_exit,
+        roll_exit_proceeds_pct,
         assert_invariants,
     })
 }

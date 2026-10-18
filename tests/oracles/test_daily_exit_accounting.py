@@ -13,6 +13,9 @@ them directly:
 3. With several expirations sharing the best strike, which one got bought
    depended on an unspecified row order.
 
+It also pins ``roll_exit_proceeds_pct`` (re-buying puts with part of a sale's
+proceeds the same day) to a hand derivation.
+
 The scenario reuses the golden-scenario data builders: XYZ falls from 100
 to 50 over nine trading days and a strike-80 put is bought on 2020-06-01.
 """
@@ -44,7 +47,7 @@ BUDGET_PCT = 0.05
 ROOT = "XYZ200717P00080000"   # expires 2020-07-17; DTE 46 on 06-01, 28 on 06-19
 
 
-def _run(tmp_path, option_rows, dte_exit, sort=None):
+def _run(tmp_path, option_rows, dte_exit, sort=None, roll=None):
     stocks_csv, options_csv = tmp_path / "s.csv", tmp_path / "o.csv"
     _write_stocks_csv(stocks_csv)
     # Stable sort: date order for the engine, same-day row order preserved.
@@ -73,6 +76,7 @@ def _run(tmp_path, option_rows, dte_exit, sort=None):
     eng.check_exits_daily = True
     eng.rebalance_stocks_on_exit = True
     eng.assert_invariants = True
+    eng.roll_exit_proceeds_pct = roll
     eng.run(rebalance_freq=1, rebalance_unit="BMS")
     return eng
 
@@ -146,3 +150,39 @@ class TestEntryTieBreak:
         for rows in (far + _quoted_rows(), _quoted_rows() + far):
             eng = _run(tmp_path, rows, dte_exit=28, sort=("strike", False))
             assert eng.trade_log["leg_1"]["contract"].iloc[0] == ROOT
+
+
+class TestRollProceeds:
+    SEP = "XYZ200918P00040000"
+
+    def _rows(self):
+        # A strike-40 Sep put, listed from 06-19 on (so 06-01 can only buy Jul).
+        sep = [_option_row(d, self.SEP, "2020-09-18", 40.0, 1.80, 2.00, px)
+               for d, px in zip(DATES, STOCK_PRICES) if d >= "2020-06-19"]
+        return _quoted_rows() + sep
+
+    def test_half_the_proceeds_buy_new_puts_the_same_day(self, tmp_path):
+        """The Jul put is sold on 06-19 for 550,000 (as above). With roll 0.5:
+
+          new puts: floor(275,000 / (2.00*100)) = 1,375 Sep-40s, cost 275,000
+          cash 30 + 550,000 - 275,000 = 275,030; with 9,500*70 = 665,000 of
+          stock that is 940,030 liquid -> floor(940,030/70) = 13,429 shares
+          06-19 total: 13,429*70 + 1,375*1.80*100 = 940,030 + 247,500
+                     = 1,187,530.00 (the 27,500 drop from 1,215,030 is the
+                     Sep put's bid-ask spread)"""
+        eng = _run(tmp_path, self._rows(), dte_exit=28, roll=0.5)
+        tl = eng.trade_log
+        bought = tl[(pd.to_datetime(tl["totals"]["date"]) == "2020-06-19")
+                    & tl["leg_1"]["order"].astype(str).str.contains("BTO")]
+        assert list(bought["leg_1"]["contract"]) == [self.SEP]
+        assert float(bought["totals"]["qty"].iloc[0]) == pytest.approx(1_375)
+        day = eng.balance.loc[pd.Timestamp("2020-06-19")]
+        assert day["XYZ qty"] == pytest.approx(13_429)
+        assert day["options capital"] == pytest.approx(247_500.00, abs=0.01)
+        assert day["total capital"] == pytest.approx(1_187_530.00, abs=0.01)
+
+    def test_off_by_default(self, tmp_path):
+        eng = _run(tmp_path, self._rows(), dte_exit=28)
+        day = eng.balance.loc[pd.Timestamp("2020-06-19")]
+        assert day["XYZ qty"] == pytest.approx(17_357)
+        assert day["total capital"] == pytest.approx(1_215_030.00, abs=0.01)

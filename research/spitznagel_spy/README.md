@@ -21,6 +21,7 @@ experiments/              exploratory studies (each standalone, skips if data ab
   spitznagel_variants.py  monetize-in-crash, short-dated, monthly-ladder families
   rehedge.py              monetize + same-day re-hedge (fixed-point emulation)
   vol_aware.py            monthly ladder that skips purchases when IV is expensive
+  roll_proceeds.py        roll part of each put sale's proceeds into new puts
 findings/                 written-up conclusions (read these first)
   ROBUSTNESS_REVIEW.md    CURRENT reference — supersedes headline numbers below
   CROSS_UNDERLYING.md

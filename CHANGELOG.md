@@ -56,6 +56,12 @@ anchored on the commit hash that introduced the change.
   options held (spend = budget − value of open puts), ``True`` spends the full
   per-rebalance budget every time. ``use_external_budget`` now also clears a
   stale ``options_budget_per_rebalance_pct``, which would otherwise win.
+- ``BacktestEngine.roll_exit_proceeds_pct`` (default ``None``, off): spend
+  that fraction of each option sale's proceeds on new contracts the same day,
+  from the strategy's entry filter, on top of the regular budget (on a
+  rebalance date it is added to that rebalance's budget). Single-strategy
+  only; multi-strategy runs raise ``NotImplementedError``. Roll entries are
+  not counted in the fill-rate diagnostics.
 - **Hedge fill-rate diagnostics.** Every run now records how many rebalances
   attempted to open an option position vs how many matched no tradeable
   contract, exposed as ``engine.option_entry_attempts``,

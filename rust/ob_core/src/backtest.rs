@@ -66,6 +66,10 @@ pub struct BacktestConfig {
     /// When true, rebalance stocks immediately after daily option exits.
     /// Allows reinvesting put profits into stocks without waiting for the next rebalance date.
     pub rebalance_stocks_on_exit: bool,
+    /// Fraction of each day's option-sale proceeds spent on new contracts the
+    /// same day (entry filter as usual), on top of any regular budget: a roll
+    /// that keeps a cashed-in hedge's size. None = off. Single-strategy only.
+    pub roll_exit_proceeds_pct: Option<f64>,
     /// When true, run runtime self-checks (cash-flow and valuation invariants)
     /// during the backtest and fail loudly if they are violated. Off by default
     /// — intended for tests and debugging, not production runs. See
@@ -459,8 +463,45 @@ pub fn run_backtest_with_filters(
                         config.assert_invariants,
                     )?;
 
+                    let freed = cash > cash_before;
+
+                    // Roll part of the proceeds into new contracts today.
+                    if let (Some(roll), true) = (config.roll_exit_proceeds_pct, freed) {
+                        let stock_cap = compute_stock_capital(&stock_holdings, day_stocks);
+                        let options_cap = compute_options_capital(
+                            &positions, day_opts, config.shares_per_contract, day_stocks,
+                        );
+                        let total_capital = cash + stock_cap + options_cap;
+                        portfolio_greeks = compute_portfolio_greeks_from_market(
+                            &positions, day_opts, &config.legs,
+                        );
+                        // Not counted in the fill-rate diagnostics: most rolls
+                        // are too small to buy a contract, and the rate is
+                        // about scheduled entries.
+                        let held: Vec<String> = positions.iter()
+                            .flat_map(|p| p.leg_contracts.clone())
+                            .collect();
+                        if let Some(pos) = execute_entries(
+                            &config.legs, entry_filters, day_opts, &held,
+                            config.shares_per_contract, roll * (cash - cash_before),
+                            schema, date, &mut trade_rows,
+                            &config.fill_model, &config.signal_selector,
+                            &config.risk_constraints, &portfolio_greeks,
+                            total_capital, peak_value,
+                            config.max_notional_pct, &positions,
+                        )? {
+                            let cost = pos.entry_cost * pos.quantity;
+                            let commission = config.cost_model.option_cost(
+                                cost.abs(), pos.quantity, config.shares_per_contract,
+                            );
+                            cash -= cost + commission;
+                            portfolio_greeks += pos.greeks;
+                            positions.push(pos);
+                        }
+                    }
+
                     // Immediately reinvest freed cash into stocks
-                    if config.rebalance_stocks_on_exit && cash > cash_before {
+                    if config.rebalance_stocks_on_exit && freed {
                         let stock_cap = compute_stock_capital(&stock_holdings, day_stocks);
                         let options_cap = compute_options_capital(
                             &positions, day_opts, config.shares_per_contract, day_stocks,
@@ -607,6 +648,7 @@ fn rebalance_date(
     let day_stocks = partitioned.stocks.get(&rb_date);
 
     // Run exit filters
+    let cash_before_exits = *cash;
     execute_exits(
         positions, cash, day_opts,
         config.shares_per_contract,
@@ -638,11 +680,15 @@ fn rebalance_date(
     } else {
         config.allocation_options * total_capital
     };
-    let remaining_budget = if config.options_budget_fresh_spend {
+    let mut remaining_budget = if config.options_budget_fresh_spend {
         options_alloc
     } else {
         options_alloc - options_cap
     };
+    if let Some(roll) = config.roll_exit_proceeds_pct {
+        remaining_budget = remaining_budget.max(0.0)
+            + roll * (*cash - cash_before_exits).max(0.0);
+    }
 
     // Rebalance stocks. A budget-funded hedge is paid for out of the
     // portfolio at entry: set the budget aside first, size stocks from the rest.
