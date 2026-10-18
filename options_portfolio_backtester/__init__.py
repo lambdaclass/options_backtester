@@ -1,5 +1,6 @@
 """options_portfolio_backtester — the open-source options backtesting framework."""
 
+from options_portfolio_backtester.analytics.financing import apply_financing
 from options_portfolio_backtester.analytics.results import BacktestResults, hash_data_file
 from options_portfolio_backtester.analytics.robustness import (
     calendar_summary,
@@ -88,7 +89,7 @@ __all__ = [
     "BacktestEngine", "TradingClock",
     # Analytics
     "BacktestStats", "PeriodStats", "LookbackReturns",
-    "entry_calendars", "run_over_calendars", "calendar_summary",
+    "entry_calendars", "run_over_calendars", "calendar_summary", "apply_financing",
     "TradeLog", "TearsheetReport", "build_tearsheet",
     "summary",
 ]

@@ -92,10 +92,16 @@ engine:
 ## 6. Financing and leverage
 
 The engine charges no interest on negative cash and pays none on positive
-cash. A levered or cash-heavy comparison must add financing; the leverage
-study credits T-bills on cash and charges T-bill + 0.5% on borrowing
-(`research/spitznagel_spy/experiments/leverage_monetize.py`). Margin calls
-are not modeled.
+cash. A levered or cash-heavy comparison must add financing:
+
+```python
+from options_portfolio_backtester import apply_financing
+total = apply_financing(engine.balance, tbill_rate, borrow_spread=0.005)
+```
+
+credits the rate on positive cash and charges rate + spread on borrowing. It
+is a first-order adjustment: it changes NAV, not the positions the engine
+sized. Margin calls are not modeled.
 
 ## 7. Compare against the right alternative
 

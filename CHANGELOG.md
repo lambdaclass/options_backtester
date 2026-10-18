@@ -55,6 +55,9 @@ anchored on the commit hash that introduced the change.
   drop chain rows that are not tradeable quotes — other products under the
   same underlying (e.g. SPX binaries), flat prints across a strike run,
   impossible time value, crossed markets.
+- ``apply_financing`` (``analytics.financing``): credit interest on positive
+  cash and charge rate + spread on borrowing, after the run (the engine
+  itself charges no interest).
 - ``entry_calendars`` / ``run_over_calendars`` / ``calendar_summary``
   (``analytics.robustness``): run one configuration over every phase of an
   every-N-months schedule and report mean / worst / spread, so a result that
