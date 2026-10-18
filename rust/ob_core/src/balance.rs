@@ -93,7 +93,7 @@ pub fn compute_balance(
                 let total_vals = calls_total.f64()?;
                 let new: Float64Chunked = total_vals
                     .into_iter()
-                    .zip(vals.into_iter())
+                    .zip(vals)
                     .map(|(a, b)| Some(a.unwrap_or(0.0) + b.unwrap_or(0.0)))
                     .collect();
                 calls_total = new.into_series();
@@ -106,7 +106,7 @@ pub fn compute_balance(
                 let total_vals = puts_total.f64()?;
                 let new: Float64Chunked = total_vals
                     .into_iter()
-                    .zip(vals.into_iter())
+                    .zip(vals)
                     .map(|(a, b)| Some(a.unwrap_or(0.0) + b.unwrap_or(0.0)))
                     .collect();
                 puts_total = new.into_series();

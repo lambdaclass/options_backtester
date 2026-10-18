@@ -1,9 +1,9 @@
-/// Backtest engine: monthly rebalance loop for tail hedge overlay.
-///
-/// Model: 100% invested in equity (SPY). Each month, sell a fixed budget
-/// worth of equity to buy ~10-delta puts. Put proceeds are reinvested
-/// into equity at settlement. Budget is fixed at initial_capital * budget_pct
-/// (not scaled with portfolio growth) to avoid unrealistic compounding.
+//! Backtest engine: monthly rebalance loop for tail hedge overlay.
+//!
+//! Model: 100% invested in equity (SPY). Each month, sell a fixed budget
+//! worth of equity to buy ~10-delta puts. Put proceeds are reinvested
+//! into equity at settlement. Budget is fixed at initial_capital * budget_pct
+//! (not scaled with portfolio growth) to avoid unrealistic compounding.
 
 use chrono::{DateTime, Datelike};
 

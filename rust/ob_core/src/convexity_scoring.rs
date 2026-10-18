@@ -1,4 +1,4 @@
-/// Convexity ratio scoring: find cheapest tail protection per day.
+//! Convexity ratio scoring: find cheapest tail protection per day.
 
 pub struct DailyScore {
     pub date_ns: i64,

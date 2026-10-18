@@ -4,13 +4,18 @@ capital flow invariants, event logging, check_exits_daily, stop_if_broke, and mo
 These tests exercise engine internals that the basic regression tests don't cover.
 """
 
-import math
 import os
 
-import numpy as np
-import pandas as pd
 import pytest
 
+from options_portfolio_backtester.core.types import (
+    Direction,
+    Stock,
+)
+from options_portfolio_backtester.core.types import (
+    OptionType as Type,
+)
+from options_portfolio_backtester.data.providers import HistoricalOptionsData, TiingoData
 from options_portfolio_backtester.engine.engine import BacktestEngine, _intrinsic_value
 from options_portfolio_backtester.execution.cost_model import (
     NoCosts,
@@ -20,30 +25,17 @@ from options_portfolio_backtester.execution.cost_model import (
 from options_portfolio_backtester.execution.fill_model import MarketAtBidAsk, MidPrice, VolumeAwareFill
 from options_portfolio_backtester.execution.signal_selector import (
     FirstMatch,
-    NearestDelta,
     MaxOpenInterest,
-)
-from options_portfolio_backtester.execution.sizer import (
-    CapitalBased,
-    FixedQuantity,
-    FixedDollar,
-    PercentOfPortfolio,
+    NearestDelta,
 )
 from options_portfolio_backtester.portfolio.risk import (
-    RiskManager,
     MaxDelta,
-    MaxVega,
     MaxDrawdown,
+    MaxVega,
+    RiskManager,
 )
-from options_portfolio_backtester.data.providers import HistoricalOptionsData, TiingoData
 from options_portfolio_backtester.strategy.strategy import Strategy
 from options_portfolio_backtester.strategy.strategy_leg import StrategyLeg
-from options_portfolio_backtester.core.types import (
-    Stock,
-    OptionType as Type,
-    Direction,
-    Greeks,
-)
 
 TEST_DIR = os.path.join(os.path.dirname(__file__), "..", "fixtures")
 STOCKS_FILE = os.path.join(TEST_DIR, "ivy_5assets_data.csv")
@@ -464,14 +456,16 @@ class TestRiskManagementIntegration:
         assert engine.balance is not None
         assert not engine.trade_log.empty
 
-    def test_risk_events_logged_on_block(self):
-        rm = RiskManager([MaxDelta(limit=0.001)])
-        engine = _run_engine(risk_manager=rm)
-        events = engine.events_dataframe()
-        # If delta was blocked, we should see risk_block_entry events
-        blocked = events[events["event"] == "risk_block_entry"]
-        # May or may not trigger depending on actual Greeks in test data
-        assert engine.balance is not None
+    def test_tight_delta_limit_blocks_entries(self):
+        # The Rust loop does not emit risk events (see TestEventLog); the
+        # block shows up as entries that were attempted but not opened.
+        free = _run_engine()
+        blocked = _run_engine(risk_manager=RiskManager([MaxDelta(limit=0.001)]))
+        assert not free.trade_log.empty
+        assert blocked.trade_log.empty
+        assert blocked.option_fill_rate == 0.0
+        assert blocked.option_entry_risk_blocked == blocked.option_entry_attempts > 0
+        assert free.option_entry_risk_blocked == 0
 
 
 # ---------------------------------------------------------------------------
@@ -715,9 +709,7 @@ class TestRebalanceFrequency:
         # Final capital should differ
         f1 = e1.balance["total capital"].iloc[-1]
         f2 = e2.balance["total capital"].iloc[-1]
-        # They CAN be equal but usually aren't
-        assert e1.balance is not None
-        assert e2.balance is not None
+        assert f1 != f2
 
 
 # ---------------------------------------------------------------------------

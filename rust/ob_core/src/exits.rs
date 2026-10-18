@@ -23,7 +23,7 @@ pub fn threshold_exit_mask(
 
     let mask: BooleanChunked = entry
         .into_iter()
-        .zip(current.into_iter())
+        .zip(current)
         .map(|(e, c)| {
             match (e, c) {
                 (Some(entry_val), Some(curr_val)) => {

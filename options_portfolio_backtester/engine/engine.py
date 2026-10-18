@@ -23,25 +23,22 @@ from typing import Any
 import numpy as np
 import pandas as pd
 
-from options_portfolio_backtester.core.types import (
-    Direction, OptionType, Stock,
-)
-from options_portfolio_backtester.execution.cost_model import TransactionCostModel, NoCosts
-from options_portfolio_backtester.execution.fill_model import FillModel, MarketAtBidAsk
-from options_portfolio_backtester.execution.sizer import PositionSizer, CapitalBased
-from options_portfolio_backtester.execution.signal_selector import SignalSelector, FirstMatch
-from options_portfolio_backtester.portfolio.risk import RiskManager
-from options_portfolio_backtester.portfolio.portfolio import Portfolio
 from options_portfolio_backtester import _ob_rust
+from options_portfolio_backtester.core.types import (
+    OptionType,
+    Stock,
+)
+from options_portfolio_backtester.data.providers import HistoricalOptionsData, TiingoData
 from options_portfolio_backtester.engine.algo_adapters import (
     EngineAlgo,
-    EnginePipelineContext,
 )
-
-from options_portfolio_backtester.data.providers import HistoricalOptionsData, TiingoData
-from options_portfolio_backtester.data.schema import Schema
+from options_portfolio_backtester.execution.cost_model import NoCosts, TransactionCostModel
+from options_portfolio_backtester.execution.fill_model import FillModel, MarketAtBidAsk
+from options_portfolio_backtester.execution.signal_selector import FirstMatch, SignalSelector
+from options_portfolio_backtester.execution.sizer import CapitalBased, PositionSizer
+from options_portfolio_backtester.portfolio.portfolio import Portfolio
+from options_portfolio_backtester.portfolio.risk import RiskManager
 from options_portfolio_backtester.strategy.strategy import Strategy
-from options_portfolio_backtester.strategy.strategy_leg import StrategyLeg
 
 logger = logging.getLogger(__name__)
 
@@ -181,10 +178,12 @@ class BacktestEngine:
         self._stocks_inventory: pd.DataFrame | None = None
 
         # Hedge fill-rate diagnostics, populated after each run. A non-zero
-        # option_entry_unfilled means the option entry filter matched no
-        # tradeable contract on some rebalances (see HedgeFillWarning).
+        # option_entry_unfilled means no option position was opened on some
+        # rebalances (see HedgeFillWarning); option_entry_risk_blocked is the
+        # part of those a risk constraint rejected.
         self.option_entry_attempts: int = 0
         self.option_entry_unfilled: int = 0
+        self.option_entry_risk_blocked: int = 0
         self.option_fill_rate: float = float("nan")
 
         # Seal: any attribute not declared above (or defined on the class) is
@@ -472,10 +471,12 @@ class BacktestEngine:
         After translation, self.algos is cleared so the Rust gate passes.
         """
         from options_portfolio_backtester.engine.algo_adapters import (
-            EngineRunMonthly, BudgetPercent, RangeFilter,
-            MaxGreekExposure, ExitOnThreshold,
+            BudgetPercent,
+            EngineRunMonthly,
+            ExitOnThreshold,
+            MaxGreekExposure,
+            RangeFilter,
         )
-        from options_portfolio_backtester.portfolio.risk import RiskManager
 
         for algo in self.algos:
             if isinstance(algo, EngineRunMonthly):
@@ -536,16 +537,19 @@ class BacktestEngine:
         """Capture hedge fill-rate from the Rust stats and warn on shortfalls.
 
         ``stats`` carries ``option_entry_attempts`` (rebalances that tried to
-        open an option position) and ``option_entry_unfilled`` (those that
-        matched no tradeable contract). A non-zero unfilled count means the
-        requested option leg was silently absent on some rebalances — see
+        open an option position), ``option_entry_unfilled`` (those that opened
+        nothing) and ``option_entry_risk_blocked`` (the unfilled ones a risk
+        constraint rejected). A non-zero unfilled count means the requested
+        option leg was silently absent on some rebalances — see
         :class:`HedgeFillWarning`.
         """
         import warnings
         attempts = int(stats.get("option_entry_attempts", 0) or 0)
         unfilled = int(stats.get("option_entry_unfilled", 0) or 0)
+        blocked = int(stats.get("option_entry_risk_blocked", 0) or 0)
         self.option_entry_attempts = attempts
         self.option_entry_unfilled = unfilled
+        self.option_entry_risk_blocked = blocked
         self.option_fill_rate = (
             (attempts - unfilled) / attempts if attempts > 0 else float("nan")
         )
@@ -555,14 +559,22 @@ class BacktestEngine:
         if attempts > 0 and unfilled / attempts >= self.HEDGE_FILL_WARN_THRESHOLD:
             pct = 100.0 * unfilled / attempts
             msg = (
-                f"Option entry matched no tradeable contract on {unfilled} of "
-                f"{attempts} rebalances ({pct:.0f}%); fill rate "
-                f"{self.option_fill_rate:.0%}. The strategy's entry filter "
-                f"(e.g. a deep-OTM strike band or long-DTE window) found nothing "
-                f"to buy those periods, so no hedge was opened — results "
-                f"understate the true cost/benefit. The requested strikes may "
-                f"not exist in the data for this window."
+                f"No option position was opened on {unfilled} of {attempts} "
+                f"rebalances ({pct:.0f}%); fill rate {self.option_fill_rate:.0%}."
             )
+            if blocked:
+                msg += (
+                    f" {blocked} were rejected by a risk constraint "
+                    f"(risk_manager), not for lack of contracts."
+                )
+            if unfilled > blocked:
+                msg += (
+                    f" On {unfilled - blocked} the strategy's entry filter "
+                    f"(e.g. a deep-OTM strike band or long-DTE window) found "
+                    f"nothing affordable to buy, so no hedge was opened — results "
+                    f"understate the true cost/benefit. The requested strikes may "
+                    f"not exist in the data for this window."
+                )
             warnings.warn(msg, HedgeFillWarning, stacklevel=3)
             logger.warning(msg)
 
@@ -577,8 +589,9 @@ class BacktestEngine:
     ) -> pd.DataFrame:
         """Run the backtest using the Rust full-loop implementation."""
         import math
-        import pyarrow as pa
+
         import polars as pl
+        import pyarrow as pa
 
         strategy = self._options_strategy
 
@@ -612,7 +625,6 @@ class BacktestEngine:
 
         opts_date_col = self._options_schema["date"]
         stocks_date_col = self._stocks_schema["date"]
-        exp_col = self._options_schema["expiration"]
 
         # Drop columns Rust never accesses to reduce Arrow conversion cost.
         # Keep underlying_last, impliedvol, openinterest — they can appear in
@@ -779,8 +791,9 @@ class BacktestEngine:
     ) -> pd.DataFrame:
         """Run multi-strategy backtest using Rust backend."""
         import math
-        import pyarrow as pa
+
         import polars as pl
+        import pyarrow as pa
 
         opts_date_col = self._options_schema["date"]
         stocks_date_col = self._stocks_schema["date"]

@@ -310,8 +310,8 @@ fn kurtosis_excess(values: &[f64]) -> f64 {
     let m4: f64 = values.iter().map(|&x| ((x - m) / s).powi(4)).sum::<f64>() / nf;
     // Excess kurtosis with bias correction (matches pandas default)
     let raw = m4 - 3.0;
-    let adj = (nf - 1.0) / ((nf - 2.0) * (nf - 3.0)) * ((nf + 1.0) * raw + 6.0);
-    adj
+    
+    (nf - 1.0) / ((nf - 2.0) * (nf - 3.0)) * ((nf + 1.0) * raw + 6.0)
 }
 
 fn sharpe(returns: &[f64], risk_free_rate: f64, periods_per_year: f64) -> f64 {
@@ -487,7 +487,7 @@ fn resample_returns(
         }
     }
     // Push the last period value
-    if let Some(_) = last_key {
+    if last_key.is_some() {
         period_vals.push(*total_capital.last().unwrap());
     }
 
@@ -792,7 +792,7 @@ mod tests {
             capital.push(capital.last().unwrap() * (1.0 + r));
         }
         // Generate fake timestamps (2020-01-01 + daily)
-        let base_ns: i64 = 1577836800_000_000_000; // 2020-01-01
+        let base_ns: i64 = 1_577_836_800_000_000_000; // 2020-01-01
         let ts: Vec<i64> = (0..capital.len())
             .map(|i| base_ns + i as i64 * 86_400_000_000_000)
             .collect();
@@ -811,7 +811,7 @@ mod tests {
         for &r in &returns {
             capital.push(capital.last().unwrap() * (1.0 + r));
         }
-        let base_ns: i64 = 1577836800_000_000_000;
+        let base_ns: i64 = 1_577_836_800_000_000_000;
         let ts: Vec<i64> = (0..capital.len())
             .map(|i| base_ns + i as i64 * 86_400_000_000_000)
             .collect();
@@ -825,7 +825,7 @@ mod tests {
     #[test]
     fn full_stats_trade_pnls() {
         let capital = vec![100_000.0, 101_000.0, 102_000.0];
-        let base_ns: i64 = 1577836800_000_000_000;
+        let base_ns: i64 = 1_577_836_800_000_000_000;
         let ts: Vec<i64> = (0..3).map(|i| base_ns + i * 86_400_000_000_000).collect();
         let pnls = vec![100.0, 200.0, -50.0];
 

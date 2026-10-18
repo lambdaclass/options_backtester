@@ -87,9 +87,12 @@ pub struct BacktestResult {
     /// hedge fill-rate so callers can detect a requested option leg (e.g. a
     /// deep-OTM strike band) silently matching zero contracts in the data.
     pub option_entry_attempts: u32,
-    /// Subset of attempts where the entry filter matched no tradeable contract,
-    /// so no hedge was opened that rebalance.
+    /// Subset of attempts where no position was opened that rebalance: the
+    /// entry filter matched no affordable contract, or a risk constraint
+    /// rejected the entry (counted separately in `option_entry_risk_blocked`).
     pub option_entry_unfilled: u32,
+    /// Subset of `option_entry_unfilled` rejected by a risk constraint.
+    pub option_entry_risk_blocked: u32,
 }
 
 /// Configuration for one strategy slot in a multi-strategy backtest.
@@ -406,15 +409,16 @@ pub fn run_backtest_with_filters(
     // Hedge fill-rate diagnostics (see BacktestResult docs).
     let mut entry_attempts: u32 = 0;
     let mut entry_unfilled: u32 = 0;
+    let mut entry_risk_blocked: u32 = 0;
 
     // Pre-compute SMA per stock symbol if sma_days is set
     let sma_map_by_date = config.sma_days
-        .map(|sma_days| compute_sma_map(&partitioned, &config.stock_symbols, sma_days));
+        .map(|sma_days| compute_sma_map(partitioned, &config.stock_symbols, sma_days));
 
     let rb_dates = &config.rebalance_dates;
     if rb_dates.is_empty() {
         return build_result(&trade_rows, &balance_days, &config.legs, cash,
-            entry_attempts, entry_unfilled);
+            entry_attempts, entry_unfilled, entry_risk_blocked);
     }
 
     let rebalances_per_year = rebalances_per_year(rb_dates);
@@ -442,7 +446,7 @@ pub fn run_backtest_with_filters(
                     &mut positions, &mut stock_holdings, &mut cash,
                     &mut peak_value, &mut portfolio_greeks,
                     &mut trade_rows, &mut balance_days,
-                    &mut entry_attempts, &mut entry_unfilled,
+                    &mut entry_attempts, &mut entry_unfilled, &mut entry_risk_blocked,
                 )? {
                     RebalanceOutcome::SkipDate => {}
                     RebalanceOutcome::StopBroke => break,
@@ -456,7 +460,7 @@ pub fn run_backtest_with_filters(
                     execute_exits(
                         &mut positions, &mut cash, day_opts,
                         config.shares_per_contract,
-                        &config.legs, &exit_filters,
+                        &config.legs, exit_filters,
                         config.profit_pct, config.loss_pct,
                         schema, date, &mut trade_rows,
                         &config.cost_model, day_stocks,
@@ -489,6 +493,7 @@ pub fn run_backtest_with_filters(
                             &config.risk_constraints, &portfolio_greeks,
                             total_capital, peak_value,
                             config.max_notional_pct, &positions,
+                            &mut 0,
                         )? {
                             let cost = pos.entry_cost * pos.quantity;
                             let commission = config.cost_model.option_cost(
@@ -552,7 +557,7 @@ pub fn run_backtest_with_filters(
                 &mut positions, &mut stock_holdings, &mut cash,
                 &mut peak_value, &mut portfolio_greeks,
                 &mut trade_rows, &mut balance_days,
-                &mut entry_attempts, &mut entry_unfilled,
+                &mut entry_attempts, &mut entry_unfilled, &mut entry_risk_blocked,
             )? {
                 RebalanceOutcome::SkipDate => continue,
                 RebalanceOutcome::StopBroke => break,
@@ -566,7 +571,7 @@ pub fn run_backtest_with_filters(
         if last_date > 0 {
             compute_balance_period(
                 &positions, &stock_holdings,
-                &partitioned,
+                partitioned,
                 last_rb, last_date + 1,
                 config.shares_per_contract, cash,
                 &config.legs,
@@ -576,7 +581,7 @@ pub fn run_backtest_with_filters(
     }
 
     build_result(&trade_rows, &balance_days, &config.legs, cash,
-        entry_attempts, entry_unfilled)
+        entry_attempts, entry_unfilled, entry_risk_blocked)
 }
 
 /// Outcome of a single-date rebalance step. The original macro used `continue`
@@ -629,6 +634,7 @@ fn rebalance_date(
     balance_days: &mut Vec<BalanceDay>,
     entry_attempts: &mut u32,
     entry_unfilled: &mut u32,
+    entry_risk_blocked: &mut u32,
 ) -> PolarsResult<RebalanceOutcome> {
     if record_period {
         compute_balance_period(
@@ -727,6 +733,7 @@ fn rebalance_date(
             &config.risk_constraints, portfolio_greeks,
             total_capital, *peak_value,
             config.max_notional_pct, positions,
+            entry_risk_blocked,
         )? {
             let cost = pos.entry_cost * pos.quantity;
             let commission = config.cost_model.option_cost(
@@ -785,6 +792,7 @@ pub fn run_multi_strategy(
     // Hedge fill-rate diagnostics (see BacktestResult docs).
     let mut entry_attempts: u32 = 0;
     let mut entry_unfilled: u32 = 0;
+    let mut entry_risk_blocked: u32 = 0;
 
     // Pre-compute SMA
     let sma_map_by_date = config.sma_days
@@ -808,7 +816,7 @@ pub fn run_multi_strategy(
         // Use legs from first slot for result columns
         let legs = if slots.is_empty() { &config.legs } else { &slots[0].legs };
         return build_result(&trade_rows, &balance_days, legs, cash,
-            entry_attempts, entry_unfilled);
+            entry_attempts, entry_unfilled, entry_risk_blocked);
     }
 
     // Determine if any slot uses daily exits
@@ -933,6 +941,7 @@ pub fn run_multi_strategy(
                             &config.risk_constraints, &portfolio_greeks,
                             total_capital, peak_value,
                             config.max_notional_pct, &slot_positions[si],
+                            &mut entry_risk_blocked,
                         )? {
                             let cost = pos.entry_cost * pos.quantity;
                             let commission = config.cost_model.option_cost(
@@ -1027,7 +1036,7 @@ pub fn run_multi_strategy(
     // Use legs from first slot for result columns
     let legs = if slots.is_empty() { &config.legs } else { &slots[0].legs };
     build_result(&trade_rows, &balance_days, legs, cash,
-        entry_attempts, entry_unfilled)
+        entry_attempts, entry_unfilled, entry_risk_blocked)
 }
 
 /// Compute balance for multi-strategy across all slot positions.
@@ -1466,6 +1475,7 @@ fn execute_entries(
     peak_value: f64,
     max_notional_pct: Option<f64>,
     existing_positions: &[Position],
+    risk_blocked: &mut u32,
 ) -> PolarsResult<Option<Position>> {
     let contract_col = &schema.contract;
     if legs.is_empty() || budget <= 0.0 {
@@ -1670,6 +1680,7 @@ fn execute_entries(
     if !risk_constraints.is_empty()
         && !risk::check_all(risk_constraints, portfolio_greeks, &scaled_greeks, total_capital, peak_value)
     {
+        *risk_blocked += 1;
         return Ok(None);
     }
 
@@ -1824,6 +1835,7 @@ fn build_result(
     final_cash: f64,
     option_entry_attempts: u32,
     option_entry_unfilled: u32,
+    option_entry_risk_blocked: u32,
 ) -> PolarsResult<BacktestResult> {
     // Build trade log as flat DataFrame (Python converts to MultiIndex)
     let n_trades = trade_rows.len();
@@ -1932,7 +1944,7 @@ fn build_result(
 
     Ok(BacktestResult {
         balance, trade_log, final_cash, stats: result_stats,
-        option_entry_attempts, option_entry_unfilled,
+        option_entry_attempts, option_entry_unfilled, option_entry_risk_blocked,
     })
 }
 

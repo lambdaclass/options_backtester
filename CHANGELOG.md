@@ -55,6 +55,9 @@ anchored on the commit hash that introduced the change.
   drop chain rows that are not tradeable quotes — other products under the
   same underlying (e.g. SPX binaries), flat prints across a strike run,
   impossible time value, crossed markets.
+- ``BacktestEngine.option_entry_risk_blocked``: entries a risk constraint
+  rejected are now counted separately, and ``HedgeFillWarning`` says so
+  instead of blaming the entry filter for finding no contract.
 - ``apply_financing`` (``analytics.financing``): credit interest on positive
   cash and charge rate + spread on borrowing, after the run (the engine
   itself charges no interest).

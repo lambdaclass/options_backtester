@@ -505,7 +505,7 @@ fn read_f64(col: &Column, row: usize) -> Option<f64> {
 
 /// Read a string value from a column at a given row index.
 #[inline]
-fn read_str<'a>(col: &'a Column, row: usize) -> Option<&'a str> {
+fn read_str(col: &Column, row: usize) -> Option<&str> {
     col.str().ok().and_then(|ca| ca.get(row))
 }
 

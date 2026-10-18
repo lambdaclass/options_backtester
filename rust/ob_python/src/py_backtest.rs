@@ -342,6 +342,7 @@ pub fn run_backtest_py(
     // a requested leg (e.g. a deep-OTM strike band) is silently absent in data.
     stats_dict.set_item("option_entry_attempts", result.option_entry_attempts)?;
     stats_dict.set_item("option_entry_unfilled", result.option_entry_unfilled)?;
+    stats_dict.set_item("option_entry_risk_blocked", result.option_entry_risk_blocked)?;
 
     let result_tuple = pyo3::types::PyTuple::new(py, [
         balance_py.into_pyobject(py)?.into_any(),
@@ -490,6 +491,7 @@ pub fn run_multi_strategy_py(
     // a requested leg (e.g. a deep-OTM strike band) is silently absent in data.
     stats_dict.set_item("option_entry_attempts", result.option_entry_attempts)?;
     stats_dict.set_item("option_entry_unfilled", result.option_entry_unfilled)?;
+    stats_dict.set_item("option_entry_risk_blocked", result.option_entry_risk_blocked)?;
 
     let result_tuple = pyo3::types::PyTuple::new(py, [
         balance_py.into_pyobject(py)?.into_any(),

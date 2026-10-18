@@ -54,7 +54,7 @@ pub fn join_inventory_to_market(
         .collect()?;
 
     // Fill null cost fields with intrinsic value from stocks data
-    if let Some(cost_col) = joined.column(cost_field).ok() {
+    if let Ok(cost_col) = joined.column(cost_field) {
         let null_mask = cost_col.is_null();
         if null_mask.sum().unwrap_or(0) > 0 {
             // Build a price lookup from stocks data (latest price per symbol)
