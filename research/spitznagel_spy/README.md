@@ -10,18 +10,21 @@ reproduce_article.py      canonical reproduction — prints every article table
                           + a fingerprint (engine version, commit, data SHAs)
 make_figures.py           regenerate the article's charts into figures/
 experiments/              exploratory studies (each standalone, skips if data absent)
-  spx_sweep.py            OTM-depth x DTE x budget sweep over 1996-2025
-  cross_underlying.py     SPY / QQQ / IWM robustness, window-matched controls
-  signal_experiments.py   signal-gated entry + monetization battery
-  parallel_sweep.py       400-config OTM x DTE x exit x budget sweep (multiprocess)
+  spx_common.py           shared setup: data loading, put leg, engine, pool, metrics
+  spx_clean.py            drops binary options / garbage quotes from the chain
+  # current: fixed engine, cleaned chain, scored over entry calendars
   timing_robustness.py    exit-DTE x entry-calendar check (the exit-30 luck test)
   leverage_monetize.py    leverage x profit-taking, calendar-averaged, financed
-  start_year_robustness.py config x start-year matrix
-  spx_clean.py            drops binary options / garbage quotes from the chain
   spitznagel_variants.py  monetize-in-crash, short-dated, monthly-ladder families
   rehedge.py              monetize + same-day re-hedge (fixed-point emulation)
   vol_aware.py            monthly ladder that skips purchases when IV is expensive
   roll_proceeds.py        roll part of each put sale's proceeds into new puts
+  # earlier: single entry calendar -- use for shape, not numbers
+  spx_sweep.py            OTM-depth x DTE x budget sweep over 1996-2025
+  parallel_sweep.py       400-config OTM x DTE x exit x budget sweep (multiprocess)
+  start_year_robustness.py config x start-year matrix
+  signal_experiments.py   signal-gated entry + monetization battery
+  cross_underlying.py     SPY / QQQ / IWM robustness, window-matched controls
 findings/                 written-up conclusions (read these first)
   ROBUSTNESS_REVIEW.md    CURRENT reference — supersedes headline numbers below
   CROSS_UNDERLYING.md
@@ -41,9 +44,13 @@ script resolves the repo root by searching upward for `pyproject.toml` and
 
 ```
 python research/spitznagel_spy/reproduce_article.py
-python research/spitznagel_spy/experiments/spx_sweep.py [regime]
-python research/spitznagel_spy/experiments/signal_experiments.py
+python research/spitznagel_spy/experiments/timing_robustness.py [n_workers]
+python research/spitznagel_spy/experiments/roll_proceeds.py [n_workers]
 ```
+
+A new experiment states its pre-registered grid and a `_run(job)` that calls
+`spx_common.put_strategy` / `spx_common.backtest`; `spx_common.run_pool`
+handles the data and the process pool (see `roll_proceeds.py`, ~70 lines).
 
 ## Key findings (one line each — details in `findings/ROBUSTNESS_REVIEW.md`)
 
@@ -63,3 +70,9 @@ python research/spitznagel_spy/experiments/signal_experiments.py
    ([`findings/DATA_COVERAGE.md`](findings/DATA_COVERAGE.md)).
 6. **No timing signal beat always-on** in the earlier battery — direction
    plausible, numbers predate the engine and data fixes.
+7. **Nothing clever beat holding the puts to DTE 30 and putting the payoff
+   into stock.** Monetizing near the strike, same-day re-hedging,
+   skipping purchases when IV is expensive, and rolling sale proceeds into
+   new puts were all flat or worse. Rolling made the GFC drawdown *worse*
+   (−57% at full roll): puts bought at the 2008 low, at peak IV, expired
+   worthless.

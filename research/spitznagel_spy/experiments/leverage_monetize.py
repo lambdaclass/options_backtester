@@ -27,29 +27,16 @@ Usage:  python research/spitznagel_spy/experiments/leverage_monetize.py [n_worke
 Needs the local licensed SPX parquet under data/processed/ (skips if absent).
 """
 
-import logging
 import math
-import os
-import sys
-import tempfile
-import warnings
-from multiprocessing import Pool
-from pathlib import Path
 
 import pandas as pd
+import spx_common as C
 
-from spx_clean import clean_spx_chain
+from options_portfolio_backtester import apply_financing
 
-ROOT = next(p for p in Path(__file__).resolve().parents if (p / "pyproject.toml").exists())
-OPTS = ROOT / "data" / "processed" / "spx_full_options.parquet"
-STK = ROOT / "data" / "processed" / "spx_full_stocks.csv"
-TBILL = ROOT / "data" / "processed" / "dtb3.csv"
+TBILL = C.ROOT / "data" / "processed" / "dtb3.csv"
 TBILL_URL = "https://fred.stlouisfed.org/graph/fredgraph.csv?id=DTB3"
-OUT = Path(__file__).resolve().parents[1] / "findings" / "leverage_monetize_results.csv"
-
-START, END = "1996-01-01", "2025-12-31"
-GFC = (pd.Timestamp("2007-10-01"), pd.Timestamp("2009-06-30"))
-COVID = (pd.Timestamp("2020-01-01"), pd.Timestamp("2020-12-31"))
+OUT = "leverage_monetize_results.csv"
 BORROW_SPREAD = 0.005  # broker / box-spread financing over T-bills
 
 # Pre-registered grid -- do not tune after seeing results.
@@ -59,44 +46,6 @@ EXIT_DTE = [30, 45, 60]   # sell well before expiry, not only near it
 PROFIT_X = [math.inf, 2.0, 4.0, 9.0]  # sell when value >= (1 + x) * premium
 LEVERAGE = [1.0, 1.03, 1.05]   # small: 3-5% borrowed on top of 100% equity
 BUDGETS = [0.010, 0.020]
-# (label, month parity relative to the first month, trading-day offset in month)
-PHASES = [("odd/1st", 0, 0), ("even/1st", 1, 0), ("odd/10th", 0, 9), ("even/10th", 1, 9)]
-
-_W = {}  # per-worker state (data providers), set by the initializer
-
-
-def _ann(s):
-    y = (s.index[-1] - s.index[0]).days / 365.25
-    return (s.iloc[-1] / s.iloc[0]) ** (1 / y) * 100 - 100 if y > 0 else float("nan")
-
-
-def _maxdd(s):
-    cm = s.cummax()
-    return ((s - cm) / cm).min() * 100
-
-
-def _sharpe(s):
-    d = s.pct_change().dropna()
-    return _ann(s) / (d.std() * math.sqrt(252) * 100) if d.std() > 0 else 0.0
-
-
-def _wdd(b, lo, hi):
-    s = b.loc[(b.index >= lo) & (b.index <= hi)]
-    return _maxdd(s) if len(s) > 2 else float("nan")
-
-
-def _schedule(days, parity, offset):
-    """Bi-monthly entry dates: the offset-th trading day of every other month.
-
-    Every schedule also rebalances on the first trading day, so all calendars
-    are invested from the same start as buy & hold instead of sitting in cash
-    until their first phase date.
-    """
-    days = pd.Series(pd.DatetimeIndex(sorted(days)))
-    months = days.dt.year * 12 + days.dt.month
-    keep = (months - months.iloc[0]) % 2 == parity
-    dates = [g.iloc[min(offset, len(g) - 1)] for _, g in days[keep].groupby(months[keep])]
-    return dates if dates[0] == days.iloc[0] else [days.iloc[0]] + dates
 
 
 def _tbill():
@@ -107,118 +56,40 @@ def _tbill():
     return r.set_index("observation_date")["DTB3"].ffill() / 100
 
 
-def _financed(bal, rate):
-    """Total capital after crediting/charging interest on the cash balance."""
-    total, cash = bal["total capital"], bal["cash"]
-    r = rate.reindex(total.index, method="ffill").bfill()
-    r = r.where(cash.shift() >= 0, r + BORROW_SPREAD)
-    dt = total.index.to_series().diff().dt.days.fillna(0) / 365.0
-    interest = (cash.shift().fillna(0) * r.shift().fillna(0) * dt)
-    return total * (1 + interest / total.shift().fillna(total)).cumprod()
-
-
-def _init(op, sp, rate):
-    """Load data once per worker process."""
-    warnings.simplefilter("ignore")
-    # Fill shortfalls are reported in the table; silence the engine's per-run log.
-    logging.getLogger("options_portfolio_backtester.engine.engine").setLevel(logging.ERROR)
-    from options_portfolio_backtester import HistoricalOptionsData, TiingoData
-    _W["o"] = HistoricalOptionsData(op)
-    _W["s"] = TiingoData(sp)
-    _W["r"] = rate
-
-
 def _run(job):
-    from options_portfolio_backtester import BacktestEngine, Stock, Strategy, StrategyLeg
-    from options_portfolio_backtester.core.types import OptionType, Direction
     phase, dates, lev, bud, edte, px = job
-    (olo, ohi), (dlo, dhi) = OTM, DTE
-    o, s = _W["o"], _W["s"]
-    sch = o.schema
-    bt = BacktestEngine({"stocks": lev, "options": 0.0, "cash": 1.0 - lev},
-                        initial_capital=1_000_000)
-    bt.options_budget_annual_pct = bud
-    bt.options_budget_fresh_spend = True  # spend the full budget each rebalance
-    bt.check_exits_daily = True
-    bt.rebalance_stocks_on_exit = True
-    bt.assert_invariants = True
-    bt.stocks = [Stock("SPX", 1.0)]
-    bt.stocks_data = s
-    bt.options_data = o
-    leg = StrategyLeg("leg_1", sch, option_type=OptionType.PUT, direction=Direction.BUY)
-    leg.entry_filter = (
-        (sch.underlying == "SPX") & (sch.dte >= dlo) & (sch.dte <= dhi)
-        & (sch.strike <= sch.underlying_last * (1 - olo))
-        & (sch.strike >= sch.underlying_last * (1 - ohi))
-    )
-    leg.entry_sort = ("strike", False)
-    leg.exit_filter = sch.dte <= edte
-    st = Strategy(sch); st.add_leg(leg)
-    st.add_exit_thresholds(profit_pct=px, loss_pct=math.inf)
-    bt.options_strategy = st
-    with warnings.catch_warnings():
-        warnings.simplefilter("ignore")
-        bt.run(rebalance_dates=dates)
-    b = _financed(bt.balance, _W["r"])
-    return {
-        "phase": phase, "lev": lev, "bud": bud, "exit": edte, "profit_x": px,
-        "cagr": _ann(b), "dd": _maxdd(b), "sharpe": _sharpe(b),
-        "gfc": _wdd(b, *GFC), "covid": _wdd(b, *COVID),
-        "fill": bt.option_fill_rate if bud > 0 else float("nan"),
-    }
+    st = C.put_strategy(C.W["o"].schema, OTM, DTE, edte, profit_x=px)
+    bt = C.backtest(st, dates, annual=bud, leverage=lev)
+    b = apply_financing(bt.balance, C.W["r"], BORROW_SPREAD)
+    m = C.metrics(b, 0.0)
+    del m["excess"]  # scored against B&H and unhedged runs in the report
+    return {"phase": phase, "lev": lev, "bud": bud, "exit": edte, "profit_x": px, **m,
+            "fill": bt.option_fill_rate if bud > 0 else float("nan")}
 
 
 def main():
-    if not OPTS.exists() or not STK.exists():
-        raise SystemExit("Local SPX data absent (licensed; not in repo).")
-    n_workers = int(sys.argv[1]) if len(sys.argv) > 1 else min(8, max(1, (os.cpu_count() or 4) - 1))
+    workers = C.n_workers()
     rate = _tbill()
-
-    opt = clean_spx_chain(pd.read_parquet(OPTS))
-    stk = pd.read_csv(STK, parse_dates=["date"])
-    opt["quotedate"] = pd.to_datetime(opt["quotedate"])
-    opt["expiration"] = pd.to_datetime(opt["expiration"])
-    lo, hi = pd.Timestamp(START), pd.Timestamp(END)
-    opt = opt[(opt["quotedate"] >= lo) & (opt["quotedate"] <= hi)]
-    stk = stk[(stk["date"] >= lo) & (stk["date"] <= hi)]
-    shared = set(opt["quotedate"]) & set(stk["date"])
-    opt = opt[opt["quotedate"].isin(shared)]
-    stk = stk[stk["date"].isin(shared)].sort_values("date", kind="stable")
-    # SPX puts only; never filter by strike/DTE (held puts need every row until
-    # exit -- see parallel_sweep.py).
-    puts = opt[(opt["type"].astype(str).str.lower().str[0] == "p")
-               & (opt["underlying"] == "SPX")].sort_values("quotedate", kind="stable")
-
+    puts, stk = C.load_spx()
     bh = stk.set_index("date")["adjClose"]
-    bh_cagr, bh_dd = _ann(bh), _maxdd(bh)
-    schedules = {lbl: _schedule(stk["date"], par, off) for lbl, par, off in PHASES}
+    bh_cagr, bh_dd = C.ann(bh), C.maxdd(bh)
+    schedules = {lbl: C.schedule(stk["date"], step, par, off)
+                 for _, lbl, step, par, off in C.BIMONTHLY}
+    # bud 0 = unhedged at that leverage (no entries are attempted).
     jobs = [(lbl, schedules[lbl], lev, 0.0, EXIT_DTE[0], math.inf)
-            for lbl, _, _ in PHASES for lev in LEVERAGE]
+            for lbl in schedules for lev in LEVERAGE]
     jobs += [(lbl, schedules[lbl], lev, bud, edte, px)
-             for lbl, _, _ in PHASES for lev in LEVERAGE for bud in BUDGETS
+             for lbl in schedules for lev in LEVERAGE for bud in BUDGETS
              for edte in EXIT_DTE for px in PROFIT_X]
 
     print(f"=== Leverage x monetization: {round(OTM[0]*100)}-{round(OTM[1]*100)}% OTM, "
-          f"{DTE[0]}-{DTE[1]} DTE, {len(jobs)} runs on {n_workers} workers ===")
+          f"{DTE[0]}-{DTE[1]} DTE, {len(jobs)} runs on {workers} workers ===")
     print(f"Buy & hold 1x (unfinanced index): CAGR {bh_cagr:+.2f}%  maxDD {bh_dd:.1f}%  "
-          f"(GFC DD {_wdd(bh, *GFC):.1f}%)")
+          f"(GFC DD {C.wdd(bh, *C.GFC):.1f}%)")
     print(f"Financing: cash earns T-bill, borrowing pays T-bill + {BORROW_SPREAD*100:.1f}%\n")
 
-    with tempfile.TemporaryDirectory() as td:
-        op = os.path.join(td, "o.parquet"); sp = os.path.join(td, "s.csv")
-        puts.to_parquet(op, index=False); stk.to_csv(sp, index=False)
-        del opt, puts, stk  # free the parent's copies; workers read the files
-        with Pool(n_workers, initializer=_init, initargs=(op, sp, rate)) as pool:
-            results = []
-            for i, r in enumerate(pool.imap_unordered(_run, jobs, chunksize=2), 1):
-                results.append(r)
-                if i % 20 == 0 or i == len(jobs):
-                    print(f"  {i}/{len(jobs)} done", flush=True)
-        print()
-
-    df = pd.DataFrame(results)
-    df.to_csv(OUT, index=False)
-    print(f"All {len(df)} rows written to {OUT.relative_to(ROOT)}\n")
+    df = pd.DataFrame(C.run_pool(_run, jobs, puts, stk, workers, {"r": rate}))
+    C.write(df, OUT)
 
     # Score each config by its mean over the four calendars, and its worst one.
     keys = ["lev", "bud", "exit", "profit_x"]

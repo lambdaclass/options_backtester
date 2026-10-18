@@ -16,42 +16,20 @@ drawdown than buy & hold) back to the trades:
    (all 2001-2004).
 
 Placeholder asks (99999) are kept: the engine never buys at them and their
-bids mark correctly.
+bids mark correctly. The checks now live in the library
+(options_portfolio_backtester.data.cleaning); this keeps the study's settings.
 """
 
 import pandas as pd
 
+from options_portfolio_backtester import clean_options_chain
+
 BINARY_ROOTS = ("BSK", "BSF")
-FLAT_MIN_RUN = 3          # identical quotes on >= this many consecutive strikes
-FLAT_MIN_SPAN = 0.03      # ... spanning >= 3% of spot
-FLAT_MIN_ASK = 1.0        # penny plateaus are normal
-MAX_TIME_VALUE = 0.25     # of spot
 
 
 def clean_spx_chain(opt: pd.DataFrame, verbose: bool = True) -> pd.DataFrame:
-    """Return `opt` without binary, flat-printed or impossible-priced rows."""
-    n0 = len(opt)
-    binary = opt["optionroot"].astype(str).str.startswith(BINARY_ROOTS)
-
-    o = opt.sort_values(["quotedate", "expiration", "type", "strike"], kind="stable")
-    new_group = ((o["quotedate"] != o["quotedate"].shift())
-                 | (o["expiration"] != o["expiration"].shift())
-                 | (o["type"] != o["type"].shift()))
-    same = ~new_group & (o["bid"] == o["bid"].shift()) & (o["ask"] == o["ask"].shift())
-    run = (~same).cumsum()
-    g = o.groupby(run)["strike"]
-    span = (g.transform("max") - g.transform("min")) / o["underlying_last"]
-    flat = ((g.transform("size") >= FLAT_MIN_RUN) & (span >= FLAT_MIN_SPAN)
-            & (o["bid"] > 0) & (o["ask"] >= FLAT_MIN_ASK))
-    flat = flat.reindex(opt.index)
-
-    is_put = opt["type"].astype(str).str.lower().str[0] == "p"
-    intrinsic = (opt["strike"] - opt["underlying_last"]).where(
-        is_put, opt["underlying_last"] - opt["strike"]).clip(lower=0)
-    absurd = (opt["bid"] - intrinsic) > MAX_TIME_VALUE * opt["underlying_last"]
-
-    drop = binary | flat | absurd
-    if verbose:
-        print(f"clean_spx_chain: dropped {drop.sum():,}/{n0:,} rows "
-              f"(binary {binary.sum():,}, flat {flat.sum():,}, absurd {absurd.sum():,})")
-    return opt[~drop]
+    """Return `opt` without binary, flat-printed or impossible-priced rows
+    (the library cleaner with this study's settings; crossed markets are left
+    in, as when the results were produced -- the SPX chain has none)."""
+    return clean_options_chain(opt, verbose=verbose, drop_roots=BINARY_ROOTS,
+                               checks=("roots", "flat", "time_value"))
