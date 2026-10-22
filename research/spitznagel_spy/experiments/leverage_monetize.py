@@ -34,8 +34,6 @@ import spx_common as C
 
 from options_portfolio_backtester import apply_financing
 
-TBILL = C.ROOT / "data" / "processed" / "dtb3.csv"
-TBILL_URL = "https://fred.stlouisfed.org/graph/fredgraph.csv?id=DTB3"
 OUT = "leverage_monetize_results.csv"
 BORROW_SPREAD = 0.005  # broker / box-spread financing over T-bills
 
@@ -46,14 +44,6 @@ EXIT_DTE = [30, 45, 60]   # sell well before expiry, not only near it
 PROFIT_X = [math.inf, 2.0, 4.0, 9.0]  # sell when value >= (1 + x) * premium
 LEVERAGE = [1.0, 1.03, 1.05]   # small: 3-5% borrowed on top of 100% equity
 BUDGETS = [0.010, 0.020]
-
-
-def _tbill():
-    """Daily 3-month T-bill rate (decimal), cached from FRED."""
-    if not TBILL.exists():
-        pd.read_csv(TBILL_URL).to_csv(TBILL, index=False)
-    r = pd.read_csv(TBILL, parse_dates=["observation_date"], na_values=".")
-    return r.set_index("observation_date")["DTB3"].ffill() / 100
 
 
 def _run(job):
@@ -69,7 +59,7 @@ def _run(job):
 
 def main():
     workers = C.n_workers()
-    rate = _tbill()
+    rate = C.tbill()
     puts, stk = C.load_spx()
     bh = stk.set_index("date")["adjClose"]
     bh_cagr, bh_dd = C.ann(bh), C.maxdd(bh)

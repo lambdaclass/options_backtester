@@ -25,6 +25,8 @@ ROOT = next(p for p in Path(__file__).resolve().parents if (p / "pyproject.toml"
 OPTS = ROOT / "data" / "processed" / "spx_full_options.parquet"
 STK = ROOT / "data" / "processed" / "spx_full_stocks.csv"
 FINDINGS = Path(__file__).resolve().parents[1] / "findings"
+TBILL = ROOT / "data" / "processed" / "dtb3.csv"
+TBILL_URL = "https://fred.stlouisfed.org/graph/fredgraph.csv?id=DTB3"
 
 START, END = "1996-01-01", "2025-12-31"
 GFC = (pd.Timestamp("2007-10-01"), pd.Timestamp("2009-06-30"))
@@ -104,6 +106,14 @@ def load_spx(start=START, end=END):
     puts = opt[(opt["type"].astype(str).str.lower().str[0] == "p")
                & (opt["underlying"] == "SPX")].sort_values("quotedate", kind="stable")
     return puts, stk
+
+
+def tbill():
+    """Daily 3-month T-bill rate (decimal), cached from FRED DTB3."""
+    if not TBILL.exists():
+        pd.read_csv(TBILL_URL).to_csv(TBILL, index=False)
+    r = pd.read_csv(TBILL, parse_dates=["observation_date"], na_values=".")
+    return r.set_index("observation_date")["DTB3"].ffill() / 100
 
 
 # ---------------------------------------------------------------- engine
