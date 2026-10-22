@@ -22,6 +22,21 @@ anchored on the commit hash that introduced the change.
 ## Unreleased
 
 ### Behavioral changes
+- **Options settle at expiry, every trading day.** Expiry was only detected
+  where exit rules ran (rebalance days unless ``check_exits_daily``), and only
+  for legs with an exit filter, so an option expiring between rebalances was
+  settled at the *next* rebalance's spot (the README quickstart booked 135 of
+  147 exits after expiry) or, without an exit filter, never. Now every
+  trading day settles legs expiring that day (or before the next trading day:
+  older SPX data has Saturday expirations) at intrinsic value. The spot is
+  the unadjusted stock close, else the chain's last ``underlying_last``,
+  never 0. Exit rules still run only when configured. The golden scenario's
+  variant 2 was re-derived (it had pinned the late settlement: 1,975,030 ->
+  1,725,030).
+- **Quote gaps carry the last mark.** A held contract missing from a day's
+  quotes (or a day with no option rows) was marked at intrinsic value, 0 for
+  an OTM put: a fake NAV dip, and with ``loss_pct`` a sale at $0. It is now
+  marked at its last quote; threshold exits only fire on fully quoted days.
 - **Invalid filters fail the run.** A leg filter the Rust compiler could not
   parse used to be dropped silently: an entry filter then matched every
   contract, an exit filter never fired. It now raises with the leg, filter

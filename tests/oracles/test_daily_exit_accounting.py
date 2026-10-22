@@ -47,7 +47,7 @@ BUDGET_PCT = 0.05
 ROOT = "XYZ200717P00080000"   # expires 2020-07-17; DTE 46 on 06-01, 28 on 06-19
 
 
-def _run(tmp_path, option_rows, dte_exit, sort=None, roll=None):
+def _run(tmp_path, option_rows, dte_exit, sort=None, roll=None, loss_pct=math.inf):
     stocks_csv, options_csv = tmp_path / "s.csv", tmp_path / "o.csv"
     _write_stocks_csv(stocks_csv)
     # Stable sort: date order for the engine, same-day row order preserved.
@@ -63,7 +63,7 @@ def _run(tmp_path, option_rows, dte_exit, sort=None, roll=None):
         leg.entry_sort = sort
     strat = Strategy(schema)
     strat.add_legs([leg])
-    strat.add_exit_thresholds(profit_pct=math.inf, loss_pct=math.inf)
+    strat.add_exit_thresholds(profit_pct=math.inf, loss_pct=loss_pct)
 
     eng = BacktestEngine({"stocks": 1.0, "options": 0.0, "cash": 0.0},
                          initial_capital=INITIAL_CAPITAL,
@@ -138,6 +138,28 @@ class TestQuoteGap:
         exits = [(d, o) for d, o in _orders(eng) if "STC" in o]
         assert [d for d, _ in exits] == ["2020-06-19"]
         assert float(eng.trade_log["leg_1"]["cost"].iloc[-1]) == pytest.approx(-1_100.00)
+
+    def test_gap_day_is_marked_at_the_last_quote(self, tmp_path):
+        """On the gap day the put is worth its last bid (06-05: 1.50), not
+        intrinsic (0 for the OTM put): 500 * 1.50 * 100 = 75,000. Marking it
+        at 0 put a fake 75,000 dip into the NAV path."""
+        rows = _quoted_rows(skip={"2020-06-08"})
+        rows.append(_option_row("2020-06-08", "XYZ200717P00010000", "2020-07-17",
+                                10.0, 0.0, 0.05, 90.0))
+        eng = _run(tmp_path, rows, dte_exit=28)
+        gap = eng.balance.loc[pd.Timestamp("2020-06-08")]
+        assert gap["options capital"] == pytest.approx(75_000.00, abs=0.01)
+
+    def test_loss_threshold_does_not_fire_on_a_gap(self, tmp_path):
+        """loss_pct=0.5: at a carried or intrinsic mark the put looks like a
+        -100% loss on the gap day, and used to be sold for $0. Thresholds
+        only fire on quoted days."""
+        rows = _quoted_rows(skip={"2020-06-08"})
+        rows.append(_option_row("2020-06-08", "XYZ200717P00010000", "2020-07-17",
+                                10.0, 0.0, 0.05, 90.0))
+        eng = _run(tmp_path, rows, dte_exit=28, loss_pct=0.5)
+        exits = [d for d, o in _orders(eng) if "STC" in o]
+        assert exits == ["2020-06-19"]
 
 
 class TestEntryTieBreak:

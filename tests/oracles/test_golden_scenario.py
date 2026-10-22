@@ -31,11 +31,12 @@ Engine sizing rules (verified by reading the Rust sources, NOT assumed):
 
 * rust/ob_core/src/backtest.rs::execute_exits —
       cash += proceeds - exit_commission
-  proceeds = bid * spc * qty when the contract is quoted that day; when the
-  contract is ABSENT from the day's option rows AND has expired, the exit
-  fires and the price falls back to intrinsic value computed from the
-  UNADJUSTED close: max(strike - close, 0) for a put. (A contract absent
-  before its expiration is a quote gap and is kept.)
+  proceeds = bid * spc * qty when an exit rule fires on a quoted contract.
+  Expiry is checked on EVERY trading day (exit rules only on rebalance days
+  unless check_exits_daily): on its expiration date (or the last trading day
+  before it) a leg settles at intrinsic value from the UNADJUSTED close,
+  max(strike - close, 0) for a put. (A contract absent before its
+  expiration is a quote gap and is kept at its last mark.)
 
 ------------------------------------------------------------------------
 THE SCENARIO (identical economics in both test variants)
@@ -51,9 +52,10 @@ Dates (9 trading days, two business-month starts => 2 BMS rebalances):
 Stock XYZ (close == adjClose, splitFactor 1, divCash 0):
     100, 95, 90, 80, 70, 60, 55, 50, 50
 
-One long put on XYZ, strike 80, bought at rebalance 1 (ask 1.00),
-disposed of at rebalance 2 for 30.00/contract-share — via the quoted bid
-in variant 1, via the intrinsic fallback (80 - 50) in variant 2.
+One long put on XYZ, strike 80, bought at rebalance 1 (ask 1.00). Variant
+1 sells it at rebalance 2 at the quoted bid 30.00. Variant 2's put expires
+on 2020-06-26, between the rebalances, and settles THAT day at intrinsic
+max(80 - 55, 0) = 25.00 (derivation at the end).
 
 Config: allocation {stocks 1.0, options 0, cash 0}, options_budget_pct
 B = 0.05, initial capital 1,000,030.00, NoCosts (zero commissions),
@@ -108,6 +110,26 @@ Cross-check from first principles:
   put:         premium paid at entry (out of the 1,000,030), proceeds
                30.00 * 100 * 500                              = 1,500,000.00
   total:       475,000 + 30 + 1,500,000                       = 1,975,030.00  OK
+
+------------------------------------------------------------------------
+VARIANT 2: settlement at expiry, between rebalances
+------------------------------------------------------------------------
+
+Rebalance 1 and the June marks are as above. The put expires on
+2020-06-26 (a trading day, XYZ @ 55) and settles that day at intrinsic:
+  max(80 - 55, 0) = 25.00; proceeds 25.00 * 100 * 500 = 1,250,000.00
+  cash = 30 + 1,250,000 = 1,250,030.00 (no rebalance_stocks_on_exit: it
+  waits in cash).
+
+Rebalance 2 (2020-07-01, XYZ @ 50):
+  total capital   = 1,250,030 + 9,500 * 50 = 1,725,030.00
+  options budget  = 0.05 * 1,725,030 = 86,251.50, set aside
+  stock rebuy     : floor((1,725,030 - 86,251.50) / 50) = 32,775 shares
+                    cost 1,638,750.00, cash after = 86,280.00
+FINAL CAPITAL: 86,280 + 32,775 * 50 = 1,725,030.00
+  (= 475,000 stock + 30 + 1,250,000 put proceeds). Settling at the next
+  rebalance's spot instead -- the old behaviour -- overstated it by
+  250,000.00.
 """
 
 from __future__ import annotations
@@ -175,6 +197,13 @@ EXPECTED_STOCK_QTY_R2 = 37_525          # floor((1,975,030 - 98,751.50) / 50)
 EXPECTED_CASH_FINAL = 98_780.00         # 1,975,030 - 37,525*50
 EXPECTED_FINAL_TOTAL = 1_975_030.00     # 98,780 + 37,525*50
 
+# Variant 2: settles at expiry (2020-06-26, XYZ @ 55), not at rebalance 2.
+EXPECTED_V2_SETTLE = 25.00              # max(80 - 55, 0)
+EXPECTED_V2_PUT_PNL = 1_200_000.00      # (25.00 - 1.00) * 100 * 500
+EXPECTED_V2_STOCK_QTY_R2 = 32_775       # floor((1,725,030 - 86,251.50) / 50)
+EXPECTED_V2_CASH_FINAL = 86_280.00      # 1,725,030 - 32,775*50
+EXPECTED_V2_FINAL_TOTAL = 1_725_030.00  # 86,280 + 32,775*50
+
 
 # ── CSV builders ───────────────────────────────────────────────────────
 
@@ -232,9 +261,8 @@ def _write_options_csv_quoted(path):
 
 def _write_options_csv_expired(path):
     """Variant 2: strike-80 put expiring 2020-06-26 — BETWEEN the two
-    rebalances — so it is ABSENT from the 2020-07-01 rows and the exit must
-    take the intrinsic-fallback path: max(80 - unadjusted close 50, 0)
-    = 30.00, the same number as variant 1's quoted bid.
+    rebalances. It must settle on 06-26 at intrinsic from the unadjusted
+    close, max(80 - 55, 0) = 25.00, not wait for the 2020-07-01 rebalance.
 
     DTE on 2020-06-01 is 25 (entry filter dte >= 25 matches). A dummy
     far-OTM put (strike 40, expiring 2020-07-05) keeps the engine's
@@ -292,7 +320,9 @@ def _run_golden(tmp_path, write_options_fn, dte_min, dte_exit):
 
 # ── Shared assertions (the golden numbers) ─────────────────────────────
 
-def _assert_golden_numbers(eng, check_jun12=False):
+def _assert_golden_numbers(eng, check_jun12=False, exit_price=30.00,
+                           put_pnl=EXPECTED_PUT_PNL, stock_qty_r2=EXPECTED_STOCK_QTY_R2,
+                           cash_final=EXPECTED_CASH_FINAL, final_total_expected=EXPECTED_FINAL_TOTAL):
     bal = eng.balance
     cents = 0.01
 
@@ -330,28 +360,28 @@ def _assert_golden_numbers(eng, check_jun12=False):
     assert orders[0].upper().endswith("BTO") or "BTO" in orders[0].upper()
     assert "STC" in orders[1].upper()
 
-    # Per-contract costs: entry +100.00 (pay ask*spc), exit -3000.00
-    # (receive bid*spc / intrinsic*spc). Realized P&L = 1,450,000.
+    # Per-contract costs: entry +100.00 (pay ask*spc), exit -exit_price*spc
+    # (receive bid*spc / intrinsic*spc).
     entry_cost = float(eng.trade_log["leg_1"]["cost"].iloc[0])
     exit_cost = float(eng.trade_log["leg_1"]["cost"].iloc[1])
     assert entry_cost == pytest.approx(100.00, abs=cents)
-    assert exit_cost == pytest.approx(-3000.00, abs=cents)
+    assert exit_cost == pytest.approx(-exit_price * SPC, abs=cents)
     pnl = (-exit_cost - entry_cost) * EXPECTED_PUT_QTY
-    assert pnl == pytest.approx(EXPECTED_PUT_PNL, abs=cents)
+    assert pnl == pytest.approx(put_pnl, abs=cents)
 
     # FINAL CAPITAL — the anchor. A suppressed put payoff would leave
     # ~525,030 here; phantom money would overshoot. Both fail loudly.
     final_total = float(bal["total capital"].iloc[-1])
-    assert final_total == pytest.approx(EXPECTED_FINAL_TOTAL, abs=cents), (
+    assert final_total == pytest.approx(final_total_expected, abs=cents), (
         f"engine final capital {final_total:,.2f} != hand-derived "
-        f"{EXPECTED_FINAL_TOTAL:,.2f}"
+        f"{final_total_expected:,.2f}"
     )
 
     # Post-rebalance-2 composition: 37,525 shares @ 50 plus the unspent
     # budget in cash.
     last = bal.iloc[-1]
-    assert last["XYZ qty"] == pytest.approx(EXPECTED_STOCK_QTY_R2)
-    assert last["cash"] == pytest.approx(EXPECTED_CASH_FINAL, abs=cents)
+    assert last["XYZ qty"] == pytest.approx(stock_qty_r2)
+    assert last["cash"] == pytest.approx(cash_final, abs=cents)
     assert last["options capital"] == pytest.approx(0.0, abs=cents)
 
 
@@ -367,11 +397,17 @@ class TestGoldenScenario:
                           dte_min=40, dte_exit=20)
         _assert_golden_numbers(eng, check_jun12=True)
 
-    def test_intrinsic_fallback_exit_matches_hand_derivation(self, tmp_path):
-        """Variant 2: the put expires BETWEEN the rebalances and is absent
-        from the second rebalance's rows, so the exit must price it at
-        intrinsic value from the UNADJUSTED close: max(80 - 50, 0) = 30.00
-        — the bug-class-B code path. Same golden numbers as variant 1."""
+    def test_expiry_between_rebalances_settles_at_expiry(self, tmp_path):
+        """Variant 2: the put expires on 2020-06-26, BETWEEN the rebalances
+        (exit rules only run on rebalance days here). It must settle on its
+        expiry date at intrinsic from the UNADJUSTED close, max(80 - 55, 0)
+        = 25.00 -- not at the next rebalance's spot (80 - 50 = 30.00),
+        which overstated final capital by 250,000."""
         eng = _run_golden(tmp_path, _write_options_csv_expired,
                           dte_min=25, dte_exit=10)
-        _assert_golden_numbers(eng, check_jun12=False)
+        exit_date = pd.Timestamp(eng.trade_log["totals"]["date"].iloc[1])
+        assert exit_date == pd.Timestamp("2020-06-26")
+        _assert_golden_numbers(
+            eng, exit_price=EXPECTED_V2_SETTLE, put_pnl=EXPECTED_V2_PUT_PNL,
+            stock_qty_r2=EXPECTED_V2_STOCK_QTY_R2, cash_final=EXPECTED_V2_CASH_FINAL,
+            final_total_expected=EXPECTED_V2_FINAL_TOTAL)

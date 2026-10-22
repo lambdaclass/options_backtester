@@ -11,6 +11,7 @@
 //!   - get_symbol_price()       → DayStocks::get_price()  O(n) → O(1)
 //!   - Date keys are i64 (nanoseconds) — no string allocation or comparison.
 
+use std::cell::Cell;
 use std::collections::HashMap;
 
 use chrono::DateTime;
@@ -118,6 +119,11 @@ struct Position {
     leg_underlyings: Vec<String>,
     leg_expirations: Vec<String>,
     leg_strikes: Vec<f64>,
+    /// Last quoted exit-side price per leg: the mark through a quote gap.
+    leg_last_marks: Vec<Cell<f64>>,
+    /// Last quoted spot (the chain's underlying_last) per leg: the settlement
+    /// spot when the stock data does not carry the option's underlying.
+    leg_last_spots: Vec<Cell<f64>>,
 }
 
 struct StockHolding {
@@ -177,6 +183,52 @@ fn expired(expiration: &str, today: &str) -> bool {
     match (expiration.get(..10), today.get(..10)) {
         (Some(exp), Some(day)) => day >= exp,
         _ => true,
+    }
+}
+
+/// Whether a leg expiring on `expiration` must be settled on `today`: today
+/// is on/after expiry, or it is the last trading day on/before it (the next
+/// trading day, `next`, is past it -- SPX expirations fall on Saturdays in
+/// older data). Without a next day (end of data) only the first rule applies.
+fn expires_by(expiration: &str, today: &str, next: Option<&str>) -> bool {
+    expired(expiration, today)
+        || matches!((expiration.get(..10), next.and_then(|n| n.get(..10))), (Some(exp), Some(n)) if n > exp)
+}
+
+/// Spot used to settle leg `j` at expiry: the unadjusted close from the stock
+/// data, else the chain's last quoted underlying price.
+fn settlement_spot(pos: &Position, j: usize, day_stocks: Option<&DayStocks>) -> f64 {
+    day_stocks
+        .and_then(|ds| ds.get_unadj_price(&pos.leg_underlyings[j]))
+        .filter(|s| *s > 0.0)
+        .unwrap_or_else(|| pos.leg_last_spots[j].get())
+}
+
+/// Value of leg `j` at expiry: intrinsic at the settlement spot.
+fn settlement_price(pos: &Position, j: usize, day_stocks: Option<&DayStocks>) -> f64 {
+    intrinsic_value(&pos.leg_types[j], pos.leg_strikes[j], settlement_spot(pos, j, day_stocks))
+}
+
+/// Exit-side price of leg `j` today. A quote is used (and remembered as the
+/// leg's last mark). Without one: intrinsic value once the leg has expired,
+/// otherwise the last mark -- a quote gap is not a price change.
+fn leg_price(pos: &Position, j: usize, day_opts: Option<&DayOptions>,
+             day_stocks: Option<&DayStocks>, today: &str) -> f64 {
+    let contract = &pos.leg_contracts[j];
+    let col = pos.leg_directions[j].invert().price_column();
+    if let Some(price) = day_opts.and_then(|d| d.get_f64(contract, col)) {
+        pos.leg_last_marks[j].set(price);
+        if let Some(spot) = day_opts.and_then(|d| d.get_f64(contract, "underlying_last")) {
+            if spot > 0.0 {
+                pos.leg_last_spots[j].set(spot);
+            }
+        }
+        return price;
+    }
+    if expired(&pos.leg_expirations[j], today) {
+        settlement_price(pos, j, day_stocks)
+    } else {
+        pos.leg_last_marks[j].get()
     }
 }
 
@@ -435,159 +487,124 @@ pub fn run_backtest_with_filters(
 
     let rebalances_per_year = rebalances_per_year(rb_dates);
 
-    if config.check_exits_daily {
-        // All-dates loop: check exits on every trading day, rebalance on rb dates.
-        // Positions can change on any day, so each day's balance row is
-        // recorded at that day's close, after its exits/rebalance. (Backfilling
-        // a whole rebalance period at its end would value earlier days with
-        // the post-exit holdings — a look-ahead in the NAV path.)
-        use std::collections::HashSet;
-        let rb_set: HashSet<i64> = rb_dates.iter().copied().collect();
-        let mut rb_idx: usize = 0;
-        let mut started = false;
+    // One pass over every trading day. Rebalance dates rebalance; on other
+    // days held positions are checked for exits -- every exit rule with
+    // check_exits_daily, otherwise only expirations, so an option expiring
+    // between rebalances settles at its expiry, not at the next rebalance's
+    // spot. Each day's balance row is recorded at that day's close, after its
+    // exits/rebalance (back-filling a period from end-of-period holdings would
+    // value earlier days with later holdings -- a look-ahead in the NAV path).
+    use std::collections::HashSet;
+    let rb_set: HashSet<i64> = rb_dates.iter().copied().collect();
+    let mut started = false;
+    let all_dates = &partitioned.all_dates_sorted;
 
-        for &date in &partitioned.all_dates_sorted {
-            if rb_set.contains(&date) {
-                started = true;
-                let prev_rb_date = if rb_idx == 0 { date } else { rb_dates[rb_idx - 1] };
-                match rebalance_date(
-                    date, prev_rb_date, partitioned,
-                    config, entry_filters, exit_filters,
-                    schema, sma_map_by_date.as_ref(),
-                    rebalances_per_year, false,
-                    &mut positions, &mut stock_holdings, &mut cash,
-                    &mut peak_value, &mut portfolio_greeks,
-                    &mut trade_rows, &mut balance_days,
-                    &mut entry_attempts, &mut entry_unfilled, &mut entry_risk_blocked,
-                )? {
-                    RebalanceOutcome::SkipDate => {}
-                    RebalanceOutcome::StopBroke => break,
-                    RebalanceOutcome::Done => rb_idx += 1,
-                }
-            } else if !positions.is_empty() {
-                // Non-rebalance day: only run exits
-                if let Some(day_opts) = partitioned.options.get(&date) {
-                    let day_stocks = partitioned.stocks.get(&date);
-                    let cash_before = cash;
-                    execute_exits(
-                        &mut positions, &mut cash, day_opts,
-                        config.shares_per_contract,
-                        &config.legs, exit_filters,
-                        config.profit_pct, config.loss_pct,
-                        schema, date, &mut trade_rows,
-                        &config.cost_model, day_stocks,
-                        config.assert_invariants,
-                    )?;
-
-                    let freed = cash > cash_before;
-
-                    // Roll part of the proceeds into new contracts today.
-                    if let (Some(roll), true) = (config.roll_exit_proceeds_pct, freed) {
-                        let stock_cap = compute_stock_capital(&stock_holdings, day_stocks);
-                        let options_cap = compute_options_capital(
-                            &positions, day_opts, config.shares_per_contract, day_stocks,
-                        );
-                        let total_capital = cash + stock_cap + options_cap;
-                        portfolio_greeks = compute_portfolio_greeks_from_market(
-                            &positions, day_opts, &config.legs,
-                        );
-                        // Not counted in the fill-rate diagnostics: most rolls
-                        // are too small to buy a contract, and the rate is
-                        // about scheduled entries.
-                        let held: Vec<String> = positions.iter()
-                            .flat_map(|p| p.leg_contracts.clone())
-                            .collect();
-                        if let Some(pos) = execute_entries(
-                            &config.legs, entry_filters, day_opts, &held,
-                            config.shares_per_contract, roll * (cash - cash_before),
-                            schema, date, &mut trade_rows,
-                            &config.fill_model, &config.signal_selector,
-                            &config.risk_constraints, &portfolio_greeks,
-                            total_capital, peak_value,
-                            config.max_notional_pct, &positions,
-                            &mut 0,
-                        )? {
-                            let cost = pos.entry_cost * pos.quantity;
-                            let commission = config.cost_model.option_cost(
-                                cost.abs(), pos.quantity, config.shares_per_contract,
-                            );
-                            cash -= cost + commission;
-                            portfolio_greeks += pos.greeks;
-                            positions.push(pos);
-                        }
-                    }
-
-                    // Immediately reinvest freed cash into stocks
-                    if config.rebalance_stocks_on_exit && freed {
-                        let stock_cap = compute_stock_capital(&stock_holdings, day_stocks);
-                        let options_cap = compute_options_capital(
-                            &positions, day_opts, config.shares_per_contract, day_stocks,
-                        );
-                        let total_capital = cash + stock_cap + options_cap;
-                        peak_value = peak_value.max(total_capital);
-
-                        let externally_funded = config.options_budget_pct.is_some()
-                            || config.options_budget_annual_pct.is_some();
-                        let liquid_capital = total_capital - options_cap;
-                        let stocks_alloc = if externally_funded {
-                            config.allocation_stocks * liquid_capital
-                        } else {
-                            (config.allocation_stocks * total_capital).min(liquid_capital)
-                        };
-                        stock_holdings.clear();
-                        cash = liquid_capital;
-
-                        let sma_prices = sma_map_by_date.as_ref().and_then(|m| m.get(&date));
-                        buy_stocks(
-                            &config.stock_symbols, &config.stock_percentages,
-                            day_stocks, stocks_alloc, &mut stock_holdings,
-                            &config.cost_model, &mut cash, sma_prices,
-                        );
-                    }
-                }
-            }
-            if started {
-                compute_balance_period(
-                    &positions, &stock_holdings, partitioned,
-                    date, date + 1,
-                    config.shares_per_contract, cash,
-                    &config.legs, &mut balance_days,
-                );
-            }
-        }
-    } else {
-        // Fast path: iterate only rebalance dates (typical: ~200 vs ~4500 all dates).
-        // Holdings only change on rebalance dates here, so each period's rows
-        // can be filled in at the next rebalance with the then-current state.
-        for (rb_idx, &rb_date) in rb_dates.iter().enumerate() {
-            let prev_rb_date = if rb_idx == 0 { rb_date } else { rb_dates[rb_idx - 1] };
+    for (di, &date) in all_dates.iter().enumerate() {
+        let next_date = all_dates.get(di + 1).copied();
+        if rb_set.contains(&date) {
+            started = true;
             match rebalance_date(
-                rb_date, prev_rb_date, partitioned,
+                date, next_date, partitioned,
                 config, entry_filters, exit_filters,
                 schema, sma_map_by_date.as_ref(),
-                rebalances_per_year, true,
+                rebalances_per_year,
                 &mut positions, &mut stock_holdings, &mut cash,
                 &mut peak_value, &mut portfolio_greeks,
-                &mut trade_rows, &mut balance_days,
+                &mut trade_rows,
                 &mut entry_attempts, &mut entry_unfilled, &mut entry_risk_blocked,
             )? {
-                RebalanceOutcome::SkipDate => continue,
+                RebalanceOutcome::SkipDate | RebalanceOutcome::Done => {}
                 RebalanceOutcome::StopBroke => break,
-                RebalanceOutcome::Done => {}
+            }
+        } else if !positions.is_empty() {
+            if let Some(day_opts) = partitioned.options.get(&date) {
+                let today = ns_to_datestring(date);
+                let day_stocks = partitioned.stocks.get(&date);
+                let cash_before = cash;
+                execute_exits(
+                    &mut positions, &mut cash, day_opts,
+                    config.shares_per_contract,
+                    &config.legs, exit_filters,
+                    config.profit_pct, config.loss_pct,
+                    schema, date, next_date, !config.check_exits_daily,
+                    &mut trade_rows,
+                    &config.cost_model, day_stocks,
+                    config.assert_invariants,
+                )?;
+
+                let freed = cash > cash_before;
+
+                // Roll part of the proceeds into new contracts today.
+                if let (Some(roll), true) = (config.roll_exit_proceeds_pct, freed) {
+                    let stock_cap = compute_stock_capital(&stock_holdings, day_stocks);
+                    let options_cap = compute_options_capital(
+                        &positions, day_opts, config.shares_per_contract, day_stocks, &today,
+                    );
+                    let total_capital = cash + stock_cap + options_cap;
+                    portfolio_greeks = compute_portfolio_greeks_from_market(
+                        &positions, day_opts, &config.legs,
+                    );
+                    // Not counted in the fill-rate diagnostics: most rolls
+                    // are too small to buy a contract, and the rate is
+                    // about scheduled entries.
+                    let held: Vec<String> = positions.iter()
+                        .flat_map(|p| p.leg_contracts.clone())
+                        .collect();
+                    if let Some(pos) = execute_entries(
+                        &config.legs, entry_filters, day_opts, &held,
+                        config.shares_per_contract, roll * (cash - cash_before),
+                        schema, date, &mut trade_rows,
+                        &config.fill_model, &config.signal_selector,
+                        &config.risk_constraints, &portfolio_greeks,
+                        total_capital, peak_value,
+                        config.max_notional_pct, &positions,
+                        &mut 0,
+                    )? {
+                        let cost = pos.entry_cost * pos.quantity;
+                        let commission = config.cost_model.option_cost(
+                            cost.abs(), pos.quantity, config.shares_per_contract,
+                        );
+                        cash -= cost + commission;
+                        portfolio_greeks += pos.greeks;
+                        positions.push(pos);
+                    }
+                }
+
+                // Immediately reinvest freed cash into stocks
+                if config.rebalance_stocks_on_exit && freed {
+                    let stock_cap = compute_stock_capital(&stock_holdings, day_stocks);
+                    let options_cap = compute_options_capital(
+                        &positions, day_opts, config.shares_per_contract, day_stocks, &today,
+                    );
+                    let total_capital = cash + stock_cap + options_cap;
+                    peak_value = peak_value.max(total_capital);
+
+                    let externally_funded = config.options_budget_pct.is_some()
+                        || config.options_budget_annual_pct.is_some();
+                    let liquid_capital = total_capital - options_cap;
+                    let stocks_alloc = if externally_funded {
+                        config.allocation_stocks * liquid_capital
+                    } else {
+                        (config.allocation_stocks * total_capital).min(liquid_capital)
+                    };
+                    stock_holdings.clear();
+                    cash = liquid_capital;
+
+                    let sma_prices = sma_map_by_date.as_ref().and_then(|m| m.get(&date));
+                    buy_stocks(
+                        &config.stock_symbols, &config.stock_percentages,
+                        day_stocks, stocks_alloc, &mut stock_holdings,
+                        &config.cost_model, &mut cash, sma_prices,
+                    );
+                }
             }
         }
-
-        // Final balance update: last rebalance date through the last trading day.
-        let last_rb = *rb_dates.last().unwrap();
-        let last_date = partitioned.all_dates_sorted.last().copied().unwrap_or(0);
-        if last_date > 0 {
+        if started {
             compute_balance_period(
-                &positions, &stock_holdings,
-                partitioned,
-                last_rb, last_date + 1,
+                &positions, &stock_holdings, partitioned,
+                date, date + 1,
                 config.shares_per_contract, cash,
-                &config.legs,
-                &mut balance_days,
+                &config.legs, &mut balance_days,
             );
         }
     }
@@ -602,9 +619,7 @@ pub fn run_backtest_with_filters(
 enum RebalanceOutcome {
     /// Rebalance completed normally.
     Done,
-    /// The rebalance date had no options rows — caller should `continue` to the
-    /// next date. Note: when `record_period` is set, compute_balance_period has
-    /// already run by this point.
+    /// The rebalance date had no options rows; nothing was traded.
     SkipDate,
     /// stop_if_broke triggered (cash went negative) — caller should `break`.
     StopBroke,
@@ -621,14 +636,13 @@ fn rebalances_per_year(rb_dates: &[i64]) -> f64 {
     if years > 0.0 { (rb_dates.len() - 1) as f64 / years } else { rb_dates.len() as f64 }
 }
 
-/// Rebalance helper: executes full rebalance logic for a single date.
-/// Shared by the two loop variants (rb-only vs all-dates) of the
-/// single-strategy backtest. `record_period` fills in the balance rows for
-/// [prev_rb_date, rb_date) first; the all-dates loop records each day itself.
+/// Rebalance helper: executes full rebalance logic for a single date of the
+/// single-strategy backtest. `next_date` is the next trading day (expiry
+/// settlement needs it); the caller records the day's balance row.
 #[allow(clippy::too_many_arguments)]
 fn rebalance_date(
     rb_date: i64,
-    prev_rb_date: i64,
+    next_date: Option<i64>,
     partitioned: &PartitionedData,
     config: &BacktestConfig,
     entry_filters: &[Option<CompiledFilter>],
@@ -636,34 +650,22 @@ fn rebalance_date(
     schema: &SchemaMapping,
     sma_map_by_date: Option<&HashMap<i64, HashMap<String, f64>>>,
     rebalances_per_year: f64,
-    record_period: bool,
     positions: &mut Vec<Position>,
     stock_holdings: &mut Vec<StockHolding>,
     cash: &mut f64,
     peak_value: &mut f64,
     portfolio_greeks: &mut Greeks,
     trade_rows: &mut Vec<TradeRow>,
-    balance_days: &mut Vec<BalanceDay>,
     entry_attempts: &mut u32,
     entry_unfilled: &mut u32,
     entry_risk_blocked: &mut u32,
 ) -> PolarsResult<RebalanceOutcome> {
-    if record_period {
-        compute_balance_period(
-            positions, stock_holdings,
-            partitioned,
-            prev_rb_date, rb_date,
-            config.shares_per_contract, *cash,
-            &config.legs,
-            balance_days,
-        );
-    }
-
     let day_opts = match partitioned.options.get(&rb_date) {
         Some(d) if d.height() > 0 => d,
         _ => return Ok(RebalanceOutcome::SkipDate),
     };
     let day_stocks = partitioned.stocks.get(&rb_date);
+    let today = ns_to_datestring(rb_date);
 
     // Run exit filters
     let cash_before_exits = *cash;
@@ -672,7 +674,7 @@ fn rebalance_date(
         config.shares_per_contract,
         &config.legs, exit_filters,
         config.profit_pct, config.loss_pct,
-        schema, rb_date, trade_rows,
+        schema, rb_date, next_date, false, trade_rows,
         &config.cost_model, day_stocks,
         config.assert_invariants,
     )?;
@@ -685,7 +687,7 @@ fn rebalance_date(
     // Compute total capital including held options
     let stock_cap = compute_stock_capital(stock_holdings, day_stocks);
     let options_cap = compute_options_capital(
-        positions, day_opts, config.shares_per_contract, day_stocks,
+        positions, day_opts, config.shares_per_contract, day_stocks, &today,
     );
     let total_capital = *cash + stock_cap + options_cap;
     *peak_value = peak_value.max(total_capital);
@@ -831,14 +833,13 @@ pub fn run_multi_strategy(
             entry_attempts, entry_unfilled, entry_risk_blocked);
     }
 
-    // Determine if any slot uses daily exits
-    let any_daily_exits = config.check_exits_daily
-        || slots.iter().any(|s| s.check_exits_daily);
-
     // Track previous rebalance date for balance computation
     let mut prev_global_rb: Option<i64> = None;
+    let all_dates = &partitioned.all_dates_sorted;
 
-    for &date in &partitioned.all_dates_sorted {
+    for (di, &date) in all_dates.iter().enumerate() {
+        let next_date = all_dates.get(di + 1).copied();
+        let today = ns_to_datestring(date);
         let is_rebalance = all_rb_set.contains(&date);
 
         // Which slots rebalance on this date?
@@ -852,16 +853,6 @@ pub fn run_multi_strategy(
 
         'day: {
             if is_rebalance {
-                // With daily exits, rows are recorded per day below instead
-                // (backfilling would value earlier days with later holdings).
-                if !any_daily_exits {
-                    let prev_rb = prev_global_rb.unwrap_or(date);
-                    compute_balance_period_multi(
-                        &slot_positions, &stock_holdings, partitioned,
-                        prev_rb, date, config.shares_per_contract, cash,
-                        slots, &mut balance_days,
-                    );
-                }
                 prev_global_rb = Some(date);
 
                 let day_opts = match partitioned.options.get(&date) {
@@ -870,14 +861,18 @@ pub fn run_multi_strategy(
                 };
                 let day_stocks = partitioned.stocks.get(&date);
 
-                // Phase 1: exits for rebalancing slots
-                for &si in &slots_rebalancing {
+                // Phase 1: exits -- every rule for the rebalancing slots,
+                // expirations only for the others.
+                for si in 0..slots.len() {
+                    let rebalancing = slots_rebalancing.contains(&si);
                     execute_exits(
                         &mut slot_positions[si], &mut cash, day_opts,
                         config.shares_per_contract,
                         &slots[si].legs, &slot_filters[si].exit,
                         slots[si].profit_pct, slots[si].loss_pct,
-                        schema, date, &mut trade_rows,
+                        schema, date, next_date,
+                        !(rebalancing || slots[si].check_exits_daily || config.check_exits_daily),
+                        &mut trade_rows,
                         &config.cost_model, day_stocks,
                         config.assert_invariants,
                     )?;
@@ -886,7 +881,7 @@ pub fn run_multi_strategy(
                 // Phase 2: compute aggregate capital
                 let stock_cap = compute_stock_capital(&stock_holdings, day_stocks);
                 let options_cap: f64 = slot_positions.iter().map(|positions| {
-                    compute_options_capital(positions, day_opts, config.shares_per_contract, day_stocks)
+                    compute_options_capital(positions, day_opts, config.shares_per_contract, day_stocks, &today)
                 }).sum();
                 let total_capital = cash + stock_cap + options_cap;
                 peak_value = peak_value.max(total_capital);
@@ -905,7 +900,7 @@ pub fn run_multi_strategy(
                         slot_allocation
                     } else {
                         slot_allocation - compute_options_capital(
-                            &slot_positions[si], day_opts, config.shares_per_contract, day_stocks,
+                            &slot_positions[si], day_opts, config.shares_per_contract, day_stocks, &today,
                         )
                     }
                 }).collect();
@@ -966,21 +961,22 @@ pub fn run_multi_strategy(
                         }
                     }
                 }
-            } else if any_daily_exits {
-                // Non-rebalance day: run exits for slots with check_exits_daily
+            } else {
+                // Non-rebalance day: every exit rule for slots with
+                // check_exits_daily, expirations only for the others.
                 if let Some(day_opts) = partitioned.options.get(&date) {
                     let day_stocks = partitioned.stocks.get(&date);
                     let cash_before = cash;
                     for (si, slot) in slots.iter().enumerate() {
-                        if (slot.check_exits_daily || config.check_exits_daily)
-                            && !slot_positions[si].is_empty()
-                        {
+                        if !slot_positions[si].is_empty() {
                             execute_exits(
                                 &mut slot_positions[si], &mut cash, day_opts,
                                 config.shares_per_contract,
                                 &slot.legs, &slot_filters[si].exit,
                                 slot.profit_pct, slot.loss_pct,
-                                schema, date, &mut trade_rows,
+                                schema, date, next_date,
+                                !(slot.check_exits_daily || config.check_exits_daily),
+                                &mut trade_rows,
                                 &config.cost_model, day_stocks,
                                 config.assert_invariants,
                             )?;
@@ -993,7 +989,7 @@ pub fn run_multi_strategy(
                     if config.rebalance_stocks_on_exit && cash > cash_before {
                         let stock_cap = compute_stock_capital(&stock_holdings, day_stocks);
                         let options_cap: f64 = slot_positions.iter().map(|positions| {
-                            compute_options_capital(positions, day_opts, config.shares_per_contract, day_stocks)
+                            compute_options_capital(positions, day_opts, config.shares_per_contract, day_stocks, &today)
                         }).sum();
                         let total_capital = cash + stock_cap + options_cap;
                         peak_value = peak_value.max(total_capital);
@@ -1020,7 +1016,7 @@ pub fn run_multi_strategy(
             }
         }
 
-        if any_daily_exits && prev_global_rb.is_some() {
+        if prev_global_rb.is_some() {
             compute_balance_period_multi(
                 &slot_positions, &stock_holdings, partitioned,
                 date, date + 1, config.shares_per_contract, cash,
@@ -1030,18 +1026,6 @@ pub fn run_multi_strategy(
 
         if is_rebalance && config.stop_if_broke && cash < 0.0 {
             break;
-        }
-    }
-
-    // Final balance update: last rebalance date through the last trading day.
-    if let (Some(last_rb), false) = (prev_global_rb, any_daily_exits) {
-        let last_date = partitioned.all_dates_sorted.last().copied().unwrap_or(0);
-        if last_date > 0 {
-            compute_balance_period_multi(
-                &slot_positions, &stock_holdings, partitioned,
-                last_rb, last_date + 1, config.shares_per_contract, cash,
-                slots, &mut balance_days,
-            );
         }
     }
 
@@ -1075,21 +1059,15 @@ fn compute_balance_period_multi(
         let mut puts_cap = 0.0;
         let mut options_qty = 0.0;
 
-        if let Some(opts) = day_opts {
+        let today = ns_to_datestring(d);
+        {
             for (si, positions) in slot_positions.iter().enumerate() {
                 let legs = &slots[si].legs;
                 for pos in positions {
                     options_qty += pos.quantity;
                     for (j, leg) in legs.iter().enumerate() {
                         if j >= pos.leg_contracts.len() { continue; }
-                        let exit_price_col = leg.direction.invert().price_column();
-                        let price = opts.get_f64(&pos.leg_contracts[j], exit_price_col)
-                            .unwrap_or_else(|| {
-                                let spot = day_stocks
-                                    .and_then(|ds| ds.get_unadj_price(&pos.leg_underlyings[j]))
-                                    .unwrap_or(0.0);
-                                intrinsic_value(&pos.leg_types[j], pos.leg_strikes[j], spot)
-                            });
+                        let price = leg_price(pos, j, day_opts, day_stocks, &today);
                         let sign = leg.direction.invert().sign();
                         let value = sign * price * pos.quantity * spc as f64;
                         if pos.leg_types[j] == "call" {
@@ -1258,6 +1236,8 @@ fn execute_exits(
     loss_pct: Option<f64>,
     schema: &SchemaMapping,
     date: i64,
+    next_date: Option<i64>,
+    expiry_only: bool,
     trade_rows: &mut Vec<TradeRow>,
     cost_model: &CostModel,
     day_stocks: Option<&DayStocks>,
@@ -1265,47 +1245,67 @@ fn execute_exits(
 ) -> PolarsResult<()> {
     let mut to_remove = Vec::new();
     let today = ns_to_datestring(date);
+    let next = next_date.map(ns_to_datestring);
 
     for (i, pos) in positions.iter().enumerate() {
-        let mut should_exit = false;
+        // Expiry is independent of any exit rule: a leg that expires today
+        // (or before the next trading day) closes the position, settled at
+        // intrinsic value.
+        let expiring: Vec<bool> = (0..pos.leg_contracts.len())
+            .map(|j| expires_by(&pos.leg_expirations[j], &today, next.as_deref()))
+            .collect();
+        let mut should_exit = expiring.iter().any(|&e| e);
 
-        // Check exit filters per leg — direct row evaluation, no Polars lazy overhead.
-        for (j, _leg) in legs.iter().enumerate() {
-            if let Some(ref flt) = exit_filters[j] {
-                let contract = &pos.leg_contracts[j];
-                if let Some(&row_idx) = day_opts.contract_idx.get(contract.as_str()) {
-                    // Contract exists today — check exit filter on its row.
+        if !should_exit && !expiry_only {
+            // Exit filters per leg -- direct row evaluation. A contract
+            // missing from today's quotes is a data gap (expiry was handled
+            // above): keep holding.
+            for (j, flt) in exit_filters.iter().enumerate().take(pos.leg_contracts.len()) {
+                if let (Some(flt), Some(&row_idx)) =
+                    (flt, day_opts.contract_idx.get(pos.leg_contracts[j].as_str()))
+                {
                     if flt.eval_row(&day_opts.df, row_idx) {
                         should_exit = true;
                     }
-                } else if expired(&pos.leg_expirations[j], &today) {
-                    // Contract gone because it expired → settle at intrinsic.
-                    should_exit = true;
                 }
-                // Otherwise it's a one-day quote gap: keep holding. Selling at
-                // the intrinsic fallback (0 for an OTM put) would throw away
-                // the hedge on a data hole.
             }
-        }
 
-        // Check threshold exits — mirrors Python's Strategy.filter_thresholds:
-        //   excess_return = (current_cost / entry_cost + 1) * -sign(entry_cost)
-        if !should_exit {
-            let curr = compute_position_exit_cost(pos, day_opts, spc, day_stocks);
-            let entry = pos.entry_cost;
-            if entry != 0.0 {
-                let excess_return = (curr / entry + 1.0) * -entry.signum();
-                if profit_pct.is_some_and(|p| excess_return >= p)
-                    || loss_pct.is_some_and(|l| excess_return <= -l)
-                {
-                    should_exit = true;
+            // Threshold exits -- mirrors Python's Strategy.filter_thresholds:
+            //   excess_return = (current_cost / entry_cost + 1) * -sign(entry_cost)
+            // Only on fully quoted days: a carried mark is not a price at
+            // which the position could be closed.
+            let quoted = pos.leg_contracts.iter()
+                .all(|c| day_opts.contract_idx.contains_key(c.as_str()));
+            if !should_exit && quoted {
+                let curr = compute_position_exit_cost(pos, day_opts, spc, day_stocks, &today);
+                let entry = pos.entry_cost;
+                if entry != 0.0 {
+                    let excess_return = (curr / entry + 1.0) * -entry.signum();
+                    if profit_pct.is_some_and(|p| excess_return >= p)
+                        || loss_pct.is_some_and(|l| excess_return <= -l)
+                    {
+                        should_exit = true;
+                    }
                 }
             }
         }
 
         if should_exit {
+            // Per-leg exit prices: settlement for expiring legs, otherwise
+            // today's exit-side quote (or the leg's last mark).
+            let prices: Vec<f64> = (0..pos.leg_contracts.len()).map(|j| {
+                if expiring[j] {
+                    settlement_price(pos, j, day_stocks)
+                } else {
+                    leg_price(pos, j, Some(day_opts), day_stocks, &today)
+                }
+            }).collect();
+            let exit_cost: f64 = (0..prices.len()).map(|j| {
+                let cash_sign = if pos.leg_directions[j] == Direction::Buy { -1.0 } else { 1.0 };
+                cash_sign * prices[j] * spc as f64
+            }).sum();
+
             let cash_before = *cash;
-            let exit_cost = compute_position_exit_cost(pos, day_opts, spc, day_stocks);
             *cash -= exit_cost * pos.quantity;
 
             // Apply exit commission
@@ -1334,33 +1334,27 @@ fn execute_exits(
 
             // Build trade row for exit
             let mut leg_data = Vec::new();
-            for (j, leg) in legs.iter().enumerate() {
-                let exit_price_col = leg.direction.invert().price_column();
-                let quoted = day_opts.get_f64(&pos.leg_contracts[j], exit_price_col);
-                let price = quoted.unwrap_or_else(|| {
-                    let spot = day_stocks
-                        .and_then(|ds| ds.get_unadj_price(&pos.leg_underlyings[j]))
-                        .unwrap_or(0.0);
-                    intrinsic_value(&pos.leg_types[j], pos.leg_strikes[j], spot)
-                });
+            for (j, leg) in legs.iter().enumerate().take(pos.leg_contracts.len()) {
+                let price = prices[j];
 
                 // Class-B valuation invariant (bug class B — see CHANGELOG):
-                // when the contract is NOT quoted we fall back to intrinsic
-                // value, which MUST be computed from the unadjusted spot (raw
-                // strikes vs adjusted spot manufactured phantom value). Recompute
-                // it here independently and confirm the price used matches —
-                // a regression back to the adjusted close makes them diverge.
-                if assert_invariants && quoted.is_none() {
-                    let unadj_spot = day_stocks
+                // settlement uses intrinsic value from the UNADJUSTED spot
+                // (raw strikes vs adjusted spot manufactured phantom value).
+                // Recompute it independently from the stock data and confirm
+                // the price used matches.
+                if assert_invariants && expiring[j] {
+                    if let Some(unadj_spot) = day_stocks
                         .and_then(|ds| ds.get_unadj_price(&pos.leg_underlyings[j]))
-                        .unwrap_or(0.0);
-                    let expected = intrinsic_value(&pos.leg_types[j], pos.leg_strikes[j], unadj_spot);
-                    if price < -1e-9 || (price - expected).abs() > 1e-6 * (1.0 + expected.abs()) {
-                        return Err(PolarsError::ComputeError(format!(
-                            "valuation invariant (class B) violated at date {date}: \
-                             unquoted contract {} marked at {price:.6}, expected unadjusted \
-                             intrinsic {expected:.6}", pos.leg_contracts[j]
-                        ).into()));
+                        .filter(|s| *s > 0.0)
+                    {
+                        let expected = intrinsic_value(&pos.leg_types[j], pos.leg_strikes[j], unadj_spot);
+                        if price < -1e-9 || (price - expected).abs() > 1e-6 * (1.0 + expected.abs()) {
+                            return Err(PolarsError::ComputeError(format!(
+                                "valuation invariant (class B) violated at date {date}: \
+                                 expiring contract {} settled at {price:.6}, expected unadjusted \
+                                 intrinsic {expected:.6}", pos.leg_contracts[j]
+                            ).into()));
+                        }
                     }
                 }
                 // Cash flow sign: BUY receives (-1), SELL pays (+1)
@@ -1397,71 +1391,6 @@ fn execute_exits(
         positions.remove(i);
     }
     Ok(())
-}
-
-// ---------------------------------------------------------------------------
-// Liquidate all remaining option positions (full rebalance).
-// ---------------------------------------------------------------------------
-
-#[allow(dead_code)]
-fn liquidate_all_positions(
-    positions: &mut Vec<Position>,
-    cash: &mut f64,
-    day_opts: &DayOptions,
-    spc: i64,
-    legs: &[LegConfig],
-    schema: &SchemaMapping,
-    date: i64,
-    trade_rows: &mut Vec<TradeRow>,
-    cost_model: &CostModel,
-    day_stocks: Option<&DayStocks>,
-) {
-    for pos in positions.iter() {
-        let exit_cost = compute_position_exit_cost(pos, day_opts, spc, day_stocks);
-        *cash -= exit_cost * pos.quantity;
-
-        let commission = cost_model.option_cost(
-            exit_cost.abs(), pos.quantity.abs(), spc,
-        );
-        *cash -= commission;
-
-        let mut leg_data = Vec::new();
-        for (j, leg) in legs.iter().enumerate() {
-            let exit_price_col = leg.direction.invert().price_column();
-            let price = day_opts.get_f64(&pos.leg_contracts[j], exit_price_col)
-                .unwrap_or_else(|| {
-                    let spot = day_stocks
-                        .and_then(|ds| ds.get_unadj_price(&pos.leg_underlyings[j]))
-                        .unwrap_or(0.0);
-                    intrinsic_value(&pos.leg_types[j], pos.leg_strikes[j], spot)
-                });
-            let cash_sign = if leg.direction == Direction::Buy { -1.0 } else { 1.0 };
-            let cost = cash_sign * price * spc as f64;
-            let order = match leg.direction {
-                Direction::Buy => "STC",
-                Direction::Sell => "BTC",
-            };
-            leg_data.push(LegTradeData {
-                contract: pos.leg_contracts[j].clone(),
-                underlying: day_opts.get_str(&pos.leg_contracts[j], &schema.underlying)
-                    .unwrap_or_else(|| pos.leg_underlyings[j].clone()),
-                expiration: day_opts.get_str(&pos.leg_contracts[j], &schema.expiration)
-                    .unwrap_or_else(|| pos.leg_expirations[j].clone()),
-                opt_type: pos.leg_types[j].clone(),
-                strike: day_opts.get_f64(&pos.leg_contracts[j], &schema.strike)
-                    .unwrap_or(pos.leg_strikes[j]),
-                cost,
-                order: order.to_string(),
-            });
-        }
-        trade_rows.push(TradeRow {
-            date,
-            leg_data,
-            total_cost: exit_cost,
-            qty: pos.quantity,
-        });
-    }
-    positions.clear();
 }
 
 // ---------------------------------------------------------------------------
@@ -1576,6 +1505,8 @@ fn execute_entries(
     let mut leg_underlyings = Vec::new();
     let mut leg_expirations = Vec::new();
     let mut leg_strikes = Vec::new();
+    let mut leg_last_marks = Vec::new();
+    let mut leg_last_spots = Vec::new();
     let mut total_cost = 0.0;
     let mut original_total_cost = 0.0;
     let mut leg_data = Vec::new();
@@ -1629,6 +1560,9 @@ fn execute_entries(
         leg_underlyings.push(underlying.clone());
         leg_expirations.push(expiration.clone());
         leg_strikes.push(strike);
+        let exit_col = legs[i].direction.invert().price_column();
+        leg_last_marks.push(Cell::new(day_opts.get_f64(&contract, exit_col).unwrap_or(0.0)));
+        leg_last_spots.push(Cell::new(day_opts.get_f64(&contract, "underlying_last").unwrap_or(0.0)));
 
         leg_data.push(LegTradeData {
             contract,
@@ -1713,6 +1647,8 @@ fn execute_entries(
         leg_underlyings,
         leg_expirations,
         leg_strikes,
+        leg_last_marks,
+        leg_last_spots,
     }))
 }
 
@@ -1745,19 +1681,13 @@ fn compute_balance_period(
         let mut puts_cap = 0.0;
         let mut options_qty = 0.0;
 
-        if let Some(opts) = day_opts {
+        let today = ns_to_datestring(d);
+        {
             for pos in positions {
                 options_qty += pos.quantity;
                 for (j, leg) in legs.iter().enumerate() {
                     if j >= pos.leg_contracts.len() { continue; }
-                    let exit_price_col = leg.direction.invert().price_column();
-                    let price = opts.get_f64(&pos.leg_contracts[j], exit_price_col)
-                        .unwrap_or_else(|| {
-                            let spot = day_stocks
-                                .and_then(|ds| ds.get_unadj_price(&pos.leg_underlyings[j]))
-                                .unwrap_or(0.0);
-                            intrinsic_value(&pos.leg_types[j], pos.leg_strikes[j], spot)
-                        });
+                    let price = leg_price(pos, j, day_opts, day_stocks, &today);
                     let sign = leg.direction.invert().sign();
                     let value = sign * price * pos.quantity * spc as f64;
 
@@ -1980,19 +1910,13 @@ fn intrinsic_value(opt_type: &str, strike: f64, underlying_price: f64) -> f64 {
     }
 }
 
-/// Compute the total exit cost for a position — O(1) per leg via DayOptions.
-fn compute_position_exit_cost(pos: &Position, day_opts: &DayOptions, spc: i64, day_stocks: Option<&DayStocks>) -> f64 {
+/// Compute the total exit cost for a position -- O(1) per leg via DayOptions.
+fn compute_position_exit_cost(pos: &Position, day_opts: &DayOptions, spc: i64,
+                              day_stocks: Option<&DayStocks>, today: &str) -> f64 {
     let mut total = 0.0;
-    for (i, contract) in pos.leg_contracts.iter().enumerate() {
-        let dir = pos.leg_directions[i];
-        let price = day_opts.get_f64(contract, dir.invert().price_column())
-            .unwrap_or_else(|| {
-                let spot = day_stocks
-                    .and_then(|ds| ds.get_unadj_price(&pos.leg_underlyings[i]))
-                    .unwrap_or(0.0);
-                intrinsic_value(&pos.leg_types[i], pos.leg_strikes[i], spot)
-            });
-        let cash_sign = if dir == Direction::Buy { -1.0 } else { 1.0 };
+    for i in 0..pos.leg_contracts.len() {
+        let price = leg_price(pos, i, Some(day_opts), day_stocks, today);
+        let cash_sign = if pos.leg_directions[i] == Direction::Buy { -1.0 } else { 1.0 };
         total += cash_sign * price * spc as f64;
     }
     total
@@ -2010,9 +1934,10 @@ fn compute_stock_capital(holdings: &[StockHolding], day_stocks: Option<&DayStock
 
 fn compute_options_capital(
     positions: &[Position], day_opts: &DayOptions, spc: i64, day_stocks: Option<&DayStocks>,
+    today: &str,
 ) -> f64 {
     positions.iter().map(|pos| {
-        -compute_position_exit_cost(pos, day_opts, spc, day_stocks) * pos.quantity
+        -compute_position_exit_cost(pos, day_opts, spc, day_stocks, today) * pos.quantity
     }).sum()
 }
 
@@ -2147,11 +2072,8 @@ mod tests {
         assert!((intrinsic_value("call", 400.0, 400.0)).abs() < 1e-10);
     }
 
-    #[test]
-    fn exit_cost_uses_intrinsic_when_missing() {
-        // Position with a put at strike 400, spot at 380
-        // Contract not in day options → should use intrinsic (20.0)
-        let pos = Position {
+    fn short_put_missing_from_quotes() -> Position {
+        Position {
             leg_contracts: vec!["MISSING_CONTRACT".into()],
             leg_types: vec!["put".into()],
             leg_directions: vec![Direction::Sell],
@@ -2161,23 +2083,62 @@ mod tests {
             leg_underlyings: vec!["SPY".into()],
             leg_expirations: vec!["2024-06-01".into()],
             leg_strikes: vec![400.0],
-        };
+            leg_last_marks: vec![Cell::new(3.0)],
+            leg_last_spots: vec![Cell::new(390.0)],
+        }
+    }
 
-        let empty_opts = DayOptions {
-            df: DataFrame::default(),
-            contract_idx: HashMap::new(),
-        };
+    fn empty_opts() -> DayOptions {
+        DayOptions { df: DataFrame::default(), contract_idx: HashMap::new() }
+    }
 
+    fn spy_at(spot: f64) -> DayStocks {
         let mut prices = HashMap::new();
-        prices.insert("SPY".to_string(), 380.0);
+        prices.insert("SPY".to_string(), spot);
         // Empty unadj_prices → get_unadj_price falls back to `prices`.
-        let day_stocks = DayStocks { prices, unadj_prices: HashMap::new() };
+        DayStocks { prices, unadj_prices: HashMap::new() }
+    }
 
-        // Sell direction → exit price col is "ask" (invert of Sell = Buy → price_column = "ask")
-        // cash_sign for Sell = +1
+    #[test]
+    fn exit_cost_uses_intrinsic_once_expired() {
+        // Short put, strike 400, spot 380, unquoted after its 2024-06-01 expiry
+        // → intrinsic 20.0; Sell exits at the ask, cash_sign +1:
         // exit_cost = +1 * 20.0 * 100 = 2000.0
-        let exit_cost = compute_position_exit_cost(&pos, &empty_opts, 100, Some(&day_stocks));
+        let exit_cost = compute_position_exit_cost(
+            &short_put_missing_from_quotes(), &empty_opts(), 100, Some(&spy_at(380.0)),
+            "2024-06-03 00:00:00");
         assert!((exit_cost - 2000.0).abs() < 1e-10,
             "Expected exit cost 2000.0 for ITM short put, got {exit_cost}");
+    }
+
+    #[test]
+    fn quote_gap_before_expiry_keeps_the_last_mark() {
+        // Same put, unquoted on 2024-05-20 (not expired): marked at its last
+        // quote 3.0, not intrinsic (which would be 20.0 here, 0 if OTM).
+        let exit_cost = compute_position_exit_cost(
+            &short_put_missing_from_quotes(), &empty_opts(), 100, Some(&spy_at(380.0)),
+            "2024-05-20 00:00:00");
+        assert!((exit_cost - 300.0).abs() < 1e-10, "got {exit_cost}");
+    }
+
+    #[test]
+    fn settlement_spot_falls_back_to_the_chain() {
+        // No stock row for the underlying: settle off the last quoted
+        // underlying_last (390 → intrinsic 10), not a 0 spot.
+        let pos = short_put_missing_from_quotes();
+        assert!((settlement_price(&pos, 0, None) - 10.0).abs() < 1e-10);
+        assert!((settlement_price(&pos, 0, Some(&spy_at(380.0))) - 20.0).abs() < 1e-10);
+    }
+
+    #[test]
+    fn expiry_day_rules() {
+        let (fri, sat, mon) = ("2008-12-19 00:00:00", "2008-12-20", "2008-12-22 00:00:00");
+        // Saturday expiry: settle on the Friday before it.
+        assert!(expires_by(sat, fri, Some(mon)));
+        assert!(!expires_by(sat, "2008-12-18 00:00:00", Some(fri)));
+        // Weekday expiry: on the day itself.
+        assert!(expires_by("2008-12-19", fri, Some(mon)));
+        // End of data: only once the date is reached.
+        assert!(!expires_by(sat, fri, None));
     }
 }
