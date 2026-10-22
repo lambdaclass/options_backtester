@@ -20,6 +20,7 @@ experiments/              exploratory studies (each standalone, skips if data ab
   vol_aware.py            monthly ladder that skips purchases when IV is expensive
   roll_proceeds.py        roll part of each put sale's proceeds into new puts
   risk_matched.py         hedge vs the stock/T-bill mix with equal drawdown / vol
+  spitznagel_recipe.py    his 2-month monthly recipe, Tobin's Q switch, total return, fills
   # earlier: single entry calendar -- use for shape, not numbers
   spx_sweep.py            OTM-depth x DTE x budget sweep over 1996-2025
   parallel_sweep.py       400-config OTM x DTE x exit x budget sweep (multiprocess)
@@ -82,3 +83,8 @@ handles the data and the process pool (see `roll_proceeds.py`, ~70 lines).
    with the same drawdown or volatility, the hedge's edge is about 0 to
    +0.2pp/yr at 1-2% budgets, at any leverage up to 1.5x; 3.3% loses
    ([`risk_matched.py`](experiments/risk_matched.py)).
+9. **On total return the hedge earns a modest place.** Counting dividends,
+   a 1-2%/yr hedge beats the equal-drawdown stock/T-bill mix by about
+   +0.5pp/yr (+0.8 with mid fills), roughly the size of the calendar noise.
+   Spitznagel's own monthly 2-month recipe and his Tobin's Q switch both do
+   worse ([`spitznagel_recipe.py`](experiments/spitznagel_recipe.py), §8).

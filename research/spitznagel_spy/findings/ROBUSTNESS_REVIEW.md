@@ -13,7 +13,8 @@ about −0.1 and +0.25pp/yr versus buy & hold. It reliably cuts fast crashes
 protection is smaller than it first looked (−57% → about −50% at exits 28
 and 32; the −42% at exit 30 rides the 2008-11-20 sale date). Against the
 fair alternative, holding less stock plus T-bills at the same drawdown or
-volatility, the edge is about 0 to +0.2pp/yr (§7). The earlier "+0.95pp"
+volatility, the edge is about 0 to +0.2pp/yr on the price index (§7) and
+about +0.5pp/yr once dividends are counted (§8). The earlier "+0.95pp"
 optimum was an artifact of one entry calendar and one sale date.
 Profit-taking ("sell at k× premium") never helped.
 
@@ -222,6 +223,46 @@ Edge in pp/yr, **averaged over exits 28/30/32** (exit 30 alone in brackets):
   overlays are a fair-priced way to cut fast-crash risk, about as good as
   holding cash and maybe slightly better. They are not the large free lunch
   the 2008–2024 SPY table showed.
+
+## 8. Spitznagel's own recipe, his valuation switch, dividends, execution
+
+[`spitznagel_recipe.py`](../experiments/spitznagel_recipe.py) closes the gaps
+between our reconstruction and what Spitznagel published (his example: 0.5% a
+month on 2-month ~30% OTM puts, sold after a month; his backtested edge is
+conditional on Tobin's Q being in its top quartile). Everything here uses SPX
+**total return** (Shiller dividends) and financing, scored at equal risk
+against the stock/T-bill mix like §7. Fills: bid/ask, half the half-spread
+(`SpreadFraction(0.5)`), mid -- on entries, exits and marks.
+
+**Core recipe (25–30% OTM, 90–180 DTE), averaged over exits 28/30/32**, edge
+in pp/yr, mean (worst…best of four calendars):
+
+| budget | fills | vs B&H (TR) | edge at equal max DD | edge at equal vol |
+|---|---|---|---|---|
+| 1% | bid/ask | −0.18 | **+0.52** (−0.05…+1.23) | +0.37 (−0.02…+0.79) |
+| 1% | mid | −0.05 | +0.78 (+0.10…+1.48) | +0.57 (+0.12…+0.99) |
+| 2% | bid/ask | −0.48 | +0.48 (−0.34…+1.27) | +0.35 (−0.23…+0.98) |
+| 2% | mid | −0.22 | +0.85 (−0.08…+1.64) | +0.67 (+0.02…+1.32) |
+| 3.3% | bid/ask | −0.96 | −0.06 (−1.14…+0.98) | −0.13 |
+
+- **Dividends change the comparison.** Holding T-bills instead of stock also
+  forgoes dividends, which the price-index runs (§7) ignored. On total
+  return a small hedge beats the equal-drawdown stock/T-bill mix by about
+  +0.5pp/yr, and by +0.8 with mid fills. That is Spitznagel's actual claim,
+  in modest form. It does not beat 100% stock on return (−0.2 to −0.5).
+- **Spitznagel's monthly 2-month-put recipe is worse** than holding longer
+  puts: at bid/ask −0.2 to −2.9pp/yr at equal drawdown (1% to his 6%
+  budget), about +0.2 to +0.6 only with mid fills. Rolling every month pays
+  the spread twelve times a year.
+- **The Tobin's Q switch hurts.** Top-quartile Q was off before the GFC (Q
+  was 0.88 in 2007, below its 1.07 threshold), so the gated hedge's GFC
+  drawdown equals unhedged (−55%): −0.4 to −1.7pp/yr. The median gate is on
+  95% of the time and matches always-on.
+- **Execution is worth ~0.3pp/yr** for the core recipe (bid/ask → mid), more
+  for short-dated recipes. Real fills on deep-OTM SPX puts sit somewhere in
+  between.
+- **Caveat:** the edge is about the size of the calendar spread, rests on
+  two crashes, and its max-drawdown version leans on 2008.
 
 ## Status of earlier findings
 

@@ -27,6 +27,11 @@ STK = ROOT / "data" / "processed" / "spx_full_stocks.csv"
 FINDINGS = Path(__file__).resolve().parents[1] / "findings"
 TBILL = ROOT / "data" / "processed" / "dtb3.csv"
 TBILL_URL = "https://fred.stlouisfed.org/graph/fredgraph.csv?id=DTB3"
+FRED_CSV = "https://fred.stlouisfed.org/graph/fredgraph.csv?id={}"
+TOBIN_Q = ROOT / "data" / "processed" / "tobin_q.csv"
+SHILLER = ROOT / "data" / "processed" / "shiller_dividends.csv"
+SHILLER_URL = ("https://img1.wsimg.com/blobby/go/e5e77e0b-59d1-44d9-ab25-4763ac982e53/downloads/"
+               "1449043e-a1ed-4e2e-8e9c-7b9a2a064493/ie_data.xls")
 
 START, END = "1996-01-01", "2025-12-31"
 GFC = (pd.Timestamp("2007-10-01"), pd.Timestamp("2009-06-30"))
@@ -116,6 +121,62 @@ def tbill():
     return r.set_index("observation_date")["DTB3"].ffill() / 100
 
 
+def tobin_q(lag_days=75):
+    """Tobin's Q as it was KNOWN on each date: market value of nonfinancial
+    corporate equities / their net worth (Fed Z.1 via FRED NCBEILQ027S and
+    TNWMVBSNNCB), quarterly, re-indexed to quarter end + `lag_days` (the Z.1
+    publication lag). Cached in data/processed/tobin_q.csv."""
+    if not TOBIN_Q.exists():
+        def fred(sid):
+            r = pd.read_csv(FRED_CSV.format(sid), parse_dates=["observation_date"])
+            return r.set_index("observation_date").iloc[:, 0]
+        (fred("NCBEILQ027S") / fred("TNWMVBSNNCB")).dropna().rename("q").to_csv(TOBIN_Q)
+    q = pd.read_csv(TOBIN_Q, parse_dates=["observation_date"], index_col=0)["q"]
+    q.index = q.index + pd.offsets.QuarterEnd(0) + pd.Timedelta(days=lag_days)
+    return q
+
+
+def q_gate_on(dates, pct):
+    """For each date, whether known Q >= its expanding `pct` quantile (all
+    history since 1945 known at that date)."""
+    q = tobin_q()
+    thr = q.expanding().quantile(pct)
+    idx = pd.DatetimeIndex(dates)
+    known = q.reindex(idx, method="ffill")
+    return pd.Series((known >= thr.reindex(idx, method="ffill")).to_numpy(), index=idx)
+
+
+def shiller_dividends():
+    """Monthly S&P composite dividends (trailing 12m, index points) from
+    Robert Shiller's ie_data. Cached in data/processed/shiller_dividends.csv;
+    the first download needs xlrd (`uv run --with xlrd ...` or pip)."""
+    if not SHILLER.exists():
+        raw = pd.read_excel(SHILLER_URL, sheet_name="Data", skiprows=7).iloc[:, :3]
+        raw.columns = ["date", "P", "D"]
+        raw = raw[pd.to_numeric(raw["D"], errors="coerce").notna()]
+        year = raw["date"].astype(float).astype(int)
+        month = ((raw["date"].astype(float) - year) * 100).round().astype(int)
+        out = pd.DataFrame({"month": pd.to_datetime(dict(year=year, month=month, day=1)),
+                            "D": raw["D"].astype(float)})
+        out.to_csv(SHILLER, index=False)
+    return pd.read_csv(SHILLER, parse_dates=["month"]).set_index("month")["D"]
+
+
+def with_total_return(stk):
+    """`stk` with adjClose replaced by a total-return SPX index (dividends
+    reinvested daily: D/252 per trading day of each month). close stays the
+    price index -- option strikes and intrinsic value use it."""
+    d = shiller_dividends()
+    out = stk.sort_values("date").copy()
+    month = out["date"].dt.to_period("M").dt.to_timestamp()
+    daily_div = month.map(d).ffill().to_numpy() / 252
+    px = out["close"].to_numpy()
+    growth = (px[1:] + daily_div[1:]) / px[:-1]
+    tr = px[0] * pd.Series([1.0, *growth]).cumprod().to_numpy()
+    out["adjClose"] = tr
+    return out
+
+
 # ---------------------------------------------------------------- engine
 
 def put_strategy(sch, otm, dte, exit_dte, monetize=None, profit_x=math.inf):
@@ -142,17 +203,19 @@ def put_strategy(sch, otm, dte, exit_dte, monetize=None, profit_x=math.inf):
     return st
 
 
-def backtest(strategy, dates, annual=None, per_entry=None, leverage=1.0, roll=None):
+def backtest(strategy, dates, annual=None, per_entry=None, leverage=1.0, roll=None,
+             fill_model=None):
     """Run SPX + `strategy` on the worker's data, entering on `dates`.
 
     The premium budget is `annual` (%/yr, split over the schedule) or
     `per_entry` (% of NAV at each entry), spent in full each time. Stocks are
     `leverage` x capital, financed by negative cash (no interest: callers that
     lever adjust for financing themselves). `roll` is the engine's
-    roll_exit_proceeds_pct."""
+    roll_exit_proceeds_pct; `fill_model` defaults to bid/ask."""
     from options_portfolio_backtester import BacktestEngine, Stock
+    kwargs = {"fill_model": fill_model} if fill_model is not None else {}
     bt = BacktestEngine({"stocks": leverage, "options": 0.0, "cash": 1.0 - leverage},
-                        initial_capital=1_000_000)
+                        initial_capital=1_000_000, **kwargs)
     bt.options_budget_annual_pct = annual
     bt.options_budget_per_rebalance_pct = per_entry
     bt.options_budget_fresh_spend = True
