@@ -91,12 +91,17 @@ class Field:
         return Filter(query)
 
     def _combine_fields(self, op: str, other: Union[Field, int, float], invert: bool = False) -> Field:
+        # A composed operand is parenthesized so the query keeps Python's
+        # precedence: (x * 0.9) - 1 and x * (0.9 - 1) differ.
+        def wrap(text: str) -> str:
+            return f"({text})" if " " in text else text
+
         if isinstance(other, Field):
-            name = Field._format_query(self.name, op, other.name, invert)
-            mapping = Field._format_query(self.mapping, op, other.mapping, invert)
+            name = Field._format_query(wrap(self.name), op, wrap(other.name), invert)
+            mapping = Field._format_query(wrap(self.mapping), op, wrap(other.mapping), invert)
         elif isinstance(other, (int, float)):
-            name = Field._format_query(self.name, op, other, invert)
-            mapping = Field._format_query(self.mapping, op, other, invert)
+            name = Field._format_query(wrap(self.name), op, other, invert)
+            mapping = Field._format_query(wrap(self.mapping), op, other, invert)
         else:
             raise TypeError
 
@@ -151,6 +156,8 @@ class Field:
         return self._create_filter("==", value)
 
     def __ne__(self, value: Union[Field, Any]) -> Filter:  # type: ignore[override]
+        if isinstance(value, str):
+            value = "'{}'".format(value)
         return self._create_filter("!=", value)
 
     def __repr__(self) -> str:

@@ -363,16 +363,28 @@ pub struct PrecompiledFilters {
     pub exit: Vec<Option<CompiledFilter>>,
 }
 
+/// Compile one leg filter. An empty query means "no filter"; a query that
+/// does not parse is an error -- silently dropping it would buy everything
+/// (entry) or never exit (exit).
+fn compile_filter(leg: &str, kind: &str, query: Option<&String>) -> PolarsResult<Option<CompiledFilter>> {
+    match query.map(|q| q.trim()) {
+        None | Some("") => Ok(None),
+        Some(q) => CompiledFilter::new(q).map(Some).map_err(|e| {
+            PolarsError::ComputeError(format!("leg {leg}: invalid {kind} filter {q:?}: {e}").into())
+        }),
+    }
+}
+
 impl PrecompiledFilters {
     /// Compile filters from a BacktestConfig's legs.
-    pub fn from_config(config: &BacktestConfig) -> Self {
+    pub fn from_config(config: &BacktestConfig) -> PolarsResult<Self> {
         let entry = config.legs.iter()
-            .map(|leg| leg.entry_filter_query.as_ref().and_then(|q| CompiledFilter::new(q).ok()))
-            .collect();
+            .map(|leg| compile_filter(&leg.name, "entry", leg.entry_filter_query.as_ref()))
+            .collect::<PolarsResult<_>>()?;
         let exit = config.legs.iter()
-            .map(|leg| leg.exit_filter_query.as_ref().and_then(|q| CompiledFilter::new(q).ok()))
-            .collect();
-        PrecompiledFilters { entry, exit }
+            .map(|leg| compile_filter(&leg.name, "exit", leg.exit_filter_query.as_ref()))
+            .collect::<PolarsResult<_>>()?;
+        Ok(PrecompiledFilters { entry, exit })
     }
 }
 
@@ -382,7 +394,7 @@ pub fn run_backtest_prepartitioned(
     partitioned: &PartitionedData,
     schema: &SchemaMapping,
 ) -> PolarsResult<BacktestResult> {
-    let filters = PrecompiledFilters::from_config(config);
+    let filters = PrecompiledFilters::from_config(config)?;
     run_backtest_with_filters(config, partitioned, schema, &filters)
 }
 
@@ -785,7 +797,7 @@ pub fn run_multi_strategy(
             ..config.clone()
         };
         PrecompiledFilters::from_config(&tmp)
-    }).collect();
+    }).collect::<PolarsResult<_>>()?;
 
     let mut trade_rows: Vec<TradeRow> = Vec::new();
     let mut balance_days: Vec<BalanceDay> = Vec::new();

@@ -125,7 +125,16 @@ fn run_single_sweep(
         || overrides.leg_exit_filters.is_some();
     let local_filters;
     let filters = if needs_recompile {
-        local_filters = PrecompiledFilters::from_config(&cfg);
+        local_filters = match PrecompiledFilters::from_config(&cfg) {
+            Ok(f) => f,
+            Err(e) => return SweepResult {
+                label,
+                stats: Default::default(),
+                final_cash: 0.0,
+                elapsed_ms: start.elapsed().as_millis(),
+                error: Some(format!("filter error: {e}")),
+            },
+        };
         &local_filters
     } else {
         base_filters
@@ -304,7 +313,8 @@ pub fn parallel_sweep(
         .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(format!("prepartition error: {e}")))?;
 
     // Pre-compile base filters once — reused by configs that don't override filters.
-    let base_filters = PrecompiledFilters::from_config(&base);
+    let base_filters = PrecompiledFilters::from_config(&base)
+        .map_err(|e| pyo3::exceptions::PyValueError::new_err(format!("{e}")))?;
 
     // Release GIL and run parallel computation with scoped Rayon pool
     let results: Vec<SweepResult> = py.allow_threads(|| {

@@ -22,6 +22,13 @@ anchored on the commit hash that introduced the change.
 ## Unreleased
 
 ### Behavioral changes
+- **Invalid filters fail the run.** A leg filter the Rust compiler could not
+  parse used to be dropped silently: an entry filter then matched every
+  contract, an exit filter never fired. It now raises with the leg, filter
+  kind and query. The parser also accepts what the Python DSL emits: a
+  literal on either side (``0.9 * underlying_last``), chained and
+  parenthesized arithmetic with normal precedence, unary minus; and
+  ``Field != 'str'`` quotes its string like ``==`` does.
 - **Daily-exit balance rows are now point-in-time.** With
   ``check_exits_daily=True`` the balance rows of each rebalance period were
   filled in at the *next* rebalance from the then-current holdings, so every

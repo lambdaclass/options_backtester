@@ -49,6 +49,14 @@ pub enum ArithOp {
     Div,
 }
 
+/// Arithmetic over columns and numeric literals.
+#[derive(Debug, Clone, PartialEq)]
+pub enum Arith {
+    Val(Value),
+    Neg(Box<Arith>),
+    Bin(Box<Arith>, ArithOp, Box<Arith>),
+}
+
 /// Compiled filter expression AST.
 #[derive(Debug, Clone, PartialEq)]
 pub enum FilterExpr {
@@ -56,6 +64,9 @@ pub enum FilterExpr {
     /// column <arith_op> value <cmp_op> value
     /// e.g. strike >= underlying_last * 1.02
     ColArith(String, ArithOp, Value, CmpOp, Value),
+    /// Any other numeric comparison, e.g. `0.9 * underlying_last <= strike`
+    /// or `(strike - 5) / underlying_last > 0.8`.
+    Compare(Arith, CmpOp, Arith),
     And(Box<FilterExpr>, Box<FilterExpr>),
     Or(Box<FilterExpr>, Box<FilterExpr>),
     Not(Box<FilterExpr>),
@@ -260,95 +271,87 @@ impl Parser {
         self.parse_primary()
     }
 
-    /// primary = '(' expr ')' | comparison
+    /// primary = comparison | '(' expr ')'
+    ///
+    /// A leading '(' is ambiguous: `(strike - 5) > x` is a comparison whose
+    /// left side is parenthesized, `(a > 1) & (b < 2)` a boolean group. Try
+    /// the comparison first and fall back to the group.
     fn parse_primary(&mut self) -> Result<FilterExpr, FilterError> {
-        if matches!(self.peek(), Some(Token::LParen)) {
-            self.advance();
-            let expr = self.parse_expr()?;
-            self.expect(&Token::RParen)?;
-            return Ok(expr);
+        let start = self.pos;
+        match self.parse_comparison() {
+            Ok(cmp) => Ok(cmp),
+            Err(err) => {
+                self.pos = start;
+                if !matches!(self.peek(), Some(Token::LParen)) {
+                    return Err(err);
+                }
+                self.advance();
+                let expr = self.parse_expr()?;
+                self.expect(&Token::RParen)?;
+                Ok(expr)
+            }
         }
-        self.parse_comparison()
     }
 
-    /// comparison = value cmp_op value
-    /// value can be: ident, ident arith_op literal, literal
+    /// comparison = arith cmp_op arith
     fn parse_comparison(&mut self) -> Result<FilterExpr, FilterError> {
-        let left = self.parse_value_expr()?;
+        let left = self.parse_sum()?;
         let cmp = self.parse_cmp_op()?;
-        let right = self.parse_value_expr()?;
+        let right = self.parse_sum()?;
+        lower_comparison(left, cmp, right)
+    }
 
-        match (left, right) {
-            // column cmp literal/column
-            (ValueExpr::Column(name), ValueExpr::Literal(val)) => {
-                Ok(FilterExpr::Cmp(name, cmp, val))
-            }
-            (ValueExpr::Column(name), ValueExpr::Column(rhs)) => {
-                Ok(FilterExpr::Cmp(name, cmp, Value::Column(rhs)))
-            }
-            // column_arith cmp value
-            (ValueExpr::Arith(name, op, operand), rhs) => {
-                Ok(FilterExpr::ColArith(name, op, operand, cmp, self.value_expr_to_value(rhs)?))
-            }
-            // column cmp column_arith  →  flip to ColArith form
-            // e.g. strike >= underlying_last * 1.02
-            //    → ColArith("underlying_last", Mul, 1.02, Le, Column("strike"))
-            (ValueExpr::Column(name), ValueExpr::Arith(rhs_col, op, operand)) => {
-                Ok(FilterExpr::ColArith(rhs_col, op, operand, flip_cmp(cmp), Value::Column(name)))
-            }
-            // literal cmp column → flip
-            (ValueExpr::Literal(val), ValueExpr::Column(name)) => {
-                Ok(FilterExpr::Cmp(name, flip_cmp(cmp), val))
-            }
-            _ => Err(FilterError::Parse("unsupported comparison form".into())),
+    /// sum = term (('+' | '-') term)*
+    fn parse_sum(&mut self) -> Result<Arith, FilterError> {
+        let mut left = self.parse_term()?;
+        loop {
+            let op = match self.peek() {
+                Some(Token::Plus) => ArithOp::Add,
+                Some(Token::Minus) => ArithOp::Sub,
+                _ => return Ok(left),
+            };
+            self.advance();
+            let right = self.parse_term()?;
+            left = Arith::Bin(Box::new(left), op, Box::new(right));
         }
     }
 
-    fn parse_value_expr(&mut self) -> Result<ValueExpr, FilterError> {
+    /// term = factor (('*' | '/') factor)*
+    fn parse_term(&mut self) -> Result<Arith, FilterError> {
+        let mut left = self.parse_factor()?;
+        loop {
+            let op = match self.peek() {
+                Some(Token::Star) => ArithOp::Mul,
+                Some(Token::Slash) => ArithOp::Div,
+                _ => return Ok(left),
+            };
+            self.advance();
+            let right = self.parse_factor()?;
+            left = Arith::Bin(Box::new(left), op, Box::new(right));
+        }
+    }
+
+    /// factor = '-' factor | '(' sum ')' | ident | number | string
+    fn parse_factor(&mut self) -> Result<Arith, FilterError> {
         let tok = self.advance().ok_or_else(|| FilterError::Parse("unexpected end".into()))?;
         match tok {
-            Token::Ident(name) => {
-                // Check for arithmetic: ident * 1.02
-                if let Some(arith) = self.try_parse_arith() {
-                    return Ok(ValueExpr::Arith(name, arith.0, arith.1));
-                }
-                Ok(ValueExpr::Column(name))
-            }
-            Token::IntLit(n) => {
-                // Check for arithmetic: 1.02 * ident (reversed)
-                Ok(ValueExpr::Literal(Value::Int(n)))
-            }
-            Token::FloatLit(f) => Ok(ValueExpr::Literal(Value::Float(f))),
-            Token::StrLit(s) => Ok(ValueExpr::Literal(Value::Str(s))),
-            // Unary minus: negate the next numeric literal
-            Token::Minus => {
-                let next = self.advance().ok_or_else(|| FilterError::Parse("unexpected end after '-'".into()))?;
-                match next {
-                    Token::IntLit(n) => Ok(ValueExpr::Literal(Value::Int(-n))),
-                    Token::FloatLit(f) => Ok(ValueExpr::Literal(Value::Float(-f))),
-                    t => Err(FilterError::Parse(format!("expected number after '-', got {t:?}"))),
-                }
+            Token::Ident(name) => Ok(Arith::Val(Value::Column(name))),
+            Token::IntLit(n) => Ok(Arith::Val(Value::Int(n))),
+            Token::FloatLit(f) => Ok(Arith::Val(Value::Float(f))),
+            Token::StrLit(s) => Ok(Arith::Val(Value::Str(s))),
+            Token::Minus => match self.parse_factor()? {
+                Arith::Val(Value::Int(n)) => Ok(Arith::Val(Value::Int(-n))),
+                Arith::Val(Value::Float(f)) => Ok(Arith::Val(Value::Float(-f))),
+                Arith::Val(Value::Str(_)) => Err(FilterError::Parse("cannot negate a string".into())),
+                other => Ok(Arith::Neg(Box::new(other))),
+            },
+            Token::LParen => {
+                let inner = self.parse_sum()?;
+                self.expect(&Token::RParen)?;
+                Ok(inner)
             }
             t => Err(FilterError::Parse(format!("unexpected token in value: {t:?}"))),
         }
-    }
-
-    fn try_parse_arith(&mut self) -> Option<(ArithOp, Value)> {
-        let op = match self.peek()? {
-            Token::Plus => ArithOp::Add,
-            Token::Minus => ArithOp::Sub,
-            Token::Star => ArithOp::Mul,
-            Token::Slash => ArithOp::Div,
-            _ => return None,
-        };
-        self.advance();
-        let val = match self.advance()? {
-            Token::IntLit(n) => Value::Int(n),
-            Token::FloatLit(f) => Value::Float(f),
-            Token::Ident(s) => Value::Column(s),
-            _ => return None,
-        };
-        Some((op, val))
     }
 
     fn parse_cmp_op(&mut self) -> Result<CmpOp, FilterError> {
@@ -362,23 +365,42 @@ impl Parser {
             t => Err(FilterError::Parse(format!("expected comparison op, got {t:?}"))),
         }
     }
-
-    fn value_expr_to_value(&self, ve: ValueExpr) -> Result<Value, FilterError> {
-        match ve {
-            ValueExpr::Column(name) => Ok(Value::Column(name)),
-            ValueExpr::Literal(val) => Ok(val),
-            ValueExpr::Arith(..) => Err(FilterError::Parse(
-                "arithmetic expressions only supported on left side".into(),
-            )),
-        }
-    }
 }
 
-#[derive(Debug)]
-enum ValueExpr {
-    Column(String),
-    Literal(Value),
-    Arith(String, ArithOp, Value),
+/// Map a parsed comparison onto the simplest AST node that represents it:
+/// `Cmp` / `ColArith` for the common shapes (and the fast paths that match on
+/// them), `Compare` for anything else. Strings only compare by (in)equality
+/// against a plain column.
+fn lower_comparison(left: Arith, cmp: CmpOp, right: Arith) -> Result<FilterExpr, FilterError> {
+    use Arith::{Bin, Val};
+    let is_str = |a: &Arith| matches!(a, Val(Value::Str(_)));
+    if is_str(&left) || is_str(&right) {
+        return match (left, right) {
+            (Val(Value::Column(c)), Val(v @ Value::Str(_))) | (Val(v @ Value::Str(_)), Val(Value::Column(c)))
+                if matches!(cmp, CmpOp::Eq | CmpOp::Ne) => Ok(FilterExpr::Cmp(c, cmp, v)),
+            _ => Err(FilterError::Parse("strings only compare with == / != against a column".into())),
+        };
+    }
+    let simple = |a: &Arith| matches!(a, Val(_));
+    Ok(match (left, right) {
+        (Val(Value::Column(c)), Val(v)) => FilterExpr::Cmp(c, cmp, v),
+        (Val(v), Val(Value::Column(c))) => FilterExpr::Cmp(c, flip_cmp(cmp), v),
+        (Bin(l, op, r), rhs) if matches!(*l, Val(Value::Column(_))) && simple(&r) && simple(&rhs) => {
+            match (*l, *r, rhs) {
+                (Val(Value::Column(c)), Val(operand), Val(v)) => FilterExpr::ColArith(c, op, operand, cmp, v),
+                _ => unreachable!(),
+            }
+        }
+        (lhs, Bin(l, op, r)) if matches!(*l, Val(Value::Column(_))) && simple(&r) && simple(&lhs) => {
+            match (*l, *r, lhs) {
+                (Val(Value::Column(c)), Val(operand), Val(v)) => {
+                    FilterExpr::ColArith(c, op, operand, flip_cmp(cmp), v)
+                }
+                _ => unreachable!(),
+            }
+        }
+        (lhs, rhs) => FilterExpr::Compare(lhs, cmp, rhs),
+    })
 }
 
 fn flip_cmp(op: CmpOp) -> CmpOp {
@@ -425,6 +447,9 @@ pub fn to_polars_expr(filter: &FilterExpr) -> Expr {
             let cv = value_to_lit(cmp_val);
             apply_cmp(arith_expr, *cmp_op, cv)
         }
+        FilterExpr::Compare(left, op, right) => {
+            apply_cmp(arith_to_polars(left), *op, arith_to_polars(right))
+        }
         FilterExpr::And(left, right) => {
             to_polars_expr(left).and(to_polars_expr(right))
         }
@@ -433,6 +458,22 @@ pub fn to_polars_expr(filter: &FilterExpr) -> Expr {
         }
         FilterExpr::Not(inner) => {
             to_polars_expr(inner).not()
+        }
+    }
+}
+
+fn arith_to_polars(a: &Arith) -> Expr {
+    match a {
+        Arith::Val(v) => value_to_lit(v),
+        Arith::Neg(inner) => lit(0.0) - arith_to_polars(inner),
+        Arith::Bin(l, op, r) => {
+            let (l, r) = (arith_to_polars(l), arith_to_polars(r));
+            match op {
+                ArithOp::Add => l + r,
+                ArithOp::Sub => l - r,
+                ArithOp::Mul => l * r,
+                ArithOp::Div => l / r,
+            }
         }
     }
 }
@@ -533,6 +574,22 @@ fn resolve_f64(val: &Value, df: &DataFrame, row: usize) -> Option<f64> {
     }
 }
 
+fn eval_arith_row(a: &Arith, df: &DataFrame, row: usize) -> Option<f64> {
+    match a {
+        Arith::Val(v) => resolve_f64(v, df, row),
+        Arith::Neg(inner) => eval_arith_row(inner, df, row).map(|v| -v),
+        Arith::Bin(l, op, r) => {
+            let (l, r) = (eval_arith_row(l, df, row)?, eval_arith_row(r, df, row)?);
+            Some(match op {
+                ArithOp::Add => l + r,
+                ArithOp::Sub => l - r,
+                ArithOp::Mul => l * r,
+                ArithOp::Div => l / r,
+            })
+        }
+    }
+}
+
 /// Evaluate a filter expression against a single row directly.
 fn eval_expr_row(expr: &FilterExpr, df: &DataFrame, row: usize) -> bool {
     match expr {
@@ -584,6 +641,12 @@ fn eval_expr_row(expr: &FilterExpr, df: &DataFrame, row: usize) -> bool {
                 None => return false,
             };
             cmp_f64(arith_result, *cmp_op, rhs)
+        }
+        FilterExpr::Compare(l, op, r) => {
+            match (eval_arith_row(l, df, row), eval_arith_row(r, df, row)) {
+                (Some(lhs), Some(rhs)) => cmp_f64(lhs, *op, rhs),
+                _ => false,
+            }
         }
         FilterExpr::And(l, r) => eval_expr_row(l, df, row) && eval_expr_row(r, df, row),
         FilterExpr::Or(l, r) => eval_expr_row(l, df, row) || eval_expr_row(r, df, row),
@@ -849,5 +912,69 @@ mod tests {
         assert!(f.eval_row(&df, 1));  // SPX, dte=90
         assert!(!f.eval_row(&df, 2)); // AAPL
         assert!(!f.eval_row(&df, 3)); // SPX, dte=150
+    }
+
+    fn strikes_df() -> DataFrame {
+        DataFrame::new(vec![
+            Column::new("strike".into(), &[70.0f64, 80.0, 90.0, 95.0]),
+            Column::new("underlying_last".into(), &[100.0f64, 100.0, 100.0, 100.0]),
+            Column::new("type".into(), &["put", "call", "put", "put"]),
+        ]).unwrap()
+    }
+
+    /// Rows where `query` holds, by both evaluation paths (they must agree).
+    fn matches(query: &str) -> Vec<usize> {
+        let df = strikes_df();
+        let f = CompiledFilter::new(query).unwrap();
+        let by_row: Vec<usize> = (0..df.height()).filter(|&r| f.eval_row(&df, r)).collect();
+        let strikes = f.apply(&df).unwrap().column("strike").unwrap().f64().unwrap()
+            .into_no_null_iter().collect::<Vec<_>>();
+        let all = df.column("strike").unwrap().f64().unwrap().into_no_null_iter().collect::<Vec<_>>();
+        let by_polars: Vec<usize> = strikes.iter().map(|k| all.iter().position(|a| a == k).unwrap()).collect();
+        assert_eq!(by_row, by_polars, "eval_row and apply disagree for {query:?}");
+        by_row
+    }
+
+    #[test]
+    fn literal_times_column_on_the_left() {
+        // Python's 0.9 * schema.underlying_last emits the literal first.
+        assert_eq!(matches("0.9 * underlying_last <= strike"), vec![2, 3]);
+        assert_eq!(matches("strike >= 0.9 * underlying_last"), vec![2, 3]);
+    }
+
+    #[test]
+    fn chained_arithmetic_respects_precedence() {
+        // 100 * 0.9 - 5 = 85, not 100 * (0.9 - 5)
+        assert_eq!(matches("strike >= underlying_last * 0.9 - 5"), vec![2, 3]);
+        assert_eq!(matches("strike - 5 >= underlying_last * 0.7"), vec![1, 2, 3]);
+    }
+
+    #[test]
+    fn parenthesized_arithmetic_vs_boolean_groups() {
+        assert_eq!(matches("(strike - 10) / underlying_last > 0.75"), vec![2, 3]);
+        assert_eq!(matches("((strike > 75) & (strike < 92)) | (strike == 70)"), vec![0, 1, 2]);
+        assert_eq!(matches("(strike + 0) > 85 & (type == 'put')"), vec![2, 3]);
+    }
+
+    #[test]
+    fn unary_minus_on_expressions() {
+        assert_eq!(matches("-strike < -85"), vec![2, 3]);
+        assert_eq!(matches("-(strike - 100) >= 10"), vec![0, 1, 2]);
+    }
+
+    #[test]
+    fn string_not_equal_and_errors() {
+        assert_eq!(matches("type != 'put'"), vec![1]);
+        assert!(CompiledFilter::new("type > 'put'").is_err());
+        assert!(CompiledFilter::new("strike >= ").is_err());
+        assert!(CompiledFilter::new("strike >= underlying_last * ").is_err());
+    }
+
+    #[test]
+    fn simple_shapes_keep_their_fast_nodes() {
+        assert!(matches!(parse("strike >= 80").unwrap(), FilterExpr::Cmp(..)));
+        assert!(matches!(parse("80 <= strike").unwrap(), FilterExpr::Cmp(..)));
+        assert!(matches!(parse("strike >= underlying_last * 0.9").unwrap(), FilterExpr::ColArith(..)));
+        assert!(matches!(parse("0.9 * underlying_last <= strike").unwrap(), FilterExpr::Compare(..)));
     }
 }
