@@ -74,7 +74,8 @@ def test_engine_sizer_is_applied(tmp_path, sizer, qty):
 
 def test_strategy_level_models_override_the_engine(tmp_path):
     eng = _run(tmp_path, engine_kwargs={"sizer": FixedQuantity(7), "cost_model": NoCosts()},
-               strategy_kwargs={"sizer": FixedQuantity(3), "cost_model": PerContractCommission(rate=1.0, stock_rate=0.0)})
+               strategy_kwargs={"sizer": FixedQuantity(3),
+                                "cost_model": PerContractCommission(rate=1.0, stock_rate=0.0)})
     assert _entry_qty(eng) == 3
     # 3 contracts at 100.00 + $1/contract commission: cash drops by 303 at entry
     # on top of the stock purchase, so total capital on day 1 is below the

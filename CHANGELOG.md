@@ -22,6 +22,14 @@ anchored on the commit hash that introduced the change.
 ## Unreleased
 
 ### Behavioral changes
+- **Options that were silently ignored now work.** ``sizer=``
+  (``FixedQuantity`` / ``FixedDollar`` / ``PercentOfPortfolio``) reaches the
+  Rust engine; a ``Strategy``'s explicit ``cost_model`` / ``sizer`` /
+  ``signal_selector`` override the engine's (single-strategy runs);
+  providers honour ``schema=`` (was RecursionError) and name missing
+  columns; the date column comes from the schema rather than a hardcoded
+  ``quotedate``; ``current_cash`` is the cash actually held at the end;
+  unknown allocation keys and all-zero allocations raise.
 - **Fill models apply on both sides.** They priced entries only: exits and
   daily marks always used the bid/ask, and contracts were sized off the
   bid/ask cost. Now the fill model prices entries, exits and marks, and
