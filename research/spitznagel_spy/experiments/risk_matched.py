@@ -109,10 +109,12 @@ def main():
               f"{r.dd:>6.1f} {r.vol:>5.1f} {r.gfc:>6.1f} | {r.w_at_dd:>5.2f} {r.edge_dd:>+6.2f} | "
               f"{r.w_at_vol:>5.2f} {r.edge_vol:>+6.2f} {r.fill:>4.0%}")
 
-    # The honest summary: average exits 28/30/32 so the 2008-11-20 sale date
-    # does not decide the verdict.
-    s = hedged.groupby(["lev", "bud"])[["cagr", "dd", "edge_dd", "edge_vol"]].mean().reset_index()
-    print("\n=== Averaged over exits 28/30/32 ===")
+    # The honest summary: exits 28 and 32 only. Exit 30 sold the Dec-2008
+    # puts on the 2008-11-20 low and is ~4x its neighbours, so even a third
+    # of its weight in an average inflates the edge.
+    s = hedged[hedged["exit"] != 30].groupby(["lev", "bud"])[
+        ["cagr", "dd", "edge_dd", "edge_vol"]].mean().reset_index()
+    print("\n=== Exits 28 and 32 (the lucky exit 30 excluded) ===")
     print(f"  {'lev':>4s} {'bud':>4s} {'CAGR':>6s} {'maxDD':>6s} {'edgeDD':>6s} {'edgeV':>6s}")
     for r in s.itertuples():
         print(f"  {r.lev:>4.1f} {r.bud*100:>4.1f} {r.cagr:>6.2f} {r.dd:>6.1f} "

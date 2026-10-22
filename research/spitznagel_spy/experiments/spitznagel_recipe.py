@@ -50,7 +50,7 @@ RECIPES = [
     ("spitz", (0.275, 0.325), (45, 75), 30, 1, [0.010, 0.020, 0.033, 0.060]),
     ("core", (0.25, 0.30), (90, 180), 30, 2, [0.010, 0.020, 0.033]),
     # Exit 30 sold the Dec-2008 puts on the 2008-11-20 low (ROBUSTNESS_REVIEW
-    # section 1); 28 and 32 are its honest neighbours -- average all three.
+    # section 1); 28 and 32 are its honest neighbours.
     ("core28", (0.25, 0.30), (90, 180), 28, 2, [0.010, 0.020, 0.033]),
     ("core32", (0.25, 0.30), (90, 180), 32, 2, [0.010, 0.020, 0.033]),
 ]
@@ -141,10 +141,12 @@ def main():
               f"{r.worst:>6.2f} {r.vs_bh:>+6.2f} {r.dd:>6.1f} {r.gfc:>6.1f} {r.covid:>6.1f} "
               f"{r.edge_dd:>+6.2f} {r.edge_vol:>+6.2f} {r.fill_rate:>4.0%}")
 
-    core = g[g["recipe"].str.startswith("core")]
+    # Exit 30 rides the 2008-11-20 sale date; its neighbours 28 and 32 are
+    # the honest number (averaging all three still inflates the edge).
+    core = g[g["recipe"].isin(["core28", "core32"])]
     if core["recipe"].nunique() > 1:
         s = core.groupby(["gate", "fill", "bud"])[["cagr", "vs_bh", "dd", "gfc", "edge_dd", "edge_vol"]].mean()
-        print("\n=== core averaged over exits 28/30/32 (the honest number) ===")
+        print("\n=== core, exits 28 and 32 (the honest number) ===")
         print(s.round(2).to_string())
 
 

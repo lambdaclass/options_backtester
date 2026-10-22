@@ -13,8 +13,9 @@ about −0.1 and +0.25pp/yr versus buy & hold. It reliably cuts fast crashes
 protection is smaller than it first looked (−57% → about −50% at exits 28
 and 32; the −42% at exit 30 rides the 2008-11-20 sale date). Against the
 fair alternative, holding less stock plus T-bills at the same drawdown or
-volatility, the edge is about 0 to +0.2pp/yr on the price index (§7) and
-about +0.5pp/yr once dividends are counted (§8). The earlier "+0.95pp"
+volatility, the hedge is a wash: about −0.1 to +0.1pp/yr on the price index
+(§7) and about +0.25pp/yr once dividends are counted (§8), with the worst
+entry calendar negative either way. The earlier "+0.95pp"
 optimum was an artifact of one entry calendar and one sale date.
 Profit-taking ("sell at k× premium") never helped.
 
@@ -194,29 +195,33 @@ and so lets you carry more equity (even leverage) for the same risk.
 - **Edge:** hedged CAGR minus the CAGR of the frontier mix with the same mean
   max drawdown (or the same volatility), interpolated.
 
-Edge in pp/yr, **averaged over exits 28/30/32** (exit 30 alone in brackets):
+Edge in pp/yr over **exits 28 and 32** -- the neighbours of the lucky exit
+30, which is ~4× them; an earlier version of this table averaged in exit 30
+and overstated every cell by ~0.2–0.4pp. Mean (worst…best of 4 calendars),
+exit 30 alone in brackets:
 
 | leverage | budget | CAGR | max DD | edge at equal max DD | edge at equal vol |
 |---|---|---|---|---|---|
-| 1.0× | 1% | 8.17 | −54.1 | +0.15 [+0.59] | +0.22 [+0.43] |
-| 1.0× | 2% | 7.88 | −53.5 | −0.08 [+0.61] | +0.13 [+0.49] |
-| 1.0× | 3.3% | 7.41 | −54.1 | −0.61 [+0.25] | −0.33 [+0.20] |
-| 1.2× | 1% | 8.98 | −64.2 | +0.01 [+0.38] | +0.21 [+0.42] |
-| 1.2× | 2% | 8.74 | −63.3 | −0.15 [+0.48] | +0.17 [+0.57] |
-| 1.5× | 1% | 9.97 | −76.3 | +0.05 [+0.38] | +0.23 [+0.45] |
-| 1.5× | 2% | 9.83 | −75.0 | +0.01 [+0.67] | +0.28 [+0.73] |
+| 1.0× | 1% | 8.07 | −55.1 | −0.07 (−0.51…+0.47) [+0.59] | +0.12 (−0.22…+0.44) [+0.43] |
+| 1.0× | 2% | 7.70 | −54.9 | −0.42 (−1.21…+0.61) [+0.61] | −0.06 (−0.59…+0.48) [+0.49] |
+| 1.0× | 3.3% | 7.15 | −55.5 | −1.03 [+0.25] | −0.59 [+0.20] |
+| 1.2× | 1% | 8.88 | −65.3 | −0.18 [+0.38] | +0.10 [+0.42] |
+| 1.2× | 2% | 8.54 | −64.8 | −0.47 [+0.48] | −0.04 [+0.57] |
+| 1.5× | 1% | 9.86 | −77.0 | −0.12 [+0.38] | +0.12 [+0.45] |
+| 1.5× | 2% | 9.60 | −76.3 | −0.32 [+0.67] | +0.05 [+0.73] |
 | buy & hold 1.0× | — | 8.33 | −56.8 | — | — |
 
-- **At equal risk the hedge is roughly a wash.** At 1–2%/yr it beats the
-  matching stock/T-bill mix by about 0 to +0.2pp/yr at equal drawdown and
-  +0.1 to +0.3pp/yr at equal volatility. At 3.3%/yr it loses. The bigger
-  +0.4 to +0.7pp edges exist only at exit 30, the 2008-11-20 sale date.
+- **At equal risk the hedge is a wash or slightly worse.** At 1%/yr it is
+  −0.07pp/yr vs the equal-drawdown stock/T-bill mix and +0.12 at equal
+  volatility; at 2–3.3% it loses. Every positive edge in this study that
+  looked material came from exit 30, the 2008-11-20 sale date.
 - **Leverage does not change the verdict.** Levering a hedged portfolio
   raises return and drawdown together, and lands on the same place relative
   to the frontier: at 1.5× and 2% the CAGR is 9.8% with a −75% drawdown,
   about what 1.45× unhedged stock gives.
-- **The hedge barely lowers the full-period max drawdown** (−54% vs −57% at
-  1×) once the exit-30 luck is averaged out. Most of its risk reduction is in
+- **The hedge barely lowers the full-period max drawdown** (−55% vs −57% at
+  1×) without the exit-30 luck; the hedged worst drawdown is then often the
+  2000–2002 grind, which puts do not help. Most of its risk reduction is in
   fast crashes (COVID), which show up more in volatility than in max
   drawdown — hence the slightly better equal-vol edge.
 - **Verdict on the article's thesis:** on SPX 1996–2025, small deep-OTM put
@@ -234,22 +239,23 @@ conditional on Tobin's Q being in its top quartile). Everything here uses SPX
 against the stock/T-bill mix like §7. Fills: bid/ask, half the half-spread
 (`SpreadFraction(0.5)`), mid -- on entries, exits and marks.
 
-**Core recipe (25–30% OTM, 90–180 DTE), averaged over exits 28/30/32**, edge
-in pp/yr, mean (worst…best of four calendars):
+**Core recipe (25–30% OTM, 90–180 DTE), exits 28 and 32** (exit 30 excluded,
+as in §7), edge in pp/yr, mean (worst…best of four calendars):
 
 | budget | fills | vs B&H (TR) | edge at equal max DD | edge at equal vol |
 |---|---|---|---|---|
-| 1% | bid/ask | −0.18 | **+0.52** (−0.05…+1.23) | +0.37 (−0.02…+0.79) |
-| 1% | mid | −0.05 | +0.78 (+0.10…+1.48) | +0.57 (+0.12…+0.99) |
-| 2% | bid/ask | −0.48 | +0.48 (−0.34…+1.27) | +0.35 (−0.23…+0.98) |
-| 2% | mid | −0.22 | +0.85 (−0.08…+1.64) | +0.67 (+0.02…+1.32) |
-| 3.3% | bid/ask | −0.96 | −0.06 (−1.14…+0.98) | −0.13 |
+| 1% | bid/ask | −0.28 | +0.26 (−0.28…+0.99) | +0.26 (−0.09…+0.62) |
+| 1% | mid | −0.17 | +0.50 (−0.15…+1.27) | +0.45 (+0.04…+0.80) |
+| 2% | bid/ask | −0.66 | +0.23 (−0.58…+1.00) | +0.16 (−0.35…+0.70) |
+| 2% | mid | −0.44 | +0.62 (−0.31…+1.33) | +0.45 (−0.13…+1.00) |
+| 3.3% | bid/ask | −1.23 | −0.36 (−1.40…+0.60) | −0.40 |
 
-- **Dividends change the comparison.** Holding T-bills instead of stock also
-  forgoes dividends, which the price-index runs (§7) ignored. On total
-  return a small hedge beats the equal-drawdown stock/T-bill mix by about
-  +0.5pp/yr, and by +0.8 with mid fills. That is Spitznagel's actual claim,
-  in modest form. It does not beat 100% stock on return (−0.2 to −0.5).
+- **Dividends help the hedge a little, not enough.** Holding T-bills
+  instead of stock also forgoes dividends, which the price-index runs (§7)
+  ignored. On total return a 1–2% hedge beats the equal-drawdown
+  stock/T-bill mix by about +0.25pp/yr at bid/ask fills (+0.5 at mid), but
+  the worst calendar is negative in every bid/ask cell: within noise. It
+  does not beat 100% stock on return (−0.3 to −0.7).
 - **Spitznagel's monthly 2-month-put recipe is worse** than holding longer
   puts: at bid/ask −0.2 to −2.9pp/yr at equal drawdown (1% to his 6%
   budget), about +0.2 to +0.6 only with mid fills. Rolling every month pays

@@ -79,12 +79,12 @@ handles the data and the process pool (see `roll_proceeds.py`, ~70 lines).
    new puts were all flat or worse. Rolling made the GFC drawdown *worse*
    (−57% at full roll): puts bought at the 2008 low, at peak IV, expired
    worthless.
-8. **At equal risk it is roughly a wash.** Against the stock/T-bill mix
-   with the same drawdown or volatility, the hedge's edge is about 0 to
-   +0.2pp/yr at 1-2% budgets, at any leverage up to 1.5x; 3.3% loses
-   ([`risk_matched.py`](experiments/risk_matched.py)).
-9. **On total return the hedge earns a modest place.** Counting dividends,
-   a 1-2%/yr hedge beats the equal-drawdown stock/T-bill mix by about
-   +0.5pp/yr (+0.8 with mid fills), roughly the size of the calendar noise.
+8. **At equal risk it is a wash.** Against the stock/T-bill mix with the
+   same drawdown or volatility, the hedge's edge is about −0.1 to +0.1pp/yr
+   at 1%, worse at 2-3.3%, at any leverage up to 1.5x, once the lucky exit
+   30 is excluded ([`risk_matched.py`](experiments/risk_matched.py)).
+9. **Dividends do not rescue it.** On total return a 1-2%/yr hedge beats
+   the equal-drawdown stock/T-bill mix by about +0.25pp/yr (+0.5 with mid
+   fills), with a negative worst calendar: within noise.
    Spitznagel's own monthly 2-month recipe and his Tobin's Q switch both do
    worse ([`spitznagel_recipe.py`](experiments/spitznagel_recipe.py), §8).
