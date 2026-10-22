@@ -70,10 +70,6 @@ handles the data and the process pool (see `roll_proceeds.py`, ~70 lines).
 5. **Crash *shape* decides it.** Fast crashes pay; slow grinds and calm
    decades bleed. Deep (40-45%) OTM bands are not listed pre-2003
    ([`findings/DATA_COVERAGE.md`](findings/DATA_COVERAGE.md)).
-8. **At equal risk it is roughly a wash.** Against the stock/T-bill mix
-   with the same drawdown or volatility, the hedge's edge is about 0 to
-   +0.2pp/yr at 1-2% budgets, at any leverage up to 1.5x; 3.3% loses
-   ([`risk_matched.py`](experiments/risk_matched.py)).
 6. **No timing signal beat always-on** in the earlier battery — direction
    plausible, numbers predate the engine and data fixes.
 7. **Nothing clever beat holding the puts to DTE 30 and putting the payoff
@@ -82,3 +78,7 @@ handles the data and the process pool (see `roll_proceeds.py`, ~70 lines).
    new puts were all flat or worse. Rolling made the GFC drawdown *worse*
    (−57% at full roll): puts bought at the 2008 low, at peak IV, expired
    worthless.
+8. **At equal risk it is roughly a wash.** Against the stock/T-bill mix
+   with the same drawdown or volatility, the hedge's edge is about 0 to
+   +0.2pp/yr at 1-2% budgets, at any leverage up to 1.5x; 3.3% loses
+   ([`risk_matched.py`](experiments/risk_matched.py)).
