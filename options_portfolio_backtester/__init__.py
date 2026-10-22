@@ -24,7 +24,11 @@ from options_portfolio_backtester.core.types import (
     Type,
     get_order,
 )
-from options_portfolio_backtester.data.cleaning import clean_options_chain, flag_bad_quotes
+from options_portfolio_backtester.data.cleaning import (
+    clean_options_chain,
+    flag_bad_quotes,
+    normalize_expirations,
+)
 from options_portfolio_backtester.data.providers import (
     CsvOptionsProvider,
     CsvStocksProvider,
@@ -75,7 +79,7 @@ __all__ = [
     "OptionContract", "StockAllocation", "Stock", "get_order",
     # Data
     "Schema", "Field", "Filter", "CsvOptionsProvider", "CsvStocksProvider",
-    "clean_options_chain", "flag_bad_quotes",
+    "clean_options_chain", "flag_bad_quotes", "normalize_expirations",
     "TiingoData", "HistoricalOptionsData",
     # Strategy
     "Strategy", "StrategyLeg", "Strangle",

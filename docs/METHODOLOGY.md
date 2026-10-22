@@ -46,6 +46,16 @@ options:
 building `HistoricalOptionsData`, and look at what it drops. Inspect the
 trades behind any result that looks too good *or too bad*.
 
+### Expiration date conventions
+
+Older SPX data dates the AM-settled monthlies on the **Saturday** after their
+last trading day (until 2015); newer data uses the Friday. Days-to-expiry to
+a Saturday is one longer, so "exit at DTE <= 30" fires a trading day later in
+the old era. In this repo's study that single day moved the Dec-2008 put sale
+onto the 2008-11-20 closing low and inflated the headline result by
+~0.35pp/yr. `normalize_expirations(chain)` moves weekend expirations to the
+Friday before.
+
 ## 3. Budget semantics
 
 "2% a year on puts" can mean three different things, and they give different

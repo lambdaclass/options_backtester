@@ -77,3 +77,13 @@ def test_clean_keeps_index_and_order():
     chain = _chain([_row(725, 1.5, 2.0), _row(700, 2.0, 1.5), _row(750, 2.5, 3.0)])
     chain.index = [10, 20, 30]
     assert clean_options_chain(chain).index.tolist() == [10, 30]
+
+
+def test_normalize_expirations_moves_weekends_to_friday():
+    from options_portfolio_backtester import normalize_expirations
+    chain = _chain([_row(700, 1.0, 1.2, exp="2008-12-20"),   # Saturday
+                    _row(700, 1.0, 1.2, exp="2010-06-20"),   # Sunday
+                    _row(700, 1.0, 1.2, exp="2020-03-20")])  # Friday
+    out = normalize_expirations(chain)
+    assert out["expiration"].dt.strftime("%Y-%m-%d").tolist() == ["2008-12-19", "2010-06-18", "2020-03-20"]
+    assert chain["expiration"].tolist()[0] == "2008-12-20"   # input untouched

@@ -105,6 +105,10 @@ anchored on the commit hash that introduced the change.
   half-open and dropped it).
 
 ### API changes
+- ``normalize_expirations`` (``data.cleaning``): move weekend expiration
+  dates (older SPX monthlies are dated on the Saturday after the last
+  trading day) to the Friday before, so DTE rules mean the same trading day
+  across date conventions.
 - ``clean_options_chain`` / ``flag_bad_quotes`` (``data.cleaning``): find and
   drop chain rows that are not tradeable quotes — other products under the
   same underlying (e.g. SPX binaries), flat prints across a strike run,
