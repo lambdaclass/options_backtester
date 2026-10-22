@@ -23,6 +23,7 @@ use crate::fill_model::FillModel;
 use crate::filter::CompiledFilter;
 use crate::risk::{self, RiskConstraint};
 use crate::signal_selector::SignalSelector;
+use crate::sizer::Sizer;
 use crate::stats;
 use crate::stats::Stats;
 use crate::types::{Direction, Greeks, LegConfig};
@@ -45,6 +46,8 @@ pub struct BacktestConfig {
     pub cost_model: CostModel,
     /// Fill model for execution pricing.
     pub fill_model: FillModel,
+    /// Contracts per entry, capped by the entry's budget.
+    pub sizer: Sizer,
     /// Engine-level signal selector.
     pub signal_selector: SignalSelector,
     /// Risk constraints checked before entries.
@@ -570,7 +573,7 @@ pub fn run_backtest_with_filters(
                         &config.legs, entry_filters, day_opts, &held,
                         config.shares_per_contract, roll * (cash - cash_before),
                         schema, date, &mut trade_rows,
-                        &config.fill_model, &config.signal_selector,
+                        &config.fill_model, &config.sizer, &config.signal_selector,
                         &config.risk_constraints, &portfolio_greeks,
                         total_capital, peak_value,
                         config.max_notional_pct, &positions,
@@ -759,7 +762,7 @@ fn rebalance_date(
             &config.legs, entry_filters, day_opts, &held,
             config.shares_per_contract, remaining_budget,
             schema, rb_date, trade_rows,
-            &config.fill_model, &config.signal_selector,
+            &config.fill_model, &config.sizer, &config.signal_selector,
             &config.risk_constraints, portfolio_greeks,
             total_capital, *peak_value,
             config.max_notional_pct, positions,
@@ -960,7 +963,7 @@ pub fn run_multi_strategy(
                             &slot.legs, &slot_filters[si].entry, day_opts, &held,
                             config.shares_per_contract, remaining_budget,
                             schema, date, &mut trade_rows,
-                            &config.fill_model, &config.signal_selector,
+                            &config.fill_model, &config.sizer, &config.signal_selector,
                             &config.risk_constraints, &portfolio_greeks,
                             total_capital, peak_value,
                             config.max_notional_pct, &slot_positions[si],
@@ -1425,6 +1428,7 @@ fn execute_entries(
     date: i64,
     trade_rows: &mut Vec<TradeRow>,
     fill_model: &FillModel,
+    sizer: &Sizer,
     signal_selector: &SignalSelector,
     risk_constraints: &[RiskConstraint],
     portfolio_greeks: &Greeks,
@@ -1613,7 +1617,7 @@ fn execute_entries(
 
     // Size on the price actually paid (the fill model's), so the premium
     // spent stays within the budget.
-    let mut qty = (budget / total_cost.abs()).floor();
+    let mut qty = sizer.size(total_cost, budget, total_capital);
     if qty <= 0.0 {
         return Ok(None);
     }

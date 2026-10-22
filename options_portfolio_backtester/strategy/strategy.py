@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import math
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 import numpy as np
 import pandas as pd
@@ -39,6 +39,13 @@ class Strategy:
         self.cost_model = cost_model or NoCosts()
         self.sizer = sizer or CapitalBased()
         self.signal_selector = signal_selector or FirstMatch()
+        # The models passed explicitly: they override the engine's for this
+        # strategy (the defaults above are only what is reported otherwise).
+        self.overrides: dict[str, Any] = {
+            name: model for name, model in (("cost_model", cost_model), ("sizer", sizer),
+                                            ("signal_selector", signal_selector))
+            if model is not None
+        }
 
     def add_leg(self, leg: "StrategyLeg") -> "Strategy":
         assert self.schema == leg.schema

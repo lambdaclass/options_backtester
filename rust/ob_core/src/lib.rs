@@ -7,6 +7,7 @@ pub mod exits;
 pub mod stats;
 pub mod cost_model;
 pub mod fill_model;
+pub mod sizer;
 pub mod signal_selector;
 pub mod risk;
 pub mod backtest;

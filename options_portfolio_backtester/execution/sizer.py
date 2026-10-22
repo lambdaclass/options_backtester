@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
+from typing import Any
 
 
 class PositionSizer(ABC):
@@ -20,6 +21,11 @@ class PositionSizer(ABC):
         """
         ...
 
+    def to_rust_config(self) -> dict[str, Any]:
+        """This sizer's configuration for the Rust engine."""
+        raise NotImplementedError(
+            f"{type(self).__name__} has no Rust equivalent; implement to_rust_config()")
+
 
 class CapitalBased(PositionSizer):
     """Buy as many contracts as the allocation allows — matches original behavior.
@@ -33,6 +39,9 @@ class CapitalBased(PositionSizer):
             return 0
         return int(available_capital // abs(cost_per_contract))
 
+    def to_rust_config(self) -> dict[str, Any]:
+        return {"type": "CapitalBased"}
+
 
 class FixedQuantity(PositionSizer):
     """Always trade a fixed number of contracts."""
@@ -45,6 +54,9 @@ class FixedQuantity(PositionSizer):
         if abs(cost_per_contract) * self.quantity > available_capital:
             return int(available_capital // abs(cost_per_contract)) if cost_per_contract != 0 else 0
         return self.quantity
+
+    def to_rust_config(self) -> dict[str, Any]:
+        return {"type": "FixedQuantity", "quantity": float(self.quantity)}
 
 
 class FixedDollar(PositionSizer):
@@ -60,6 +72,9 @@ class FixedDollar(PositionSizer):
         target = min(self.amount, available_capital)
         return int(target // abs(cost_per_contract))
 
+    def to_rust_config(self) -> dict[str, Any]:
+        return {"type": "FixedDollar", "amount": float(self.amount)}
+
 
 class PercentOfPortfolio(PositionSizer):
     """Size positions as a percentage of total portfolio value."""
@@ -74,3 +89,6 @@ class PercentOfPortfolio(PositionSizer):
             return 0
         target = min(self.pct * total_capital, available_capital)
         return int(target // abs(cost_per_contract))
+
+    def to_rust_config(self) -> dict[str, Any]:
+        return {"type": "PercentOfPortfolio", "pct": float(self.pct)}

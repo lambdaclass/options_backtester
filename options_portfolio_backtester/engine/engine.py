@@ -110,8 +110,13 @@ class BacktestEngine:
         max_notional_pct: float | None = None,
     ) -> None:
         assets = ("stocks", "options", "cash")
+        unknown = set(allocation) - set(assets)
+        if unknown:
+            raise ValueError(f"unknown allocation keys {sorted(unknown)}; expected {assets}")
         self._raw_allocation = {a: allocation.get(a, 0.0) for a in assets}
         total_allocation = sum(self._raw_allocation.values())
+        if total_allocation == 0:
+            raise ValueError("allocation weights sum to 0")
 
         self.allocation: dict[str, float] = {}
         for asset in assets:
@@ -624,9 +629,10 @@ class BacktestEngine:
 
         # Compute rebalance dates for the Rust backtest loop.
         dates_df = (
-            pd.DataFrame(self._odata._data[["quotedate", "volume"]])
-            .drop_duplicates("quotedate")
-            .set_index("quotedate")
+            self._odata._data[[self._oschema["date"]]]
+            .drop_duplicates()
+            .set_index(self._oschema["date"])
+            .assign(_=0)
         )
         if rebalance_dates_override is not None:
             # Signal-gated entry: caller supplies the exact dates on which to
@@ -706,9 +712,11 @@ class BacktestEngine:
                 if strategy.exit_thresholds[1] != math.inf else None
             ),
             "stocks": [(s.symbol, s.percentage) for s in self._stocks],
-            "cost_model": self.cost_model.to_rust_config(),
+            "cost_model": strategy.overrides.get("cost_model", self.cost_model).to_rust_config(),
             "fill_model": self.fill_model.to_rust_config(),
-            "signal_selector": self.signal_selector.to_rust_config(),
+            "sizer": strategy.overrides.get("sizer", self.sizer).to_rust_config(),
+            "signal_selector": strategy.overrides.get(
+                "signal_selector", self.signal_selector).to_rust_config(),
             "risk_constraints": [c.to_rust_config() for c in self.risk_manager.constraints],
             "sma_days": sma_days,
             "options_budget_pct": self.options_budget_per_rebalance_pct,
@@ -796,10 +804,8 @@ class BacktestEngine:
         self.balance["% change"] = self.balance["total capital"].pct_change()
         self.balance["accumulated return"] = (1.0 + self.balance["% change"]).cumprod()
 
-        # Set current_cash to match Python loop's final state after rebalancing
-        # (after the loop, all capital is allocated to stocks/options/cash per allocation)
-        final_total = self.balance["total capital"].iloc[-1]
-        self.current_cash = self.allocation["cash"] * final_total
+        # Cash actually held at the end of the run.
+        self.current_cash = float(self.balance["cash"].iloc[-1])
         self._initialize_inventories()
         self._portfolio = Portfolio(initial_cash=self.current_cash)
         self._attach_run_metadata(
@@ -840,9 +846,10 @@ class BacktestEngine:
 
         # Compute per-slot rebalance dates
         dates_df = (
-            pd.DataFrame(self._odata._data[["quotedate", "volume"]])
-            .drop_duplicates("quotedate")
-            .set_index("quotedate")
+            self._odata._data[[self._oschema["date"]]]
+            .drop_duplicates()
+            .set_index(self._oschema["date"])
+            .assign(_=0)
         )
 
         slot_configs = []
@@ -901,6 +908,7 @@ class BacktestEngine:
             "stocks": [(s.symbol, s.percentage) for s in self._stocks],
             "cost_model": self.cost_model.to_rust_config(),
             "fill_model": self.fill_model.to_rust_config(),
+            "sizer": self.sizer.to_rust_config(),
             "signal_selector": self.signal_selector.to_rust_config(),
             "risk_constraints": [c.to_rust_config() for c in self.risk_manager.constraints],
             "sma_days": sma_days,
@@ -988,8 +996,7 @@ class BacktestEngine:
         self.balance["% change"] = self.balance["total capital"].pct_change()
         self.balance["accumulated return"] = (1.0 + self.balance["% change"]).cumprod()
 
-        final_total = self.balance["total capital"].iloc[-1]
-        self.current_cash = self.allocation["cash"] * final_total
+        self.current_cash = float(self.balance["cash"].iloc[-1])
         self._attach_run_metadata(
             rebalance_freq=0,
             monthly=monthly,

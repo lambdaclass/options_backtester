@@ -20,8 +20,7 @@ class TiingoData:
     Accepts `.h5`, `.parquet`, or `.csv` files.
     """
     def __init__(self, file: str, schema: Schema | None = None, **params: Any) -> None:
-        if schema is None:
-            self.schema = TiingoData.default_schema()
+        self.schema = schema if schema is not None else TiingoData.default_schema()
 
         file_extension = os.path.splitext(file)[1]
 
@@ -41,8 +40,9 @@ class TiingoData:
                 f"expected one of .h5, .parquet, .csv"
             )
 
-        columns = self._data.columns
-        assert all((col in columns for _key, col in self.schema))
+        missing = [col for _key, col in self.schema if col not in self._data.columns]
+        if missing:
+            raise ValueError(f"{file}: missing columns {missing} required by the schema")
 
         date_col = self.schema['date']
 
@@ -125,8 +125,7 @@ class HistoricalOptionsData:
     600 MB as parquet vs 3 GB as CSV, and loads several times faster.
     """
     def __init__(self, file: str, schema: Schema | None = None, **params: Any) -> None:
-        if schema is None:
-            self.schema = HistoricalOptionsData.default_schema()
+        self.schema = schema if schema is not None else HistoricalOptionsData.default_schema()
 
         file_extension = os.path.splitext(file)[1]
 
@@ -147,8 +146,9 @@ class HistoricalOptionsData:
                 f"expected one of .h5, .parquet, .csv"
             )
 
-        columns = self._data.columns
-        assert all((col in columns for _key, col in self.schema))
+        missing = [col for _key, col in self.schema if col not in self._data.columns]
+        if missing:
+            raise ValueError(f"{file}: missing columns {missing} required by the schema")
 
         date_col = self.schema['date']
         expiration_col = self.schema['expiration']

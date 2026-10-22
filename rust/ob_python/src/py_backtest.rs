@@ -7,6 +7,7 @@ use pyo3_polars::PyDataFrame;
 use ob_core::backtest::{run_backtest, run_multi_strategy, prepartition_data, BacktestConfig, StrategySlotConfig, SchemaMapping};
 use ob_core::cost_model::CostModel;
 use ob_core::fill_model::FillModel;
+use ob_core::sizer::Sizer;
 use ob_core::risk::RiskConstraint;
 use ob_core::signal_selector::SignalSelector;
 use ob_core::types::{Direction, LegConfig, OptionType};
@@ -86,6 +87,25 @@ pub fn parse_fill_model(d: &Bound<'_, PyDict>) -> PyResult<FillModel> {
         }
         other => Err(pyo3::exceptions::PyValueError::new_err(
             format!("unknown fill model type: {other}"),
+        )),
+    }
+}
+
+/// Parse a Sizer from a Python dict.
+///
+/// Expected formats:
+///   {"type": "CapitalBased"}
+///   {"type": "FixedQuantity", "quantity": 1}
+///   {"type": "FixedDollar", "amount": 10000.0}
+///   {"type": "PercentOfPortfolio", "pct": 0.01}
+pub fn parse_sizer(d: &Bound<'_, PyDict>) -> PyResult<Sizer> {
+    match get_str(d, "type", "CapitalBased")?.as_str() {
+        "CapitalBased" => Ok(Sizer::CapitalBased),
+        "FixedQuantity" => Ok(Sizer::FixedQuantity { quantity: get_f64(d, "quantity", 1.0)? }),
+        "FixedDollar" => Ok(Sizer::FixedDollar { amount: get_f64(d, "amount", 10_000.0)? }),
+        "PercentOfPortfolio" => Ok(Sizer::PercentOfPortfolio { pct: get_f64(d, "pct", 0.01)? }),
+        other => Err(pyo3::exceptions::PyValueError::new_err(
+            format!("unknown sizer type: {other}"),
         )),
     }
 }
@@ -209,6 +229,15 @@ pub fn parse_config_from_dict(config: &Bound<'_, PyDict>) -> PyResult<BacktestCo
         _ => FillModel::MarketAtBidAsk,
     };
 
+    let sizer = match config.get_item("sizer")? {
+        Some(v) if !v.is_none() => {
+            let d = v.downcast::<PyDict>()
+                .map_err(|e| pyo3::exceptions::PyTypeError::new_err(e.to_string()))?;
+            parse_sizer(d)?
+        }
+        _ => Sizer::CapitalBased,
+    };
+
     let signal_selector = match config.get_item("signal_selector")? {
         Some(v) if !v.is_none() => {
             let d = v.downcast::<PyDict>()
@@ -297,6 +326,7 @@ pub fn parse_config_from_dict(config: &Bound<'_, PyDict>) -> PyResult<BacktestCo
         rebalance_dates,
         cost_model,
         fill_model,
+        sizer,
         signal_selector,
         risk_constraints,
         sma_days,
