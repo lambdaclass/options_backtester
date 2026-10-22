@@ -67,7 +67,7 @@ engine.run(rebalance_freq=1, rebalance_unit="BMS")
 # Inspect the results — the dataclass bundles balance, trades, config, and engine version
 results = engine.get_results()
 print(results.summary())
-# {'annual_return': 13.5, 'max_drawdown': -46.4, 'sharpe': 0.72, 'trades': 327, ...}
+# {'annual_return': 10.42, 'max_drawdown': -51.9, 'volatility': 19.53, 'sharpe': 0.61, 'trades': 147, ...}
 ```
 
 The AQR / allocation-reducing framing is one helper away:

@@ -178,12 +178,21 @@ pub fn compute_full_stats(
     }
 
     // -- Return metrics --
+    // Annualize from the timestamps: calendar years for CAGR, and the
+    // sampling frequency they imply (≈252/yr for daily rows, 52 for weekly)
+    // for volatility and the ratios. Without usable timestamps, assume daily.
+    let (years, periods_per_year) = match (timestamps_ns.first(), timestamps_ns.last()) {
+        (Some(&first), Some(&last)) if timestamps_ns.len() == total_capital.len() && last > first => {
+            let y = (last - first) as f64 / (365.25 * 86_400.0 * 1e9);
+            (y, n as f64 / y)
+        }
+        _ => (n as f64 / TRADING_DAYS_PER_YEAR, TRADING_DAYS_PER_YEAR),
+    };
     fs.total_return = total_capital.last().unwrap() / total_capital[0] - 1.0;
-    let years = n as f64 / TRADING_DAYS_PER_YEAR;
     fs.annualized_return = annualize(fs.total_return, years);
-    fs.volatility = std_dev(&daily_returns) * TRADING_DAYS_PER_YEAR.sqrt();
-    fs.sharpe_ratio = sharpe(&daily_returns, risk_free_rate, TRADING_DAYS_PER_YEAR);
-    fs.sortino_ratio = sortino(&daily_returns, risk_free_rate, TRADING_DAYS_PER_YEAR);
+    fs.volatility = std_dev(&daily_returns) * periods_per_year.sqrt();
+    fs.sharpe_ratio = sharpe(&daily_returns, risk_free_rate, periods_per_year);
+    fs.sortino_ratio = sortino(&daily_returns, risk_free_rate, periods_per_year);
 
     // -- Drawdown --
     let dd = compute_drawdown_full(&daily_returns);
@@ -207,7 +216,7 @@ pub fn compute_full_stats(
     }
 
     // -- Daily period stats --
-    fs.daily = compute_period_stats(&daily_returns, risk_free_rate, TRADING_DAYS_PER_YEAR);
+    fs.daily = compute_period_stats(&daily_returns, risk_free_rate, periods_per_year);
 
     // -- Monthly period stats --
     let monthly_returns = resample_returns(total_capital, timestamps_ns, ResampleFreq::Monthly);
@@ -333,15 +342,15 @@ fn sortino(returns: &[f64], risk_free_rate: f64, periods_per_year: f64) -> f64 {
     }
     let rf_per_period = (1.0 + risk_free_rate).powf(1.0 / periods_per_year) - 1.0;
     let excess: Vec<f64> = returns.iter().map(|&r| r - rf_per_period).collect();
-    let downside: Vec<f64> = excess.iter().filter(|&&r| r < 0.0).copied().collect();
-    if downside.is_empty() {
+    // Downside deviation over ALL periods: sqrt(mean(min(excess, 0)^2)).
+    // (The sample std of only the negative returns is not a downside risk
+    // measure: with equal losses it is 0 and the ratio explodes.)
+    let downside = (excess.iter().map(|&r| r.min(0.0).powi(2)).sum::<f64>()
+        / excess.len() as f64).sqrt();
+    if downside == 0.0 {
         return 0.0;
     }
-    let s = std_dev(&downside);
-    if s == 0.0 {
-        return 0.0;
-    }
-    mean(&excess) / s * periods_per_year.sqrt()
+    mean(&excess) / downside * periods_per_year.sqrt()
 }
 
 fn percentile(values: &[f64], pct: f64) -> f64 {

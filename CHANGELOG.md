@@ -22,6 +22,15 @@ anchored on the commit hash that introduced the change.
 ## Unreleased
 
 ### Behavioral changes
+- **One definition per metric.** Sortino used the sample std of only the
+  negative returns (8e14 when losses were equal); it now uses the downside
+  deviation over all periods. ``BacktestStats`` annualized with 252 rows a
+  year (a weekly balance reported 8,020% CAGR); CAGR now comes from calendar
+  time and volatility / Sharpe / Sortino from the sampling frequency of the
+  timestamps. ``BacktestResults.sharpe_ratio`` was CAGR / volatility; it is
+  now the standard mean / std Sharpe, matching ``BacktestStats``, and
+  ``summary()["trades"]`` counts round trips, not trade-log rows. The
+  README's sample output is refreshed.
 - **Trade-level P&L is signed and paired correctly.** ``TradeLog`` took
   absolute prices (a short-put winner showed as a loss), counted only the
   first leg and never charged commissions; ``summary()`` compared ``Order``

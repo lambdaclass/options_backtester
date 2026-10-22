@@ -71,16 +71,36 @@ class BacktestResults:
         return ((bal - cummax) / cummax).min() * 100
 
     @property
+    def _periods_per_year(self) -> float:
+        """Sampling frequency of the balance rows (≈252 for daily rows)."""
+        idx = self.balance.index
+        years = (idx[-1] - idx[0]).days / 365.25
+        return (len(idx) - 1) / years if years > 0 else 252.0
+
+    @property
     def annualized_volatility(self) -> float:
-        """Annualized standard deviation of daily returns (percentage)."""
-        daily = self.balance["total capital"].pct_change().dropna()
-        return daily.std() * math.sqrt(252) * 100
+        """Annualized standard deviation of period returns (percentage)."""
+        rets = self.balance["total capital"].pct_change().dropna()
+        return rets.std() * math.sqrt(self._periods_per_year) * 100
 
     @property
     def sharpe_ratio(self) -> float:
-        """Sharpe assuming a 0% risk-free rate."""
-        vol = self.annualized_volatility
-        return self.annual_return / vol if vol > 0 else 0.0
+        """Sharpe ratio at a 0% risk-free rate: annualized mean period return
+        over annualized volatility -- the same definition as
+        :class:`BacktestStats` (not CAGR / volatility)."""
+        rets = self.balance["total capital"].pct_change().dropna()
+        sd = rets.std()
+        return float(rets.mean() / sd * math.sqrt(self._periods_per_year)) if sd > 0 else 0.0
+
+    @property
+    def round_trips(self) -> int:
+        """Completed round-trip trades (an entry and its exit count once)."""
+        from options_portfolio_backtester.analytics.trade_log import TradeLog
+        if self.trade_log is None or self.trade_log.empty:
+            return 0
+        if not isinstance(self.trade_log.columns, pd.MultiIndex):
+            return len(self.trade_log)  # not an engine trade log: rows as given
+        return len(TradeLog.from_legacy_trade_log(self.trade_log))
 
     def summary(self) -> dict[str, Any]:
         """Headline metrics in a dict, handy for logging and assertions."""
@@ -89,7 +109,7 @@ class BacktestResults:
             "max_drawdown": self.max_drawdown,
             "volatility": self.annualized_volatility,
             "sharpe": self.sharpe_ratio,
-            "trades": 0 if self.trade_log is None else len(self.trade_log),
+            "trades": self.round_trips,
             "engine_version": self.engine_version,
             "data_hash": self.data_hash,
         }
