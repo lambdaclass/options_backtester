@@ -22,6 +22,12 @@ anchored on the commit hash that introduced the change.
 ## Unreleased
 
 ### Behavioral changes
+- **Fill models apply on both sides.** They priced entries only: exits and
+  daily marks always used the bid/ask, and contracts were sized off the
+  bid/ask cost. Now the fill model prices entries, exits and marks, and
+  sizing uses the price paid. New ``SpreadFraction(fraction)`` fill model
+  (0 = mid, 1 = bid/ask). ``SpreadSlippage`` (a cost model the engine never
+  applied) warns and points to it. MarketAtBidAsk results are unchanged.
 - **Options settle at expiry, every trading day.** Expiry was only detected
   where exit rules ran (rebalance days unless ``check_exits_daily``), and only
   for legs with an exit filter, so an option expiring between rebalances was

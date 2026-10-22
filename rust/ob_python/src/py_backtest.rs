@@ -65,6 +65,7 @@ pub fn parse_cost_model(d: &Bound<'_, PyDict>) -> PyResult<CostModel> {
 ///   {"type": "MarketAtBidAsk"}
 ///   {"type": "MidPrice"}
 ///   {"type": "VolumeAware", "full_volume_threshold": 100}
+///   {"type": "SpreadFraction", "fraction": 0.5}
 pub fn parse_fill_model(d: &Bound<'_, PyDict>) -> PyResult<FillModel> {
     let model_type = get_str(d, "type", "MarketAtBidAsk")?;
     match model_type.as_str() {
@@ -73,6 +74,15 @@ pub fn parse_fill_model(d: &Bound<'_, PyDict>) -> PyResult<FillModel> {
         "VolumeAware" => {
             let threshold = get_i64(d, "full_volume_threshold", 100)?;
             Ok(FillModel::VolumeAware { full_volume_threshold: threshold })
+        }
+        "SpreadFraction" => {
+            let fraction = get_f64(d, "fraction", 1.0)?;
+            if !(0.0..=1.0).contains(&fraction) {
+                return Err(pyo3::exceptions::PyValueError::new_err(
+                    format!("SpreadFraction fraction must be in [0, 1], got {fraction}"),
+                ));
+            }
+            Ok(FillModel::SpreadFraction { fraction })
         }
         other => Err(pyo3::exceptions::PyValueError::new_err(
             format!("unknown fill model type: {other}"),

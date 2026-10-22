@@ -167,10 +167,10 @@ Every component is swappable. Pass them to `BacktestEngine(...)` or override per
 `FirstMatch()`, `NearestDelta(target)`, `MaxOpenInterest()`
 
 **Cost models** — commissions and fees:
-`NoCosts()`, `PerContractCommission(rate)`, `TieredCommission(tiers)`, `SpreadSlippage(pct)`
+`NoCosts()`, `PerContractCommission(rate)`, `TieredCommission(tiers)`
 
 **Fill models** — execution price:
-`MarketAtBidAsk()`, `MidPrice()`, `VolumeAwareFill(threshold)`
+`MarketAtBidAsk()`, `MidPrice()`, `SpreadFraction(fraction)`, `VolumeAwareFill(threshold)` — applied to entries, exits and daily marks
 
 **Position sizers** — how many contracts:
 `CapitalBased()`, `FixedQuantity(qty)`, `FixedDollar(amount)`, `PercentOfPortfolio(pct)`

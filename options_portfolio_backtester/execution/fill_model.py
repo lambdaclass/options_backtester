@@ -49,6 +49,30 @@ class MidPrice(FillModel):
         return {"type": "MidPrice"}
 
 
+class SpreadFraction(FillModel):
+    """Pay ``fraction`` of the half-spread on every trade: 0 fills at the mid,
+    1 at the bid (sell) / ask (buy). ``SpreadFraction(0.5)`` buys halfway
+    between mid and ask -- a quarter of the full spread above mid.
+
+    Like every fill model it prices entries, exits and the daily marks.
+    """
+
+    def __init__(self, fraction: float) -> None:
+        if not 0.0 <= fraction <= 1.0:
+            raise ValueError(f"fraction must be in [0, 1], got {fraction}")
+        self.fraction = fraction
+
+    def get_fill_price(self, row: pd.Series, direction: Direction) -> float:
+        bid = float(row["bid"])
+        ask = float(row["ask"])
+        mid = (bid + ask) / 2.0
+        target = ask if direction == Direction.BUY else bid
+        return mid + self.fraction * (target - mid)
+
+    def to_rust_config(self) -> dict:
+        return {"type": "SpreadFraction", "fraction": self.fraction}
+
+
 class VolumeAwareFill(FillModel):
     """Fill price that adjusts for volume impact.
 

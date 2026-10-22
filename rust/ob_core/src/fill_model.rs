@@ -11,6 +11,8 @@ pub enum FillModel {
     MidPrice,
     /// Fill price adjusts for volume impact. Low volume pushes toward mid.
     VolumeAware { full_volume_threshold: i64 },
+    /// Pay `fraction` of the half-spread: 0 fills at mid, 1 at bid/ask.
+    SpreadFraction { fraction: f64 },
 }
 
 impl FillModel {
@@ -38,6 +40,11 @@ impl FillModel {
                 let ratio = vol / *full_volume_threshold as f64;
                 mid + ratio * (target - mid)
             }
+            FillModel::SpreadFraction { fraction } => {
+                let mid = (bid + ask) / 2.0;
+                let target = if is_buy { ask } else { bid };
+                mid + fraction * (target - mid)
+            }
         }
     }
 }
@@ -56,6 +63,16 @@ mod tests {
     fn market_at_bid_ask_sell() {
         let m = FillModel::MarketAtBidAsk;
         assert!((m.fill_price(9.0, 10.0, None, false) - 9.0).abs() < 1e-10);
+    }
+
+    #[test]
+    fn spread_fraction() {
+        let m = FillModel::SpreadFraction { fraction: 0.5 };
+        // bid 9, ask 11: mid 10, half-spread 1 -> pay half of it.
+        assert!((m.fill_price(9.0, 11.0, None, true) - 10.5).abs() < 1e-10);
+        assert!((m.fill_price(9.0, 11.0, None, false) - 9.5).abs() < 1e-10);
+        let at_quote = FillModel::SpreadFraction { fraction: 1.0 };
+        assert!((at_quote.fill_price(9.0, 11.0, None, true) - 11.0).abs() < 1e-10);
     }
 
     #[test]

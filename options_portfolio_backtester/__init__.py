@@ -40,7 +40,12 @@ from options_portfolio_backtester.execution.cost_model import (
     SpreadSlippage,
     TieredCommission,
 )
-from options_portfolio_backtester.execution.fill_model import MarketAtBidAsk, MidPrice, VolumeAwareFill
+from options_portfolio_backtester.execution.fill_model import (
+    MarketAtBidAsk,
+    MidPrice,
+    SpreadFraction,
+    VolumeAwareFill,
+)
 from options_portfolio_backtester.execution.signal_selector import (
     FirstMatch,
     MaxOpenInterest,
@@ -79,7 +84,7 @@ __all__ = [
     "BacktestResults", "hash_data_file",
     # Execution
     "NoCosts", "PerContractCommission", "TieredCommission", "SpreadSlippage",
-    "MarketAtBidAsk", "MidPrice", "VolumeAwareFill",
+    "MarketAtBidAsk", "MidPrice", "SpreadFraction", "VolumeAwareFill",
     "CapitalBased", "FixedQuantity", "FixedDollar", "PercentOfPortfolio",
     "FirstMatch", "NearestDelta", "MaxOpenInterest",
     # Portfolio

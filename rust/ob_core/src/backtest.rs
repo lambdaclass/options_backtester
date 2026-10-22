@@ -124,6 +124,8 @@ struct Position {
     /// Last quoted spot (the chain's underlying_last) per leg: the settlement
     /// spot when the stock data does not carry the option's underlying.
     leg_last_spots: Vec<Cell<f64>>,
+    /// Fill model per leg: prices the exit and the daily mark like the entry.
+    leg_fills: Vec<FillModel>,
 }
 
 struct StockHolding {
@@ -209,14 +211,28 @@ fn settlement_price(pos: &Position, j: usize, day_stocks: Option<&DayStocks>) ->
     intrinsic_value(&pos.leg_types[j], pos.leg_strikes[j], settlement_spot(pos, j, day_stocks))
 }
 
-/// Exit-side price of leg `j` today. A quote is used (and remembered as the
+/// Price at which leg `j` would close today under its fill model (the bid
+/// for a long leg under MarketAtBidAsk). Falls back to the exit-side column
+/// when the quote lacks a bid or ask.
+fn quoted_exit_price(pos: &Position, j: usize, day_opts: &DayOptions) -> Option<f64> {
+    let contract = &pos.leg_contracts[j];
+    let closing_buy = pos.leg_directions[j] == Direction::Sell;
+    let fill = &pos.leg_fills[j];
+    if !matches!(fill, FillModel::MarketAtBidAsk) {
+        if let (Some(bid), Some(ask)) = (day_opts.get_f64(contract, "bid"), day_opts.get_f64(contract, "ask")) {
+            return Some(fill.fill_price(bid, ask, day_opts.get_f64(contract, "volume"), closing_buy));
+        }
+    }
+    day_opts.get_f64(contract, pos.leg_directions[j].invert().price_column())
+}
+
+/// Exit price of leg `j` today. A quote is used (and remembered as the
 /// leg's last mark). Without one: intrinsic value once the leg has expired,
 /// otherwise the last mark -- a quote gap is not a price change.
 fn leg_price(pos: &Position, j: usize, day_opts: Option<&DayOptions>,
              day_stocks: Option<&DayStocks>, today: &str) -> f64 {
     let contract = &pos.leg_contracts[j];
-    let col = pos.leg_directions[j].invert().price_column();
-    if let Some(price) = day_opts.and_then(|d| d.get_f64(contract, col)) {
+    if let Some(price) = day_opts.and_then(|d| quoted_exit_price(pos, j, d)) {
         pos.leg_last_marks[j].set(price);
         if let Some(spot) = day_opts.and_then(|d| d.get_f64(contract, "underlying_last")) {
             if spot > 0.0 {
@@ -1507,6 +1523,7 @@ fn execute_entries(
     let mut leg_strikes = Vec::new();
     let mut leg_last_marks = Vec::new();
     let mut leg_last_spots = Vec::new();
+    let mut leg_fills = Vec::new();
     let mut total_cost = 0.0;
     let mut original_total_cost = 0.0;
     let mut leg_data = Vec::new();
@@ -1560,9 +1577,16 @@ fn execute_entries(
         leg_underlyings.push(underlying.clone());
         leg_expirations.push(expiration.clone());
         leg_strikes.push(strike);
+        // Entry-day exit price under the leg's fill model: the first mark.
         let exit_col = legs[i].direction.invert().price_column();
-        leg_last_marks.push(Cell::new(day_opts.get_f64(&contract, exit_col).unwrap_or(0.0)));
+        let entry_mark = match (day_opts.get_f64(&contract, "bid"), day_opts.get_f64(&contract, "ask")) {
+            (Some(bid), Some(ask)) if !matches!(leg_fill, FillModel::MarketAtBidAsk) => leg_fill.fill_price(
+                bid, ask, day_opts.get_f64(&contract, "volume"), legs[i].direction == Direction::Sell),
+            _ => day_opts.get_f64(&contract, exit_col).unwrap_or(0.0),
+        };
+        leg_last_marks.push(Cell::new(entry_mark));
         leg_last_spots.push(Cell::new(day_opts.get_f64(&contract, "underlying_last").unwrap_or(0.0)));
+        leg_fills.push(leg_fill.clone());
 
         leg_data.push(LegTradeData {
             contract,
@@ -1583,13 +1607,13 @@ fn execute_entries(
         entry_greeks.vega += vega * dir_sign;
     }
 
-    if original_total_cost.abs() == 0.0 {
+    if original_total_cost.abs() == 0.0 || total_cost.abs() == 0.0 {
         return Ok(None);
     }
 
-    // Qty is computed from the original (pre-fill-model) cost, matching Python behavior
-    // where qty = allocation // abs(original_cost) is computed before fill model repricing.
-    let mut qty = (budget / original_total_cost.abs()).floor();
+    // Size on the price actually paid (the fill model's), so the premium
+    // spent stays within the budget.
+    let mut qty = (budget / total_cost.abs()).floor();
     if qty <= 0.0 {
         return Ok(None);
     }
@@ -1649,6 +1673,7 @@ fn execute_entries(
         leg_strikes,
         leg_last_marks,
         leg_last_spots,
+        leg_fills,
     }))
 }
 
@@ -2085,6 +2110,7 @@ mod tests {
             leg_strikes: vec![400.0],
             leg_last_marks: vec![Cell::new(3.0)],
             leg_last_spots: vec![Cell::new(390.0)],
+            leg_fills: vec![FillModel::MarketAtBidAsk],
         }
     }
 

@@ -104,6 +104,11 @@ class SpreadSlippage(TransactionCostModel):
 
     def __init__(self, pct: float = 0.5) -> None:
         assert 0.0 <= pct <= 1.0
+        import warnings
+        warnings.warn(
+            "SpreadSlippage is not applied by the engine (it is a cost model "
+            "returning 0); use fill_model=SpreadFraction(fraction) instead",
+            DeprecationWarning, stacklevel=2)
         self.pct = pct
 
     def option_cost(self, price: float, quantity: int, shares_per_contract: int) -> float:
