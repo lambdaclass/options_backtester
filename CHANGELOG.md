@@ -22,6 +22,15 @@ anchored on the commit hash that introduced the change.
 ## Unreleased
 
 ### Behavioral changes
+- **Trade-level P&L is signed and paired correctly.** ``TradeLog`` took
+  absolute prices (a short-put winner showed as a loss), counted only the
+  first leg and never charged commissions; ``summary()`` compared ``Order``
+  enums to the engine's strings (every row counted as an exit), reported a
+  win/loss *count* ratio as profit factor and ``100.75%`` for +0.75%, and
+  mutated the caller's trade log. Both now pair round trips on the
+  position's full contract set (FIFO), take P&L from the signed position
+  costs, compute commissions when given the run's ``cost_model``, and use
+  gross profit / gross loss. ``summary()`` leaves its inputs untouched.
 - **Options that were silently ignored now work.** ``sizer=``
   (``FixedQuantity`` / ``FixedDollar`` / ``PercentOfPortfolio``) reaches the
   Rust engine; a ``Strategy``'s explicit ``cost_model`` / ``sizer`` /

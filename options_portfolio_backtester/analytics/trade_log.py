@@ -13,7 +13,15 @@ from options_portfolio_backtester.core.types import Order
 
 @dataclass
 class Trade:
-    """A single round-trip trade (entry + exit)."""
+    """A single round-trip trade (entry + exit).
+
+    ``entry_price`` / ``exit_price`` are per-share prices of the (first) leg.
+    P&L follows the entry order: a BTO trade gains when the price rises, an
+    STO trade when it falls. For multi-leg positions set ``entry_cost`` /
+    ``exit_cost``, the engine's signed per-unit cash flows summed over legs
+    (positive = paid, in dollars per position unit); P&L is then
+    ``-(entry_cost + exit_cost) * quantity``.
+    """
     contract: str
     underlying: str
     option_type: str
@@ -28,11 +36,20 @@ class Trade:
     exit_order: Order
     entry_commission: float = 0.0
     exit_commission: float = 0.0
+    entry_cost: float | None = None
+    exit_cost: float | None = None
+
+    @property
+    def is_short(self) -> bool:
+        return str(getattr(self.entry_order, "value", self.entry_order)) == Order.STO.value
 
     @property
     def gross_pnl(self) -> float:
         """P&L before commissions."""
-        return (self.exit_price - self.entry_price) * self.quantity * self.shares_per_contract
+        if self.entry_cost is not None and self.exit_cost is not None:
+            return -(self.entry_cost + self.exit_cost) * self.quantity
+        sign = -1.0 if self.is_short else 1.0
+        return sign * (self.exit_price - self.entry_price) * self.quantity * self.shares_per_contract
 
     @property
     def net_pnl(self) -> float:
@@ -41,8 +58,11 @@ class Trade:
 
     @property
     def return_pct(self) -> float:
-        """Return as percentage of entry cost."""
-        entry_cost = abs(self.entry_price * self.quantity * self.shares_per_contract)
+        """Net P&L as a fraction of the entry premium (paid or received)."""
+        if self.entry_cost is not None:
+            entry_cost = abs(self.entry_cost * self.quantity)
+        else:
+            entry_cost = abs(self.entry_price * self.quantity * self.shares_per_contract)
         if entry_cost == 0:
             return 0.0
         return self.net_pnl / entry_cost
@@ -58,52 +78,64 @@ class TradeLog:
         self.trades.append(trade)
 
     @classmethod
-    def from_legacy_trade_log(cls, trade_log: pd.DataFrame,
-                              shares_per_contract: int = 100) -> "TradeLog":
-        """Build a TradeLog from the legacy MultiIndex trade_log DataFrame."""
+    def from_legacy_trade_log(cls, trade_log: pd.DataFrame, shares_per_contract: int = 100,
+                              cost_model: Any = None) -> "TradeLog":
+        """Round trips from the engine's MultiIndex trade log.
+
+        A position is identified by its legs' contracts; each exit closes the
+        oldest open entry of the same position (FIFO). P&L uses the signed
+        position costs (``totals.cost``), so short and multi-leg positions
+        are right. With ``cost_model`` (the run's), commissions are computed
+        the way the engine charged them; otherwise they are 0.
+        """
         tl = cls()
-        if trade_log.empty:
+        if trade_log is None or trade_log.empty:
             return tl
 
-        first_leg: str = cast(pd.MultiIndex, trade_log.columns).levels[0][0]
+        legs = [c for c in cast(pd.MultiIndex, trade_log.columns).levels[0] if c != "totals"]
+        legs = [c for c in legs if c in trade_log.columns.get_level_values(0)]
+        first = legs[0]
+        orders = trade_log[first]["order"].map(lambda o: str(getattr(o, "value", o)))
+        is_entry = orders.isin({Order.BTO.value, Order.STO.value})
 
-        # The Rust engine emits orders as plain strings ("BTO"); the old
-        # Python engine used the Order enum. Normalize both to their string
-        # value, then compare against a string-only set. (Passing an Order
-        # enum *object* inside the isin() set makes newer pandas/pyarrow fail
-        # Arrow type inference — "Could not convert <Order.STO> ..." — so the
-        # set must contain only plain strings.)
-        orders = trade_log[first_leg]["order"].map(lambda o: getattr(o, "value", o))
-        entry_mask = orders.isin({Order.BTO.value, Order.STO.value})
-        entries = trade_log.loc[entry_mask]
-        exits = trade_log.loc[~entry_mask]
+        def commission(cost: float, qty: float) -> float:
+            if cost_model is None:
+                return 0.0
+            return float(cost_model.option_cost(abs(cost * qty), qty, shares_per_contract))
 
-        for contract in entries[first_leg]["contract"]:
-            entry = entries.loc[entries[first_leg]["contract"] == contract]
-            exit_ = exits.loc[exits[first_leg]["contract"] == contract]
-            if entry.empty or exit_.empty:
+        open_entries: dict[tuple, list[Any]] = {}
+        for i in range(len(trade_log)):
+            row = trade_log.iloc[i]
+            key = tuple(row[leg]["contract"] for leg in legs)
+            if is_entry.iloc[i]:
+                open_entries.setdefault(key, []).append(row)
                 continue
-            try:
-                e_row = entry.iloc[0]
-                x_row = exit_.iloc[0]
-                trade = Trade(
-                    contract=contract,
-                    underlying=e_row[first_leg]["underlying"],
-                    option_type=e_row[first_leg]["type"],
-                    strike=e_row[first_leg]["strike"],
-                    entry_date=e_row["totals"]["date"],
-                    exit_date=x_row["totals"]["date"],
-                    entry_price=abs(e_row[first_leg]["cost"]) / shares_per_contract,
-                    exit_price=abs(x_row[first_leg]["cost"]) / shares_per_contract,
-                    quantity=int(e_row["totals"]["qty"]),
-                    shares_per_contract=shares_per_contract,
-                    entry_order=e_row[first_leg]["order"],
-                    exit_order=x_row[first_leg]["order"],
-                )
-                tl.add_trade(trade)
-            except (IndexError, KeyError):
-                continue
-
+            queue = open_entries.get(key)
+            if not queue:
+                continue  # exit without a recorded entry
+            e_row = queue.pop(0)
+            qty = float(e_row["totals"]["qty"])
+            entry_cost = float(e_row["totals"]["cost"])
+            exit_cost = float(row["totals"]["cost"])
+            tl.add_trade(Trade(
+                contract=str(e_row[first]["contract"]) if len(legs) == 1
+                else "/".join(str(c) for c in key),
+                underlying=e_row[first]["underlying"],
+                option_type=e_row[first]["type"],
+                strike=e_row[first]["strike"],
+                entry_date=e_row["totals"]["date"],
+                exit_date=row["totals"]["date"],
+                entry_price=abs(float(e_row[first]["cost"])) / shares_per_contract,
+                exit_price=abs(float(row[first]["cost"])) / shares_per_contract,
+                quantity=int(qty),
+                shares_per_contract=shares_per_contract,
+                entry_order=e_row[first]["order"],
+                exit_order=row[first]["order"],
+                entry_commission=commission(entry_cost, qty),
+                exit_commission=commission(exit_cost, qty),
+                entry_cost=entry_cost,
+                exit_cost=exit_cost,
+            ))
         return tl
 
     def to_dataframe(self) -> pd.DataFrame:

@@ -1,6 +1,7 @@
 """Tests for structured TradeLog."""
 
 import pandas as pd
+import pytest
 
 from options_portfolio_backtester.analytics.trade_log import Trade, TradeLog
 from options_portfolio_backtester.core.types import Order
@@ -145,11 +146,12 @@ def test_from_legacy_accepts_rust_string_orders():
         [("leg_1", f) for f in
          ("contract", "underlying", "type", "strike", "cost", "order")]
         + [("totals", f) for f in ("cost", "qty", "date")])
+    # Engine sign convention: cost > 0 is paid (BTO), < 0 received (STC).
     rows = [
-        ["SPY240119P00300000", "SPY", "put", 300.0, -500.0, "BTO",
-         -500.0, 1, pd.Timestamp("2023-06-01")],
-        ["SPY240119P00300000", "SPY", "put", 300.0, 250.0, "STC",
-         250.0, 1, pd.Timestamp("2023-09-01")],
+        ["SPY240119P00300000", "SPY", "put", 300.0, 500.0, "BTO",
+         500.0, 1, pd.Timestamp("2023-06-01")],
+        ["SPY240119P00300000", "SPY", "put", 300.0, -250.0, "STC",
+         -250.0, 1, pd.Timestamp("2023-09-01")],
     ]
     legacy = pd.DataFrame(rows, columns=cols)
     tl = TradeLog.from_legacy_trade_log(legacy)
@@ -158,3 +160,84 @@ def test_from_legacy_accepts_rust_string_orders():
     assert trade.entry_price == 5.0
     assert trade.exit_price == 2.5
     assert trade.net_pnl == -250.0
+
+
+def _log(rows, legs=("leg_1",)):
+    """Engine-shaped trade log: per leg (contract, cost, order), totals."""
+    cols = [(leg, f) for leg in legs for f in ("contract", "underlying", "type", "strike", "cost", "order")]
+    cols += [("totals", f) for f in ("cost", "qty", "date")]
+    return pd.DataFrame(rows, columns=pd.MultiIndex.from_tuples(cols))
+
+
+def _leg(contract, cost, order, typ="put", strike=300.0):
+    return [contract, "SPY", typ, strike, cost, order]
+
+
+class TestRoundTripPnL:
+    def test_short_put_winner_is_a_gain(self):
+        # Sold at 5.00 (credit 500), bought back at 1.00 (debit 100), 10 lots.
+        log = _log([
+            _leg("P300", -500.0, "STO") + [-500.0, 10, pd.Timestamp("2024-01-02")],
+            _leg("P300", 100.0, "BTC") + [100.0, 10, pd.Timestamp("2024-02-01")],
+        ])
+        (t,) = TradeLog.from_legacy_trade_log(log).trades
+        assert t.gross_pnl == 4_000.0
+        assert t.is_short
+
+    def test_spread_is_one_round_trip_with_net_pnl(self):
+        # Put spread: buy P300 at 5.00, sell P250 at 2.00 (net debit 300/unit);
+        # close P300 at 9.00, P250 at 4.00 (net credit 500/unit); 2 units.
+        legs = ("leg_1", "leg_2")
+        log = _log([
+            _leg("P300", 500.0, "BTO") + _leg("P250", -200.0, "STO", strike=250.0)
+            + [300.0, 2, pd.Timestamp("2024-01-02")],
+            _leg("P300", -900.0, "STC") + _leg("P250", 400.0, "BTC", strike=250.0)
+            + [-500.0, 2, pd.Timestamp("2024-02-01")],
+        ], legs)
+        (t,) = TradeLog.from_legacy_trade_log(log).trades
+        assert t.contract == "P300/P250"
+        assert t.gross_pnl == 400.0  # (500 - 300) * 2
+
+    def test_reentries_pair_fifo(self):
+        log = _log([
+            _leg("P300", 100.0, "BTO") + [100.0, 1, pd.Timestamp("2024-01-02")],
+            _leg("P300", -300.0, "STC") + [-300.0, 1, pd.Timestamp("2024-01-10")],
+            _leg("P300", 200.0, "BTO") + [200.0, 1, pd.Timestamp("2024-02-01")],
+            _leg("P300", -100.0, "STC") + [-100.0, 1, pd.Timestamp("2024-02-10")],
+        ])
+        assert [t.gross_pnl for t in TradeLog.from_legacy_trade_log(log).trades] == [200.0, -100.0]
+
+    def test_commissions_from_cost_model(self):
+        from options_portfolio_backtester.execution.cost_model import PerContractCommission
+        log = _log([
+            _leg("P300", 100.0, "BTO") + [100.0, 10, pd.Timestamp("2024-01-02")],
+            _leg("P300", -300.0, "STC") + [-300.0, 10, pd.Timestamp("2024-01-10")],
+        ])
+        (t,) = TradeLog.from_legacy_trade_log(log, cost_model=PerContractCommission(rate=0.65)).trades
+        assert (t.entry_commission, t.exit_commission) == (6.5, 6.5)
+        assert t.net_pnl == 2_000.0 - 13.0
+
+
+class TestSummary:
+    def _log_and_balance(self):
+        log = _log([
+            _leg("P300", 100.0, "BTO") + [100.0, 10, pd.Timestamp("2024-01-02")],
+            _leg("P300", -300.0, "STC") + [-300.0, 10, pd.Timestamp("2024-01-10")],
+            _leg("P290", 200.0, "BTO") + [200.0, 10, pd.Timestamp("2024-02-01")],
+            _leg("P290", -100.0, "STC") + [-100.0, 10, pd.Timestamp("2024-02-10")],
+        ])
+        balance = pd.DataFrame({"total capital": [100_000.0, 100_500.0, 100_750.0]},
+                               index=pd.to_datetime(["2024-01-01", "2024-01-31", "2024-02-29"]))
+        return log, balance
+
+    def test_counts_round_trips_and_profit_factor(self):
+        from options_portfolio_backtester.analytics.summary import summary
+        log, balance = self._log_and_balance()
+        before = log.copy()
+        table = summary(log, balance).data["Strategy"]
+        assert table["Total trades"] == 2
+        assert (table["Number of wins"], table["Number of losses"]) == (1, 1)
+        assert table["Profit factor"] == 2.0          # 2,000 gained / 1,000 lost
+        assert table["Largest loss"] == 1_000.0
+        assert table["Total P&L %"] == pytest.approx(0.75)
+        pd.testing.assert_frame_equal(log, before)    # input untouched
