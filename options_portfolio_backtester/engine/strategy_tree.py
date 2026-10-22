@@ -92,6 +92,7 @@ class StrategyTreeEngine:
 
         balances: list[pd.DataFrame] = []
         for leaf, share in leaf_allocs:
+            assert leaf.engine is not None  # leaves always carry an engine
             cap = round(self.initial_capital * share)
             saved_capital = leaf.engine.initial_capital
             leaf.engine.initial_capital = cap
@@ -102,6 +103,7 @@ class StrategyTreeEngine:
                 "weight": share,
                 "capital": cap,
             }
+            assert leaf.engine.balance is not None
             b = leaf.engine.balance[["total capital"]].rename(columns={"total capital": f"{leaf.name}_capital"})
             balances.append(b)
 

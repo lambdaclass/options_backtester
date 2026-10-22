@@ -14,7 +14,7 @@ from __future__ import annotations
 import json
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any, Optional, cast
 
 import numpy as np
 import pandas as pd
@@ -333,8 +333,9 @@ def monthly_return_table(balance: pd.DataFrame) -> pd.DataFrame:
         return pd.DataFrame()
     monthly = (1.0 + rets).groupby(pd.Grouper(freq="ME")).prod() - 1.0
     out = monthly.to_frame(name="return")
-    out["year"] = out.index.year
-    out["month"] = out.index.month
+    idx = pd.DatetimeIndex(out.index)
+    out["year"] = idx.year
+    out["month"] = idx.month
     return out.pivot(index="year", columns="month", values="return").sort_index()
 
 
@@ -453,7 +454,8 @@ def benchmark_comparison(balance: pd.DataFrame,
         return pd.DataFrame()
     strat, bench = aligned["strategy"], aligned["benchmark"]
     excess = strat - bench
-    beta = float(strat.cov(bench) / bench.var()) if bench.var() > 0 else 0.0
+    var = float(cast(float, bench.var()))
+    beta = float(cast(float, strat.cov(bench))) / var if var > 0 else 0.0
     tracking_error = float(excess.std() * np.sqrt(252))
     downside = bench < 0
     upside = bench > 0
@@ -594,7 +596,7 @@ def build_tearsheet(
                   if benchmark_balance is not None else None)
     for label, value in extended_stats(rets, bench_rets).items():
         table.loc[label, "Value"] = value
-    if benchmark_balance is not None and not benchmark_balance.empty:
+    if benchmark_balance is not None and bench_rets is not None and not benchmark_balance.empty:
         bench_table = BacktestStats.from_balance(benchmark_balance) \
             .to_dataframe().rename(columns={"Value": "Benchmark"})
         for label, value in extended_stats(bench_rets).items():

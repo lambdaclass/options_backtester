@@ -8,7 +8,7 @@ from __future__ import annotations
 import random as _random
 import re as _re
 from dataclasses import dataclass, field
-from typing import Callable, Literal, Protocol, Sequence
+from typing import Callable, Literal, Protocol, Sequence, cast
 
 import numpy as np
 import pandas as pd
@@ -580,8 +580,8 @@ class WeighMeanVar:
         rets = prices.iloc[-self._lookback:].pct_change().dropna()
         if len(rets) < 3:
             return StepDecision(status="skip_day", message="insufficient returns for mean-var")
-        mu = rets.mean().values
-        cov = rets.cov().values
+        mu = rets.mean().to_numpy(dtype=float)
+        cov = rets.cov().to_numpy(dtype=float)
         n = len(syms)
         try:
             cov_inv = np.linalg.inv(cov)
@@ -1253,6 +1253,7 @@ class AlgoPipelineBacktester:
         rows: list[dict[str, float | pd.Timestamp]] = []
 
         for i, (date, price_row) in enumerate(self.prices.iterrows()):
+            date = cast(pd.Timestamp, date)
             stocks_cap = float(sum(float(qty) * float(price_row[sym])
                                    for sym, qty in positions.items()
                                    if sym in price_row.index and pd.notna(price_row[sym])))

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
+from typing import Any
 
 from options_portfolio_backtester.execution._rust_bridge import (
     rust_option_cost,
@@ -22,6 +23,13 @@ class TransactionCostModel(ABC):
     def stock_cost(self, price: float, quantity: float) -> float:
         """Return total commission for a stock trade."""
         ...
+
+    def to_rust_config(self) -> dict[str, Any]:
+        """This model's configuration for the Rust engine. Custom models
+        must implement it: the engine runs entirely in Rust."""
+        raise NotImplementedError(
+            f"{type(self).__name__} has no Rust equivalent; implement to_rust_config()")
+
 
 
 class NoCosts(TransactionCostModel):

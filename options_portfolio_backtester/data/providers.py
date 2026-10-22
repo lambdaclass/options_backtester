@@ -5,7 +5,7 @@ from __future__ import annotations
 import logging
 import os
 from abc import ABC, abstractmethod
-from typing import Any, Union
+from typing import Any, Union, overload
 
 import pandas as pd
 
@@ -80,6 +80,12 @@ class TiingoData:
         else:
             return method
 
+    @overload
+    def __getitem__(self, item: str) -> pd.Series: ...
+
+    @overload
+    def __getitem__(self, item: pd.Series) -> pd.DataFrame: ...
+
     def __getitem__(self, item: Union[str, pd.Series]) -> Union[pd.DataFrame, pd.Series]:
         if isinstance(item, pd.Series):
             return self._data[item]
@@ -106,7 +112,7 @@ class TiingoData:
     def sma(self, periods: int) -> None:
         sma = self._data.groupby('symbol', as_index=False).rolling(periods)['adjClose'].mean()
         sma = sma.fillna(0)
-        sma.index = [index[1] for index in sma.index]
+        sma.index = pd.Index([index[1] for index in sma.index])
         self._data['sma'] = sma
         self.schema.update({'sma': 'sma'})
 
@@ -183,6 +189,12 @@ class HistoricalOptionsData:
             return df_method
         else:
             return method
+
+    @overload
+    def __getitem__(self, item: str) -> pd.Series: ...
+
+    @overload
+    def __getitem__(self, item: pd.Series) -> pd.DataFrame: ...
 
     def __getitem__(self, item: Union[str, pd.Series]) -> Union[pd.DataFrame, pd.Series]:
         if isinstance(item, pd.Series):

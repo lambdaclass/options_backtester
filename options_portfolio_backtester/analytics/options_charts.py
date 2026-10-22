@@ -61,7 +61,7 @@ def _signed_cumulative(trade_df: pd.DataFrame, date_col: str, price_col: str,
         sign = trade_df[order_col].map(
             lambda o: 1.0 if str(o).replace("Order.", "") in debit_orders else -1.0)
     else:
-        sign = 1.0
+        sign = pd.Series(1.0, index=trade_df.index)
     flows = (trade_df[price_col].abs() * trade_df["quantity"].abs()
              * multiplier * sign)
     series = pd.Series(flows.values,

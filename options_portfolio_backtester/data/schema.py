@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any, Iterator, Union
+from typing import TYPE_CHECKING, Any, Iterator, Union, cast
 
 if TYPE_CHECKING:
     import pandas as pd
@@ -183,7 +183,7 @@ class Filter:
 
     def __call__(self, data: 'pd.DataFrame') -> 'pd.Series':
         """Returns dataframe of filtered data"""
-        return data.eval(self.query)
+        return cast("pd.Series", data.eval(self.query))
 
     def __repr__(self) -> str:
         return "Filter(query='{}')".format(self.query)

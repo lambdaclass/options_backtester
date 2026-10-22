@@ -34,13 +34,12 @@ jobs:
         run: python -m ruff check options_portfolio_backtester tests scripts research
       - name: Run tests
         run: python -m pytest -v tests/ --ignore=tests/heavy --ignore=tests/oracles/test_article_reproduction.py
-      - name: Type check (informational)
-        # The codebase has ~90 pre-existing mypy errors under modern
-        # pandas-stubs; the old nix CI only passed because nixpkgs pinned
-        # ancient stubs. Until that typing debt is paid down, the type check
-        # reports but does not gate — pytest is the gate.
-        continue-on-error: true
-        run: python -m mypy options_portfolio_backtester --ignore-missing-imports
+      - name: Type check
+        # Stubs and mypy pinned: a new pandas-stubs release routinely adds
+        # errors for unchanged code, which should be a deliberate upgrade.
+        run: |
+          pip install "mypy==2.1.0" "pandas-stubs==2.2.3.250527"
+          python -m mypy options_portfolio_backtester --ignore-missing-imports
 
   # Gate merges on the published-article numbers and the data-dependent
   # invariants. Runs as its own job so the fast unit-test job above is not

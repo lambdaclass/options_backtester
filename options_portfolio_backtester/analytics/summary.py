@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import cast
+
 import numpy as np
 import pandas as pd
 
@@ -18,7 +20,7 @@ def summary(trade_log: pd.DataFrame, balance: pd.DataFrame) -> pd.io.formats.sty
 
     daily_returns: pd.Series = balance['% change'] * 100
 
-    first_leg: str = trade_log.columns.levels[0][0]
+    first_leg: str = cast(pd.MultiIndex, trade_log.columns).levels[0][0]
 
     ## Not sure of a better way to to this, just doing `Order` or `@Order` inside
     ## the .eval(...) does not seem to work.
@@ -74,5 +76,5 @@ def summary(trade_log: pd.DataFrame, balance: pd.DataFrame) -> pd.io.formats.sty
 
     styled = summary_df.style
     for row_label, fmt in formatters.items():
-        styled = styled.format(fmt, subset=pd.IndexSlice[row_label, :])
+        styled = styled.format(fmt, subset=pd.IndexSlice[row_label, :])  # type: ignore[arg-type]
     return styled

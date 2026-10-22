@@ -7,7 +7,7 @@ def pick_cheapest(scores: dict[str, float]) -> str:
     """Pick the instrument with the highest convexity ratio."""
     if not scores:
         raise ValueError("No scores to pick from")
-    return max(scores, key=scores.get)
+    return max(scores, key=lambda name: scores[name])
 
 
 def allocate_equal_weight(symbols: list[str], budget: float) -> dict[str, float]:

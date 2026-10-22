@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, cast
 
 import numpy as np
 import pandas as pd
@@ -65,7 +65,7 @@ class TradeLog:
         if trade_log.empty:
             return tl
 
-        first_leg: str = trade_log.columns.levels[0][0]
+        first_leg: str = cast(pd.MultiIndex, trade_log.columns).levels[0][0]
 
         # The Rust engine emits orders as plain strings ("BTO"); the old
         # Python engine used the Order enum. Normalize both to their string

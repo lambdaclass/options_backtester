@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import cast
+
 import altair as alt
 import numpy as np
 import pandas as pd
@@ -49,7 +51,8 @@ def returns_histogram(report: pd.DataFrame) -> alt.LayerChart:
     # exact counts while staying under altair's 5000-row spec limit on
     # multi-decade daily backtests.
     rets = report['% change'].dropna()
-    counts, edges = np.histogram(rets, bins=100) if len(rets) else ([], [0.0, 0.0])
+    counts, edges = (np.histogram(rets, bins=100) if len(rets)
+                     else (np.array([], dtype=int), np.array([0.0, 0.0])))
     data = pd.DataFrame({
         'bin_start': edges[:-1],
         'bin_end': edges[1:],
@@ -79,8 +82,8 @@ def returns_histogram(report: pd.DataFrame) -> alt.LayerChart:
             .mark_line(color='black', strokeDash=[6, 4]).encode(
                 x='x:Q', y='expected:Q')
         layers.append(normal)
-    return alt.layer(*layers).properties(
-        title='Daily return distribution vs fitted normal')
+    return cast(alt.LayerChart, alt.layer(*layers).properties(
+        title='Daily return distribution vs fitted normal'))
 
 
 def monthly_returns_heatmap(report: pd.DataFrame) -> alt.LayerChart:
@@ -120,7 +123,7 @@ def monthly_returns_heatmap(report: pd.DataFrame) -> alt.LayerChart:
 def annual_returns_chart(balance: pd.DataFrame) -> alt.LayerChart:
     """Horizontal annual-returns bars, pyfolio style (steelblue, dashed mean)."""
     total = balance['total capital'].dropna()
-    yearly = total.groupby(total.index.year).agg(['first', 'last'])
+    yearly = total.groupby(pd.DatetimeIndex(total.index).year).agg(['first', 'last'])
     returns = (yearly['last'] / yearly['first'] - 1).rename('return')
     data = returns.rename_axis('year').reset_index()
 
@@ -208,7 +211,7 @@ def thin_for_chart(data, max_rows: int = _MAX_CHART_ROWS):
 def equity_curve_chart(balance: pd.DataFrame,
                        benchmark_balance: pd.DataFrame | None = None,
                        log_scale: bool = False,
-                       drawdown_periods: pd.DataFrame | None = None) -> alt.Chart:
+                       drawdown_periods: pd.DataFrame | None = None) -> alt.LayerChart:
     """Indexed equity curve (start = 1.0), optionally overlaid with a benchmark.
 
     ``drawdown_periods`` (the frame from ``tearsheet.top_drawdowns``) shades
@@ -254,8 +257,8 @@ def equity_curve_chart(balance: pd.DataFrame,
                      alt.Tooltip("depth:Q", title="Depth (%)")],
         )
         layer_list.insert(0, shade)
-    return alt.layer(*layer_list).properties(
-        width=700, height=300, title="Equity curve")
+    return cast(alt.LayerChart, alt.layer(*layer_list).properties(
+        width=700, height=300, title="Equity curve"))
 
 
 def underwater_chart(drawdown: pd.Series) -> alt.Chart:

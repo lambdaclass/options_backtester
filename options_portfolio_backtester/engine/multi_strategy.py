@@ -70,8 +70,9 @@ class MultiStrategyEngine:
             # engines without the attribute AND real BacktestEngines before
             # run() (balance is pre-declared as None for the attribute seal,
             # so a bare hasattr() would always be true there).
-            if getattr(sa.engine, "balance", None) is not None:
-                b = sa.engine.balance[["total capital", "% change"]].copy()
+            balance = getattr(sa.engine, "balance", None)
+            if balance is not None:
+                b = balance[["total capital", "% change"]].copy()
                 b.columns = [f"{sa.name}_capital", f"{sa.name}_pct_change"]
                 balances.append(b)
 

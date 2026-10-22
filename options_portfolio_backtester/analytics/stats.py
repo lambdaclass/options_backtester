@@ -13,6 +13,7 @@ Provides:
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from typing import cast
 
 import numpy as np
 import pandas as pd
@@ -128,10 +129,10 @@ class BacktestStats:
         # Build stock weight matrix
         stock_cols = [c for c in balance.columns if f"{c} qty" in balance.columns]
         if stock_cols:
-            total = balance["total capital"].values
+            total = balance["total capital"].to_numpy(dtype=np.float64)
             with np.errstate(divide="ignore", invalid="ignore"):
                 weights = balance[stock_cols].values / total[:, None]
-            weights = np.nan_to_num(weights, 0.0).astype(np.float64)
+            weights = np.nan_to_num(weights, nan=0.0).astype(np.float64)
             flat_weights = weights.ravel().tolist()
             n_stocks = len(stock_cols)
         else:
@@ -330,8 +331,8 @@ def extended_stats(returns: pd.Series,
         aligned = pd.concat([rets, benchmark_returns], axis=1, join="inner").dropna()
         if len(aligned) > 1:
             strat, bench = aligned.iloc[:, 0], aligned.iloc[:, 1]
-            var = bench.var()
-            beta = float(strat.cov(bench) / var) if var > 0 else 0.0
+            var = float(cast(float, bench.var()))
+            beta = float(cast(float, strat.cov(bench))) / var if var > 0 else 0.0
             out["Beta"] = beta
             out["Alpha (annualized)"] = float((strat - beta * bench).mean() * 252)
     return out

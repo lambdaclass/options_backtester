@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
+from typing import Any
 
 import pandas as pd
 
@@ -17,6 +18,13 @@ class FillModel(ABC):
     def get_fill_price(self, row: pd.Series, direction: Direction) -> float:
         """Return the execution price for a given option quote row and direction."""
         ...
+
+    def to_rust_config(self) -> dict[str, Any]:
+        """This model's configuration for the Rust engine. Custom models
+        must implement it: the engine runs entirely in Rust."""
+        raise NotImplementedError(
+            f"{type(self).__name__} has no Rust equivalent; implement to_rust_config()")
+
 
 
 class MarketAtBidAsk(FillModel):

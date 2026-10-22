@@ -29,6 +29,7 @@ from options_portfolio_backtester.core.types import (
     Stock,
 )
 from options_portfolio_backtester.data.providers import HistoricalOptionsData, TiingoData
+from options_portfolio_backtester.data.schema import Schema
 from options_portfolio_backtester.engine.algo_adapters import (
     EngineAlgo,
 )
@@ -77,8 +78,8 @@ class _StrategySlot:
     rebalance_unit: str = 'BMS'
     check_exits_daily: bool = False
     name: str = ""
-    inventory: pd.DataFrame = field(default=None, repr=False)
-    rebalance_dates: pd.DatetimeIndex = field(default=None, repr=False)
+    inventory: pd.DataFrame | None = field(default=None, repr=False)
+    rebalance_dates: pd.DatetimeIndex | None = field(default=None, repr=False)
 
 
 class BacktestEngine:
@@ -170,9 +171,9 @@ class BacktestEngine:
         self.balance: pd.DataFrame | None = None
         self.trade_log: pd.DataFrame | None = None
         self.current_cash: float = 0.0
-        self._portfolio = None
-        self._stocks_schema = None
-        self._options_schema = None
+        self._portfolio: Portfolio | None = None
+        self._stocks_schema: Schema | None = None
+        self._options_schema: Schema | None = None
         self._strategy_slots: list[_StrategySlot] = []
         self._options_inventory: pd.DataFrame | None = None
         self._stocks_inventory: pd.DataFrame | None = None
@@ -315,6 +316,34 @@ class BacktestEngine:
         self._options_schema = data.schema
         self._options_data = data
 
+    # Non-optional views of the inputs, for code that runs after they are set.
+
+    @property
+    def _odata(self) -> HistoricalOptionsData:
+        if self._options_data is None or self._options_schema is None:
+            raise ValueError("options_data is not set")
+        return self._options_data
+
+    @property
+    def _sdata(self) -> TiingoData:
+        if self._stocks_data is None or self._stocks_schema is None:
+            raise ValueError("stocks_data is not set")
+        return self._stocks_data
+
+    @property
+    def _oschema(self) -> Schema:
+        return self._odata.schema
+
+    @property
+    def _sschema(self) -> Schema:
+        return self._sdata.schema
+
+    @property
+    def _strategy(self) -> Strategy:
+        if self._options_strategy is None:
+            raise ValueError("options_strategy is not set")
+        return self._options_strategy
+
     # -- Multi-strategy API --
 
     def add_strategy(
@@ -336,8 +365,6 @@ class BacktestEngine:
             check_exits_daily: Check exits on non-rebalance days.
             name: Human-readable name (auto-generated if omitted).
         """
-        if not hasattr(self, '_strategy_slots'):
-            self._strategy_slots: list[_StrategySlot] = []
         slot_name = name or f"strategy_{len(self._strategy_slots)}"
         self._strategy_slots.append(_StrategySlot(
             strategy=strategy,
@@ -402,8 +429,8 @@ class BacktestEngine:
         assert self._options_strategy, "Options Strategy not set"
         assert self._options_data.schema == self._options_strategy.schema
 
-        option_dates = self._options_data["date"].unique()
-        stock_dates = self.stocks_data["date"].unique()
+        option_dates = self._odata["date"].unique()
+        stock_dates = self._sdata["date"].unique()
         assert np.array_equal(stock_dates, option_dates)
 
         # Translate algos to Rust-compatible config fields before dispatch.
@@ -489,7 +516,7 @@ class BacktestEngine:
                 # Append range condition to each leg's entry filter as conjunction.
                 col, lo, hi = algo.column, algo.min_val, algo.max_val
                 clause = f"({col} >= {lo}) & ({col} <= {hi})"
-                for leg in self._options_strategy.legs:
+                for leg in self._strategy.legs:
                     existing = leg.entry_filter.query
                     if existing:
                         leg.entry_filter.query = f"({existing}) & ({clause})"
@@ -517,13 +544,13 @@ class BacktestEngine:
             elif isinstance(algo, ExitOnThreshold):
                 import math
                 if not math.isinf(algo.profit_pct):
-                    self._options_strategy.add_exit_thresholds(
+                    self._strategy.add_exit_thresholds(
                         profit_pct=algo.profit_pct,
-                        loss_pct=self._options_strategy.exit_thresholds[1],
+                        loss_pct=self._strategy.exit_thresholds[1],
                     )
                 if not math.isinf(algo.loss_pct):
-                    self._options_strategy.add_exit_thresholds(
-                        profit_pct=self._options_strategy.exit_thresholds[0],
+                    self._strategy.add_exit_thresholds(
+                        profit_pct=self._strategy.exit_thresholds[0],
                         loss_pct=algo.loss_pct,
                     )
             else:
@@ -593,11 +620,11 @@ class BacktestEngine:
         import polars as pl
         import pyarrow as pa
 
-        strategy = self._options_strategy
+        strategy = self._strategy
 
         # Compute rebalance dates for the Rust backtest loop.
         dates_df = (
-            pd.DataFrame(self.options_data._data[["quotedate", "volume"]])
+            pd.DataFrame(self._odata._data[["quotedate", "volume"]])
             .drop_duplicates("quotedate")
             .set_index("quotedate")
         )
@@ -623,8 +650,8 @@ class BacktestEngine:
         else:
             rb_date_ns = []
 
-        opts_date_col = self._options_schema["date"]
-        stocks_date_col = self._stocks_schema["date"]
+        opts_date_col = self._oschema["date"]
+        stocks_date_col = self._sschema["date"]
 
         # Drop columns Rust never accesses to reduce Arrow conversion cost.
         # Keep underlying_last, impliedvol, openinterest — they can appear in
@@ -634,14 +661,14 @@ class BacktestEngine:
         # clear API error. The only safe drops are columns that no filter or
         # selector ever inspects.
         _drop_cols = {"last", "optionalias"}
-        opts_df = self._options_data._data
+        opts_df = self._odata._data
         to_drop = [c for c in _drop_cols if c in opts_df.columns]
         opts_src = opts_df.drop(columns=to_drop) if to_drop else opts_df
 
         # Convert pandas → PyArrow → Polars (avoids intermediate copies).
         opts_pl = pl.from_arrow(pa.Table.from_pandas(opts_src, preserve_index=False))
         stocks_pl = pl.from_arrow(
-            pa.Table.from_pandas(self._stocks_data._data, preserve_index=False)
+            pa.Table.from_pandas(self._sdata._data, preserve_index=False)
         )
 
         leg_configs = []
@@ -696,22 +723,22 @@ class BacktestEngine:
         }
 
         schema_mapping = {
-            "contract": self._options_schema["contract"],
+            "contract": self._oschema["contract"],
             "date": opts_date_col,
             "stocks_date": stocks_date_col,
-            "stocks_symbol": self._stocks_schema["symbol"],
-            "stocks_price": self._stocks_schema["adjClose"],
+            "stocks_symbol": self._sschema["symbol"],
+            "stocks_price": self._sschema["adjClose"],
             # Unadjusted close for option intrinsic value (strikes are raw
             # prices). Falls back to adjClose if the data lacks a raw close.
             "stocks_unadj_price": (
-                self._stocks_schema["close"]
-                if "close" in self._stocks_schema
-                else self._stocks_schema["adjClose"]
+                self._sschema["close"]
+                if "close" in self._sschema
+                else self._sschema["adjClose"]
             ),
-            "underlying": self._options_schema["underlying"],
-            "expiration": self._options_schema["expiration"],
-            "type": self._options_schema["type"],
-            "strike": self._options_schema["strike"],
+            "underlying": self._oschema["underlying"],
+            "expiration": self._oschema["expiration"],
+            "type": self._oschema["type"],
+            "strike": self._oschema["strike"],
         }
 
         balance_pl, trade_log_pl, stats = _ob_rust.run_backtest_py(
@@ -730,7 +757,7 @@ class BacktestEngine:
             self.balance.set_index("date", inplace=True)
 
         # Add initial balance row (day before first rebalance) — matches Python
-        initial_date = self.stocks_data.start_date - pd.Timedelta(1, unit="day")
+        initial_date = self._sdata.start_date - pd.Timedelta(1, unit="day")
         initial_row = pd.DataFrame(
             {"total capital": self.initial_capital, "cash": float(self.initial_capital)},
             index=[initial_date],
@@ -795,25 +822,25 @@ class BacktestEngine:
         import polars as pl
         import pyarrow as pa
 
-        opts_date_col = self._options_schema["date"]
-        stocks_date_col = self._stocks_schema["date"]
+        opts_date_col = self._oschema["date"]
+        stocks_date_col = self._sschema["date"]
 
         # Drop unused columns for Arrow conversion speed. Keep underlying_last,
         # impliedvol, openinterest — see comment in _run_rust for why dropping
         # them silently broke filter columns and selectors.
         _drop_cols = {"last", "optionalias"}
-        opts_df = self._options_data._data
+        opts_df = self._odata._data
         to_drop = [c for c in _drop_cols if c in opts_df.columns]
         opts_src = opts_df.drop(columns=to_drop) if to_drop else opts_df
 
         opts_pl = pl.from_arrow(pa.Table.from_pandas(opts_src, preserve_index=False))
         stocks_pl = pl.from_arrow(
-            pa.Table.from_pandas(self._stocks_data._data, preserve_index=False)
+            pa.Table.from_pandas(self._sdata._data, preserve_index=False)
         )
 
         # Compute per-slot rebalance dates
         dates_df = (
-            pd.DataFrame(self.options_data._data[["quotedate", "volume"]])
+            pd.DataFrame(self._odata._data[["quotedate", "volume"]])
             .drop_duplicates("quotedate")
             .set_index("quotedate")
         )
@@ -888,22 +915,22 @@ class BacktestEngine:
         }
 
         schema_mapping = {
-            "contract": self._options_schema["contract"],
+            "contract": self._oschema["contract"],
             "date": opts_date_col,
             "stocks_date": stocks_date_col,
-            "stocks_symbol": self._stocks_schema["symbol"],
-            "stocks_price": self._stocks_schema["adjClose"],
+            "stocks_symbol": self._sschema["symbol"],
+            "stocks_price": self._sschema["adjClose"],
             # Unadjusted close for option intrinsic value (strikes are raw
             # prices). Falls back to adjClose if the data lacks a raw close.
             "stocks_unadj_price": (
-                self._stocks_schema["close"]
-                if "close" in self._stocks_schema
-                else self._stocks_schema["adjClose"]
+                self._sschema["close"]
+                if "close" in self._sschema
+                else self._sschema["adjClose"]
             ),
-            "underlying": self._options_schema["underlying"],
-            "expiration": self._options_schema["expiration"],
-            "type": self._options_schema["type"],
-            "strike": self._options_schema["strike"],
+            "underlying": self._oschema["underlying"],
+            "expiration": self._oschema["expiration"],
+            "type": self._oschema["type"],
+            "strike": self._oschema["strike"],
         }
 
         balance_pl, trade_log_pl, stats = _ob_rust.run_multi_strategy_py(
@@ -922,7 +949,7 @@ class BacktestEngine:
             self.balance.set_index("date", inplace=True)
 
         # Add initial balance row
-        initial_date = self.stocks_data.start_date - pd.Timedelta(1, unit="day")
+        initial_date = self._sdata.start_date - pd.Timedelta(1, unit="day")
         initial_row = pd.DataFrame(
             {"total capital": self.initial_capital, "cash": float(self.initial_capital)},
             index=[initial_date],
@@ -983,6 +1010,7 @@ class BacktestEngine:
             sma_days=sma_days,
         )
         self.run_metadata = metadata
+        assert self.balance is not None and self.trade_log is not None
         self.balance.attrs["run_metadata"] = metadata
         self.trade_log.attrs["run_metadata"] = metadata
 
@@ -1016,17 +1044,17 @@ class BacktestEngine:
         }
 
     def _data_snapshot(self) -> dict[str, Any]:
-        options_dates = self._options_data["date"]
-        stocks_dates = self._stocks_data["date"]
+        options_dates = self._odata["date"]
+        stocks_dates = self._sdata["date"]
         return {
-            "options_rows": int(len(self._options_data._data)),
-            "stocks_rows": int(len(self._stocks_data._data)),
+            "options_rows": int(len(self._odata._data)),
+            "stocks_rows": int(len(self._sdata._data)),
             "options_date_start": pd.Timestamp(options_dates.min()).isoformat(),
             "options_date_end": pd.Timestamp(options_dates.max()).isoformat(),
             "stocks_date_start": pd.Timestamp(stocks_dates.min()).isoformat(),
             "stocks_date_end": pd.Timestamp(stocks_dates.max()).isoformat(),
-            "options_columns": list(self._options_data._data.columns),
-            "stocks_columns": list(self._stocks_data._data.columns),
+            "options_columns": list(self._odata._data.columns),
+            "stocks_columns": list(self._sdata._data.columns),
         }
 
     @staticmethod
@@ -1068,15 +1096,15 @@ class BacktestEngine:
     def _initialize_inventories(self) -> None:
         columns = pd.MultiIndex.from_product(
             [
-                [leg.name for leg in self._options_strategy.legs],
+                [leg.name for leg in self._strategy.legs],
                 ["contract", "underlying", "expiration", "type", "strike", "cost", "order"],
             ]
         )
         totals = pd.MultiIndex.from_product([["totals"], ["cost", "qty", "date"]])
-        self._options_inventory: pd.DataFrame = pd.DataFrame(
+        self._options_inventory = pd.DataFrame(
             columns=pd.Index(columns.tolist() + totals.tolist())
         )
-        self._stocks_inventory: pd.DataFrame = pd.DataFrame(
+        self._stocks_inventory = pd.DataFrame(
             columns=["symbol", "price", "qty"]
         )
         # Portfolio dataclass — dual-write alongside legacy DataFrames

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
+from typing import Any
 
 import pandas as pd
 
@@ -31,6 +32,13 @@ class SignalSelector(ABC):
             A single row (pd.Series) from candidates.
         """
         ...
+
+    def to_rust_config(self) -> dict[str, Any]:
+        """This model's configuration for the Rust engine. Custom models
+        must implement it: the engine runs entirely in Rust."""
+        raise NotImplementedError(
+            f"{type(self).__name__} has no Rust equivalent; implement to_rust_config()")
+
 
 
 class FirstMatch(SignalSelector):
