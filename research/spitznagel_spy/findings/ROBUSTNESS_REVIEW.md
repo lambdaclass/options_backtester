@@ -8,10 +8,14 @@ wherever they disagree.
 **Bottom line.** Over SPX 1996–2025, a deep-OTM put overlay does not
 reliably beat buy & hold on return. Scored fairly (averaged over entry
 calendars, full budget actually spent), the best configurations land between
-about −0.1 and +0.25pp/yr versus buy & hold, while cutting crash drawdowns
-substantially (GFC −57% → −42%, COVID −34% → −15% at a 2% budget). The
-earlier "+0.95pp" optimum was an artifact of one entry calendar and one sale
-date. Profit-taking ("sell at k× premium") never helped.
+about −0.1 and +0.25pp/yr versus buy & hold. It reliably cuts fast crashes
+(COVID −34% → −15% at a 2% budget, at every exit date tested); its GFC
+protection is smaller than it first looked (−57% → about −50% at exits 28
+and 32; the −42% at exit 30 rides the 2008-11-20 sale date). Against the
+fair alternative, holding less stock plus T-bills at the same drawdown or
+volatility, the edge is about 0 to +0.2pp/yr (§7). The earlier "+0.95pp"
+optimum was an artifact of one entry calendar and one sale date.
+Profit-taking ("sell at k× premium") never helped.
 
 ## What changed underneath the old numbers
 
@@ -82,8 +86,10 @@ exits 30/45/60, sell at 3×/5×/10× premium or hold; all calendar-averaged.
 ## 3. What the hedge does buy
 
 Crash protection at roughly break-even cost. At 2%/yr, calendar-averaged:
-GFC drawdown −42% vs −57%, COVID −15% vs −34%, Sharpe 0.49 vs 0.44, for
-−0.09pp/yr. That is a risk-reduction result, not a return-enhancement one.
+COVID drawdown −15% vs −34% at every exit date; GFC −42% vs −57% at exit
+30, but about −50% at exits 28 and 32 (§7), for −0.09pp/yr (exit 30). That
+is a risk-reduction result, not a return-enhancement one, and the robust
+part of it is protection against *fast* crashes.
 
 ## 4. Spitznagel-style mechanisms
 
@@ -172,6 +178,50 @@ entirely (−57%, the same as buy & hold). The 2008 trade log shows why
 The only gain is COVID with monetization (−18% → −15%), which is
 too small for the cost. Reinvesting crash payoffs in stock, not in more
 insurance at crisis prices, is what makes the core strategy work.
+
+## 7. Equal-risk test: the hedge vs holding less stock
+
+[`risk_matched.py`](../experiments/risk_matched.py) tests Spitznagel's actual
+claim: not that a hedge beats 100% stocks, but that it reduces risk more
+cheaply than the obvious alternative, holding less stock and more T-bills,
+and so lets you carry more equity (even leverage) for the same risk.
+
+- **Frontier:** unhedged stock weight 0.40–1.50, the rest in T-bills (or
+  borrowed at T-bill + 0.5%), on the same four bi-monthly calendars.
+- **Hedged:** 25–30% OTM, 90–180 DTE puts at 1 / 2 / 3.3%/yr, leverage 1.0–1.5×,
+  exits at DTE 28 / 30 / 32, all financed the same way.
+- **Edge:** hedged CAGR minus the CAGR of the frontier mix with the same mean
+  max drawdown (or the same volatility), interpolated.
+
+Edge in pp/yr, **averaged over exits 28/30/32** (exit 30 alone in brackets):
+
+| leverage | budget | CAGR | max DD | edge at equal max DD | edge at equal vol |
+|---|---|---|---|---|---|
+| 1.0× | 1% | 8.17 | −54.1 | +0.15 [+0.59] | +0.22 [+0.43] |
+| 1.0× | 2% | 7.88 | −53.5 | −0.08 [+0.61] | +0.13 [+0.49] |
+| 1.0× | 3.3% | 7.41 | −54.1 | −0.61 [+0.25] | −0.33 [+0.20] |
+| 1.2× | 1% | 8.98 | −64.2 | +0.01 [+0.38] | +0.21 [+0.42] |
+| 1.2× | 2% | 8.74 | −63.3 | −0.15 [+0.48] | +0.17 [+0.57] |
+| 1.5× | 1% | 9.97 | −76.3 | +0.05 [+0.38] | +0.23 [+0.45] |
+| 1.5× | 2% | 9.83 | −75.0 | +0.01 [+0.67] | +0.28 [+0.73] |
+| buy & hold 1.0× | — | 8.33 | −56.8 | — | — |
+
+- **At equal risk the hedge is roughly a wash.** At 1–2%/yr it beats the
+  matching stock/T-bill mix by about 0 to +0.2pp/yr at equal drawdown and
+  +0.1 to +0.3pp/yr at equal volatility. At 3.3%/yr it loses. The bigger
+  +0.4 to +0.7pp edges exist only at exit 30, the 2008-11-20 sale date.
+- **Leverage does not change the verdict.** Levering a hedged portfolio
+  raises return and drawdown together, and lands on the same place relative
+  to the frontier: at 1.5× and 2% the CAGR is 9.8% with a −75% drawdown,
+  about what 1.45× unhedged stock gives.
+- **The hedge barely lowers the full-period max drawdown** (−54% vs −57% at
+  1×) once the exit-30 luck is averaged out. Most of its risk reduction is in
+  fast crashes (COVID), which show up more in volatility than in max
+  drawdown — hence the slightly better equal-vol edge.
+- **Verdict on the article's thesis:** on SPX 1996–2025, small deep-OTM put
+  overlays are a fair-priced way to cut fast-crash risk, about as good as
+  holding cash and maybe slightly better. They are not the large free lunch
+  the 2008–2024 SPY table showed.
 
 ## Status of earlier findings
 
